@@ -5,9 +5,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/devanshbaghel18/ONUSLY/internal/config"
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/api/idtoken"
+
+	"github.com/devanshbaghel18/ONUSLY/internal/config"
 )
 
 type Service struct {
@@ -23,12 +24,6 @@ func NewService(repo Repository, cfg config.Config) *Service {
 }
 
 func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*GoogleLoginResponse, error) {
-
-	if idTokenString == "" {
-		return nil, errors.New("idToken is required")
-	}
-
-	// Verify the Google ID token
 	payload, err := idtoken.Validate(ctx, idTokenString, s.cfg.GoogleClientID)
 	if err != nil {
 		return nil, errors.New("invalid Google token")
@@ -38,16 +33,28 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 	name, _ := payload.Claims["name"].(string)
 	picture, _ := payload.Claims["picture"].(string)
 
-	user := User{
-		ID:        payload.Subject,
-		Email:     email,
-		Name:      name,
-		Picture:   picture,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	existingUser, err := s.repo.GetUserByEmail(ctx, email)
+	if err != nil {
+		return nil, err
 	}
 
-	// TODO: Check if user exists in DynamoDB.
-	// TODO: Create user if it doesn't exist.
+	var user User
+
+	if existingUser != nil {
+		user = *existingUser
+	} else {
+		user = User{
+			ID:        payload.Subject,
+			Email:     email,
+			Name:      name,
+			Picture:   picture,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+
+		if err := s.repo.CreateUser(ctx, &user); err != nil {
+			return nil, err
+		}
+	}
 
 	claims := jwt.MapClaims{
 		"sub":   user.ID,

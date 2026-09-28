@@ -1,18 +1,14 @@
 package auth
 
 type User struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	Picture   string `json:"picture"`
-	CreatedAt string `json:"createdAt"`
-}
+	PK        string `dynamodbav:"PK" json:"-"`
+	SK        string `dynamodbav:"SK" json:"-"`
+	GSI1PK    string `dynamodbav:"GSI1PK" json:"-"`
+	GSI1SK    string `dynamodbav:"GSI1SK" json:"-"`
 
-type GoogleLoginRequest struct {
-	IDToken string `json:"idToken"`
-}
-
-type GoogleLoginResponse struct {
-	User  User   `json:"user"`
-	Token string `json:"token"`
+	ID        string `dynamodbav:"ID" json:"id"`
+	Email     string `dynamodbav:"Email" json:"email"`
+	Name      string `dynamodbav:"Name" json:"name"`
+	Picture   string `dynamodbav:"Picture" json:"picture"`
+	CreatedAt string `dynamodbav:"CreatedAt" json:"createdAt"`
 }
