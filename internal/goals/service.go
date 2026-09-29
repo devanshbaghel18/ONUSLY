@@ -141,3 +141,31 @@ func (s *Service) Update(
 		status,
 	)
 }
+func (s *Service) UpdateStatus(
+	ctx context.Context,
+	ownerID string,
+	goalID string,
+	status string,
+) (*Goal, error) {
+
+	if ownerID == "" {
+		return nil, errors.New("owner ID is required")
+	}
+
+	if goalID == "" {
+		return nil, errors.New("goal ID is required")
+	}
+
+	status = strings.TrimSpace(status)
+
+	if status == "" {
+		return nil, errors.New("status is required")
+	}
+
+	return s.repo.UpdateStatus(
+		ctx,
+		ownerID,
+		goalID,
+		status,
+	)
+}

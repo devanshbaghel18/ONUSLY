@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/google/uuid"
 )
 
@@ -16,11 +17,15 @@ var (
 )
 
 type Service struct {
-	repo *Repository
+	repo        *Repository
+	goalService *goals.Service
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *Repository, goalService *goals.Service) *Service {
+	return &Service{
+		repo:        repo,
+		goalService: goalService,
+	}
 }
 
 func (s *Service) Submit(
@@ -64,22 +69,37 @@ func (s *Service) Submit(
 		}
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	// Verify that the goal belongs to the authenticated user.
+	_, err := s.goalService.GetByID(ctx, ownerID, goalID)
+	if err != nil {
+		return nil, err
+	}
+
+	proofID := uuid.New().String()
 
 	p := Proof{
 		PK:              "USER#" + ownerID,
-		SK:              "PROOF#" + goalID + "#" + uuid.New().String(),
-		ID:              uuid.New().String(),
+		SK:              "PROOF#" + goalID + "#" + proofID,
+		ID:              proofID,
 		GoalID:          goalID,
 		OwnerID:         ownerID,
 		ProofType:       proofType,
 		TextExplanation: strings.TrimSpace(textExplanation),
 		ExternalLink:    strings.TrimSpace(externalLink),
 		PhotoURL:        strings.TrimSpace(photoURL),
-		SubmittedAt:     now,
+		SubmittedAt:     time.Now().UTC().Format(time.RFC3339),
 	}
 
 	if err := s.repo.Create(ctx, p); err != nil {
+		return nil, err
+	}
+
+	if _, err := s.goalService.UpdateStatus(
+		ctx,
+		ownerID,
+		goalID,
+		"proof_submitted",
+	); err != nil {
 		return nil, err
 	}
 

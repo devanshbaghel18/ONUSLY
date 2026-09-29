@@ -150,3 +150,47 @@ func (r *Repository) Update(
 
 	return &goal, nil
 }
+
+func (r *Repository) UpdateStatus(
+	ctx context.Context,
+	ownerID string,
+	goalID string,
+	status string,
+) (*Goal, error) {
+
+	result, err := r.db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(r.tableName),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{
+				Value: "USER#" + ownerID,
+			},
+			"SK": &types.AttributeValueMemberS{
+				Value: "GOAL#" + goalID,
+			},
+		},
+		UpdateExpression: aws.String(
+			"SET #status = :status",
+		),
+		ExpressionAttributeNames: map[string]string{
+			"#status": "Status",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":status": &types.AttributeValueMemberS{
+				Value: status,
+			},
+		},
+		ReturnValues: types.ReturnValueAllNew,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	var goal Goal
+
+	if err := attributevalue.UnmarshalMap(result.Attributes, &goal); err != nil {
+		return nil, err
+	}
+
+	return &goal, nil
+}

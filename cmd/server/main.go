@@ -9,6 +9,7 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
+	"github.com/devanshbaghel18/ONUSLY/internal/proof"
 	"github.com/devanshbaghel18/ONUSLY/internal/shared"
 )
 
@@ -52,6 +53,9 @@ func main() {
 	goalRepo := goals.NewRepository(db, "Onusly")
 	goalService := goals.NewService(goalRepo)
 	goalHandler := goals.NewHandler(goalService)
+	proofRepo := proof.NewRepository(db, "Onusly")
+	proofService := proof.NewService(proofRepo, goalService)
+	proofHandler := proof.NewHandler(proofService)
 
 	// Protected Goals routes
 	goalRoutes := http.NewServeMux()
@@ -61,7 +65,9 @@ func main() {
 	goalRoutes.HandleFunc("GET /goals/{id}", goalHandler.GetByID)
 	goalRoutes.HandleFunc("DELETE /goals/{id}", goalHandler.Delete)
 	goalRoutes.HandleFunc("PATCH /goals/{id}", goalHandler.Update)
-
+	goalRoutes.HandleFunc("POST /goals/{id}/proofs", proofHandler.Submit)
+	goalRoutes.HandleFunc("GET /goals/{id}/proofs", proofHandler.ListByGoal)
+	goalRoutes.HandleFunc("GET /goals/{id}/proofs/{proofId}", proofHandler.GetByID)
 	protectedGoals := middleware.Auth(cfg.JWTSecret)(goalRoutes)
 
 	mux.Handle("/goals", protectedGoals)
