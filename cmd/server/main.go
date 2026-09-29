@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/devanshbaghel18/ONUSLY/internal/approval"
 	"github.com/devanshbaghel18/ONUSLY/internal/auth"
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
@@ -23,9 +24,18 @@ func health(w http.ResponseWriter, r *http.Request) {
 
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5174")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+		w.Header().Set(
+			"Access-Control-Allow-Origin",
+			"http://localhost:5174",
+		)
+		w.Header().Set(
+			"Access-Control-Allow-Headers",
+			"Content-Type, Authorization",
+		)
+		w.Header().Set(
+			"Access-Control-Allow-Methods",
+			"GET, POST, PATCH, DELETE, OPTIONS",
+		)
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
@@ -37,7 +47,6 @@ func cors(next http.Handler) http.Handler {
 }
 
 func main() {
-
 	cfg := config.Load()
 
 	mux := http.NewServeMux()
@@ -49,25 +58,90 @@ func main() {
 	// DynamoDB
 	db := shared.NewDynamoClient()
 
+	// Auth repository
+	authRepo := auth.NewRepository()
+
 	// Goals
 	goalRepo := goals.NewRepository(db, "Onusly")
-	goalService := goals.NewService(goalRepo)
+	goalService := goals.NewService(goalRepo, authRepo)
 	goalHandler := goals.NewHandler(goalService)
+
+	// Proof
 	proofRepo := proof.NewRepository(db, "Onusly")
 	proofService := proof.NewService(proofRepo, goalService)
 	proofHandler := proof.NewHandler(proofService)
 
-	// Protected Goals routes
+	// Approval
+	approvalRepo := approval.NewRepository(db, "Onusly")
+	approvalService := approval.NewService(
+		approvalRepo,
+		goalService,
+		proofService,
+	)
+	approvalHandler := approval.NewHandler(approvalService)
+
+	// Protected routes
 	goalRoutes := http.NewServeMux()
 
-	goalRoutes.HandleFunc("POST /goals", goalHandler.Create)
-	goalRoutes.HandleFunc("GET /goals", goalHandler.List)
-	goalRoutes.HandleFunc("GET /goals/{id}", goalHandler.GetByID)
-	goalRoutes.HandleFunc("DELETE /goals/{id}", goalHandler.Delete)
-	goalRoutes.HandleFunc("PATCH /goals/{id}", goalHandler.Update)
-	goalRoutes.HandleFunc("POST /goals/{id}/proofs", proofHandler.Submit)
-	goalRoutes.HandleFunc("GET /goals/{id}/proofs", proofHandler.ListByGoal)
-	goalRoutes.HandleFunc("GET /goals/{id}/proofs/{proofId}", proofHandler.GetByID)
+	// Goals
+	goalRoutes.HandleFunc(
+		"POST /goals",
+		goalHandler.Create,
+	)
+
+	goalRoutes.HandleFunc(
+		"GET /goals",
+		goalHandler.List,
+	)
+
+	goalRoutes.HandleFunc(
+		"GET /goals/{id}",
+		goalHandler.GetByID,
+	)
+
+	goalRoutes.HandleFunc(
+		"DELETE /goals/{id}",
+		goalHandler.Delete,
+	)
+
+	goalRoutes.HandleFunc(
+		"PATCH /goals/{id}",
+		goalHandler.Update,
+	)
+
+	// Proofs
+	goalRoutes.HandleFunc(
+		"POST /goals/{id}/proofs",
+		proofHandler.Submit,
+	)
+
+	goalRoutes.HandleFunc(
+		"GET /goals/{id}/proofs",
+		proofHandler.ListByGoal,
+	)
+
+	goalRoutes.HandleFunc(
+		"GET /goals/{id}/proofs/{proofId}",
+		proofHandler.GetByID,
+	)
+
+	// Approval
+	goalRoutes.HandleFunc(
+		"POST /goals/{id}/proofs/{proofId}/approval",
+		approvalHandler.Decide,
+	)
+
+	goalRoutes.HandleFunc(
+		"GET /goals/{id}/approvals",
+		approvalHandler.ListByGoal,
+	)
+
+	goalRoutes.HandleFunc(
+		"GET /goals/{id}/approvals/{approvalId}",
+		approvalHandler.GetByID,
+	)
+
+	// JWT authentication for all protected routes
 	protectedGoals := middleware.Auth(cfg.JWTSecret)(goalRoutes)
 
 	mux.Handle("/goals", protectedGoals)
@@ -75,5 +149,10 @@ func main() {
 
 	log.Println("Server running on :8080")
 
-	log.Fatal(http.ListenAndServe(":8080", cors(mux)))
+	log.Fatal(
+		http.ListenAndServe(
+			":8080",
+			cors(mux),
+		),
+	)
 }

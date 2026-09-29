@@ -19,8 +19,9 @@ func NewHandler(service *Service) *Handler {
 }
 
 type createGoalRequest struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	Title         string `json:"title"`
+	Description   string `json:"description"`
+	ApproverEmail string `json:"approverEmail"`
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -42,6 +43,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		userID,
 		req.Title,
 		req.Description,
+		req.ApproverEmail,
 	)
 
 	if err != nil {
@@ -131,7 +133,6 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
-		Status      string `json:"status"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -145,7 +146,6 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		goalID,
 		req.Title,
 		req.Description,
-		req.Status,
 	)
 
 	if err != nil {

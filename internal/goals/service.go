@@ -6,28 +6,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devanshbaghel18/ONUSLY/internal/auth"
 	"github.com/google/uuid"
 )
 
 type Service struct {
-	repo *Repository
+	repo     *Repository
+	authRepo auth.Repository
 }
 
-func NewService(repo *Repository) *Service {
+func NewService(repo *Repository, authRepo auth.Repository) *Service {
 	return &Service{
-		repo: repo,
+		repo:     repo,
+		authRepo: authRepo,
 	}
 }
-
 func (s *Service) Create(
 	ctx context.Context,
 	ownerID string,
 	title string,
 	description string,
+	approverEmail string,
 ) (*Goal, error) {
 
 	title = strings.TrimSpace(title)
 	description = strings.TrimSpace(description)
+	approverEmail = strings.TrimSpace(approverEmail)
 
 	if ownerID == "" {
 		return nil, errors.New("owner ID is required")
@@ -37,6 +41,23 @@ func (s *Service) Create(
 		return nil, errors.New("title is required")
 	}
 
+	if approverEmail == "" {
+		return nil, errors.New("approver email is required")
+	}
+
+	approver, err := s.authRepo.GetUserByEmail(ctx, approverEmail)
+	if err != nil {
+		return nil, errors.New("failed to find approver")
+	}
+
+	if approver == nil {
+		return nil, errors.New("approver not found")
+	}
+
+	if approver.ID == ownerID {
+		return nil, errors.New("you cannot be your own approver")
+	}
+
 	goalID := uuid.NewString()
 
 	goal := Goal{
@@ -44,6 +65,7 @@ func (s *Service) Create(
 		SK:          "GOAL#" + goalID,
 		ID:          goalID,
 		OwnerID:     ownerID,
+		ApproverID:  approver.ID,
 		Title:       title,
 		Description: description,
 		Status:      "active",
@@ -56,7 +78,6 @@ func (s *Service) Create(
 
 	return &goal, nil
 }
-
 func (s *Service) GetByID(
 	ctx context.Context,
 	ownerID string,
@@ -109,7 +130,6 @@ func (s *Service) Update(
 	goalID string,
 	title string,
 	description string,
-	status string,
 ) (*Goal, error) {
 
 	if ownerID == "" {
@@ -122,14 +142,9 @@ func (s *Service) Update(
 
 	title = strings.TrimSpace(title)
 	description = strings.TrimSpace(description)
-	status = strings.TrimSpace(status)
 
 	if title == "" {
 		return nil, errors.New("title is required")
-	}
-
-	if status == "" {
-		return nil, errors.New("status is required")
 	}
 
 	return s.repo.Update(
@@ -138,7 +153,6 @@ func (s *Service) Update(
 		goalID,
 		title,
 		description,
-		status,
 	)
 }
 func (s *Service) UpdateStatus(

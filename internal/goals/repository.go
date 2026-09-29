@@ -107,22 +107,24 @@ func (r *Repository) Update(
 	goalID string,
 	title string,
 	description string,
-	status string,
 ) (*Goal, error) {
 
 	result, err := r.db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(r.tableName),
 		Key: map[string]types.AttributeValue{
-			"PK": &types.AttributeValueMemberS{Value: "USER#" + ownerID},
-			"SK": &types.AttributeValueMemberS{Value: "GOAL#" + goalID},
+			"PK": &types.AttributeValueMemberS{
+				Value: "USER#" + ownerID,
+			},
+			"SK": &types.AttributeValueMemberS{
+				Value: "GOAL#" + goalID,
+			},
 		},
 		UpdateExpression: aws.String(
-			"SET #title = :title, #description = :description, #status = :status",
+			"SET #title = :title, #description = :description",
 		),
 		ExpressionAttributeNames: map[string]string{
 			"#title":       "Title",
 			"#description": "Description",
-			"#status":      "Status",
 		},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":title": &types.AttributeValueMemberS{
@@ -130,9 +132,6 @@ func (r *Repository) Update(
 			},
 			":description": &types.AttributeValueMemberS{
 				Value: description,
-			},
-			":status": &types.AttributeValueMemberS{
-				Value: status,
 			},
 		},
 		ReturnValues: types.ReturnValueAllNew,
@@ -150,7 +149,6 @@ func (r *Repository) Update(
 
 	return &goal, nil
 }
-
 func (r *Repository) UpdateStatus(
 	ctx context.Context,
 	ownerID string,
