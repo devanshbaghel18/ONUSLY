@@ -1,1 +1,101 @@
 @import "tailwindcss";
+
+:root {
+    font-family: Inter, "Segoe UI", sans-serif;
+    line-height: 1.5;
+    font-weight: 400;
+    color: #17130f;
+    background: #f7f0e7;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background: #f7f0e7;
+}
+
+#root {
+    min-height: 100vh;
+}
+
+.hero-grid {
+    background-image:
+        linear-gradient(rgba(23, 19, 15, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23, 19, 15, 0.05) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: radial-gradient(circle at center, black 35%, transparent 100%);
+}
+
+.hero-title {
+    text-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
+}
+
+.hero-accent {
+    background: linear-gradient(135deg, #1d5d41 0%, #4a8a6a 45%, #d8af74 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 10px 30px rgba(29, 93, 65, 0.25);
+}
+
+.floating-orb {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(10px);
+    animation: float 9s ease-in-out infinite;
+}
+
+@keyframes float {
+
+    0%,
+    100% {
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+
+    50% {
+        transform: translate3d(0, -22px, 0) scale(1.08);
+    }
+}
+
+@keyframes fade-up {
+    0% {
+        opacity: 0;
+        transform: translateY(18px);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse-glow {
+
+    0%,
+    100% {
+        opacity: 0.5;
+        transform: scaleX(0.9);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scaleX(1.08);
+    }
+}
+
+.animate-fade-up {
+    animation: fade-up 1.2s ease-out both;
+}
+
+.animate-pulse-glow {
+    animation: pulse-glow 2.8s ease-in-out infinite;
+}
