@@ -43,3 +43,20 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, resp)
 }
+
+func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "missing code", http.StatusBadRequest)
+		return
+	}
+
+	token, err := h.service.HandleCallback(r.Context(), code)
+	if err != nil {
+		http.Error(w, "auth failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// redirect to frontend with token
+	http.Redirect(w, r, "http://localhost:5174/?token="+token, http.StatusFound)
+}

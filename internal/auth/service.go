@@ -7,6 +7,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/api/idtoken"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
 )
@@ -21,6 +23,32 @@ func NewService(repo Repository, cfg config.Config) *Service {
 		repo: repo,
 		cfg:  cfg,
 	}
+}
+
+func (s *Service) HandleCallback(ctx context.Context, code string) (string, error) {
+	conf := &oauth2.Config{
+		ClientID:     s.cfg.GoogleClientID,
+		ClientSecret: s.cfg.GoogleClientSecret,
+		RedirectURL:  "http://localhost:8080/auth/google/callback",
+		Scopes:       []string{"email", "profile"},
+		Endpoint:     google.Endpoint,
+	}
+
+	token, err := conf.Exchange(ctx, code)
+	if err != nil {
+		return "", errors.New("failed to exchange code: " + err.Error())
+	}
+
+	idToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		return "", errors.New("no id_token in response")
+	}
+
+	resp, err := s.GoogleLogin(ctx, idToken)
+	if err != nil {
+		return "", err
+	}
+	return resp.Token, nil
 }
 
 func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*GoogleLoginResponse, error) {
