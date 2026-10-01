@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	GoogleClientID string
-	JWTSecret      string
+	GoogleClientID     string
+	GoogleClientSecret string
+	JWTSecret          string
 }
 
 func Load() Config {
@@ -18,8 +19,9 @@ func Load() Config {
 	_ = godotenv.Load()
 
 	cfg := Config{
-		GoogleClientID: os.Getenv("GOOGLE_CLIENT_ID"),
-		JWTSecret:      os.Getenv("JWT_SECRET"),
+		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		JWTSecret:          os.Getenv("JWT_SECRET"),
 	}
 
 	if cfg.GoogleClientID == "" {

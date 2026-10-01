@@ -14,4 +14,5 @@ func RegisterRoutes(mux *http.ServeMux) {
 	handler := NewHandler(service)
 
 	mux.HandleFunc("POST /auth/google", handler.GoogleLogin)
+	mux.HandleFunc("GET /auth/google/callback", handler.GoogleCallback)
 }
