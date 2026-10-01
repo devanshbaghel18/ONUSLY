@@ -1,7 +1,8 @@
 package auth
 
 type GoogleLoginRequest struct {
-	IDToken string `json:"idToken"`
+	IDToken    string `json:"idToken"`
+	Credential string `json:"credential"`
 }
 
 type GoogleLoginResponse struct {

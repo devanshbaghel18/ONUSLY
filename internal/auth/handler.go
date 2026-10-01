@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 )
 
 type Handler struct {
@@ -33,7 +34,12 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.service.GoogleLogin(r.Context(), req.IDToken)
+	token := req.IDToken
+	if token == "" {
+		token = req.Credential
+	}
+
+	resp, err := h.service.GoogleLogin(r.Context(), token)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error": err.Error(),
@@ -57,6 +63,11 @@ func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:5173"
+	}
+
 	// redirect to frontend with token
-	http.Redirect(w, r, "http://localhost:5174/?token="+token, http.StatusFound)
+	http.Redirect(w, r, frontendURL+"/?token="+token, http.StatusFound)
 }

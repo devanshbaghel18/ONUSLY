@@ -1,30 +1,55 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Login from "./auth/Login";
 import SignUp from "./auth/SignUp";
 import { OnuslyLogo } from "./auth/components";
+import { isAuthenticated, setAuth } from "../lib/auth";
+import { loginWithGoogle } from "../lib/api";
 
 export default function Auth() {
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    // If a valid token exists, redirect directly to /dashboard
+    if (isAuthenticated()) {
+      navigate("/dashboard", { replace: true });
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    if (token) {
+      setAuth(token, null);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      navigate("/dashboard", { replace: true });
+    }
+  }, [navigate]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setNotice("Email sign-in isn't available yet. Please continue with Google.");
   };
 
-  const handleGoogleAuth = () => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    const redirectUri = `${import.meta.env.VITE_API_BASE_URL}/auth/google/callback`;
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      if (!credentialResponse?.credential) {
+        throw new Error("No credential received from Google.");
+      }
+      setNotice("Signing in with Google...");
+      const data = await loginWithGoogle(credentialResponse.credential);
 
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: "code",
-      scope: "email profile",
-      access_type: "offline",
-    });
+      setAuth(data.token, data.user);
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      console.error(err);
+      setNotice(err.message || "Failed to sign in with Google");
+    }
+  };
 
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  const handleGoogleError = () => {
+    setNotice("Google Sign-In failed or was cancelled.");
   };
 
   return (
@@ -94,9 +119,19 @@ export default function Auth() {
 
           {/* DYNAMIC FORM */}
           {isLogin ? (
-            <Login handleSubmit={handleSubmit} handleGoogleAuth={handleGoogleAuth} notice={notice} />
+            <Login
+              handleSubmit={handleSubmit}
+              onGoogleSuccess={handleGoogleSuccess}
+              onGoogleError={handleGoogleError}
+              notice={notice}
+            />
           ) : (
-            <SignUp handleSubmit={handleSubmit} handleGoogleAuth={handleGoogleAuth} notice={notice} />
+            <SignUp
+              handleSubmit={handleSubmit}
+              onGoogleSuccess={handleGoogleSuccess}
+              onGoogleError={handleGoogleError}
+              notice={notice}
+            />
           )}
 
         </div>
