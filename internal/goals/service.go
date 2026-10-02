@@ -26,12 +26,10 @@ func (s *Service) Create(
 	ownerID string,
 	title string,
 	description string,
-	approverEmail string,
 ) (*Goal, error) {
 
 	title = strings.TrimSpace(title)
 	description = strings.TrimSpace(description)
-	approverEmail = strings.TrimSpace(approverEmail)
 
 	if ownerID == "" {
 		return nil, errors.New("owner ID is required")
@@ -41,23 +39,6 @@ func (s *Service) Create(
 		return nil, errors.New("title is required")
 	}
 
-	if approverEmail == "" {
-		return nil, errors.New("approver email is required")
-	}
-
-	approver, err := s.authRepo.GetUserByEmail(ctx, approverEmail)
-	if err != nil {
-		return nil, errors.New("failed to find approver")
-	}
-
-	if approver == nil {
-		return nil, errors.New("approver not found")
-	}
-
-	if approver.ID == ownerID {
-		return nil, errors.New("you cannot be your own approver")
-	}
-
 	goalID := uuid.NewString()
 
 	goal := Goal{
@@ -65,7 +46,7 @@ func (s *Service) Create(
 		SK:          "GOAL#" + goalID,
 		ID:          goalID,
 		OwnerID:     ownerID,
-		ApproverID:  approver.ID,
+		ApproverID:  "", // No longer used
 		Title:       title,
 		Description: description,
 		Status:      "active",

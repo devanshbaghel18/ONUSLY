@@ -26,6 +26,7 @@ export default function Dashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const [newApproverEmail, setNewApproverEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -88,114 +89,117 @@ export default function Dashboard() {
     setSubmitting(true);
     setFormError("");
     try {
-      const created = await createGoal({
-        title: newTitle,
-        description: newDescription,
-      });
+    const created = await createGoal({
+      title: newTitle,
+      description: newDescription,
+      approverEmail: newApproverEmail,
+    });
 
-      setGoals((prev) => [created, ...prev]);
-      setNewTitle("");
-      setNewDescription("");
-      setShowCreateModal(false);
-      setSuccessNotice("Goal created successfully!");
-      setTimeout(() => setSuccessNotice(""), 4000);
-    } catch (err) {
-      console.error("Failed to create goal:", err);
-      setFormError(err.message || "Failed to create goal");
-    } finally {
-      setSubmitting(false);
-    }
-  };
+    setGoals((prev) => [created, ...prev]);
+    setNewTitle("");
+    setNewDescription("");
+    setNewApproverEmail("");
+    setShowCreateModal(false);
+    setSuccessNotice("Goal created successfully!");
+    setTimeout(() => setSuccessNotice(""), 4000);
+  } catch (err) {
+    console.error("Failed to create goal:", err);
+    setFormError(err.message || "Failed to create goal");
+  } finally {
+    setSubmitting(false);
+  }
+};
 
-  // Handle Delete Goal
-  const handleDeleteGoal = async (goalId) => {
-    if (!window.confirm("Are you sure you want to delete this goal?")) {
-      return;
-    }
+// Handle Delete Goal
+const handleDeleteGoal = async (goalId) => {
+  if (!window.confirm("Are you sure you want to delete this goal?")) {
+    return;
+  }
 
-    try {
-      await deleteGoal(goalId);
-      setGoals((prev) => prev.filter((g) => g.id !== goalId));
-      setSuccessNotice("Goal deleted.");
-      setTimeout(() => setSuccessNotice(""), 3000);
-    } catch (err) {
-      console.error("Failed to delete goal:", err);
-      setError(err.message || "Failed to delete goal");
-    }
-  };
+  try {
+    await deleteGoal(goalId);
+    setGoals((prev) => prev.filter((g) => g.id !== goalId));
+    setSuccessNotice("Goal deleted.");
+    setTimeout(() => setSuccessNotice(""), 3000);
+  } catch (err) {
+    console.error("Failed to delete goal:", err);
+    setError(err.message || "Failed to delete goal");
+  }
+};
 
-  const formatDate = (dateString) => {
-    if (!dateString) return "";
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-    } catch {
-      return dateString;
-    }
-  };
+const formatDate = (dateString) => {
+  if (!dateString) return "";
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return dateString;
+  }
+};
 
-  return (
-    <div className="relative min-h-screen overflow-hidden bg-[#292929] text-[#FFFFFF]">
-      {/* Smoky ambient backgrounds */}
-      <div className="pointer-events-none absolute -left-40 -top-40 h-[600px] w-[600px] rounded-full bg-[#616161]/20 blur-[120px]" />
-      <div className="pointer-events-none absolute -right-40 top-[20%] h-[600px] w-[600px] rounded-full bg-[#777777]/10 blur-[130px]" />
-      <div className="pointer-events-none absolute bottom-[-250px] left-[25%] h-[600px] w-[600px] rounded-full bg-[#3A3A3A] blur-[120px]" />
+return (
+  <div className="relative min-h-screen overflow-hidden bg-[#292929] text-[#FFFFFF]">
+    {/* Smoky ambient backgrounds */}
+    <div className="pointer-events-none absolute -left-40 -top-40 h-[600px] w-[600px] rounded-full bg-[#616161]/20 blur-[120px]" />
+    <div className="pointer-events-none absolute -right-40 top-[20%] h-[600px] w-[600px] rounded-full bg-[#777777]/10 blur-[130px]" />
+    <div className="pointer-events-none absolute bottom-[-250px] left-[25%] h-[600px] w-[600px] rounded-full bg-[#3A3A3A] blur-[120px]" />
 
-      {/* Subtle texture grid */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.045]"
-        style={{
-          backgroundImage: "radial-gradient(#ffffff 0.7px, transparent 0.7px)",
-          backgroundSize: "5px 5px",
-        }}
-      />
+    {/* Subtle texture grid */}
+    <div
+      className="pointer-events-none absolute inset-0 opacity-[0.045]"
+      style={{
+        backgroundImage: "radial-gradient(#ffffff 0.7px, transparent 0.7px)",
+        backgroundSize: "5px 5px",
+      }}
+    />
 
-      <div className="relative z-10 flex min-h-screen flex-col">
-        {/* =====================================================
-            TOP NAVIGATION BAR
-        ===================================================== */}
-        <header className="border-b border-[#777777]/50 bg-[#3A3A3A]/70 backdrop-blur-md">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-            {/* Logo / Brand */}
-            <div className="flex items-center gap-3">
-              <span className="text-2xl font-black tracking-wider text-[#FFFFFF] drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
-                ONUSLY
-              </span>
-              <span className="hidden rounded-full border border-[#777777] bg-[#292929] px-2.5 py-0.5 text-[11px] font-semibold tracking-wider text-[#B5B5B5] uppercase sm:inline-block">
-                Dashboard
-              </span>
-            </div>
+    <div className="relative z-10 flex min-h-screen flex-col">
+      {/* =====================================================
+          TOP NAVIGATION BAR
+      ===================================================== */}
+      <header className="border-b border-[#777777]/50 bg-[#3A3A3A]/70 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          {/* Logo / Brand */}
+          <div className="flex items-center gap-3">
+            <a href="/dashboard" className="block">
+              <img
+                src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
+                alt="ONUSLY"
+                className="h-7 w-auto object-contain drop-shadow-lg"
+              />
+            </a>
+            <span className="hidden rounded-full border border-[#777777] bg-[#292929] px-2.5 py-0.5 text-[11px] font-semibold tracking-wider text-[#B5B5B5] uppercase sm:inline-block">
+              Dashboard
+            </span>
+          </div>
 
-            {/* User Profile & Logout */}
-            <div className="flex items-center gap-3 sm:gap-4">
-              {user && (
-                <div className="flex items-center gap-3 rounded-full border border-[#777777]/60 bg-[#292929]/80 py-1.5 pl-2 pr-3.5 shadow-sm">
-                  {user.picture ? (
-                    <img
-                      src={user.picture}
-                      alt={user.name || "User"}
-                      className="h-8 w-8 rounded-full object-cover border border-[#777777]"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#616161] text-xs font-bold text-white">
-                      {(user.name?.[0] || user.email?.[0] || "U").toUpperCase()}
-                    </div>
-                  )}
-                  <div className="hidden flex-col text-left sm:flex">
-                    <span className="text-xs font-semibold text-[#FFFFFF] leading-tight max-w-[140px] truncate">
-                      {user.name || "User"}
-                    </span>
-                    <span className="text-[10px] text-[#B5B5B5] leading-tight max-w-[140px] truncate">
-                      {user.email || ""}
-                    </span>
+          {/* User Profile & Logout */}
+          <div className="flex items-center gap-3 sm:gap-4">
+            {user && (
+              <div className="flex items-center gap-3 rounded-full border border-[#777777]/60 bg-[#292929]/80 py-1.5 pl-2 pr-3.5 shadow-sm">
+                {user.picture ? (
+                  <img
+                    src={user.picture}
+                    alt={user.name || "User"}
+                    className="h-8 w-8 rounded-full object-cover border border-[#777777]"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#616161] text-xs font-bold text-white">
+                    {(user.name?.[0] || user.email?.[0] || "U").toUpperCase()}
                   </div>
+                )}
+                <div className="hidden flex-col text-left sm:flex justify-center h-full">
+                  <span className="text-sm font-semibold text-[#FFFFFF] leading-tight max-w-[140px] truncate">
+                    {user.name || "User"}
+                  </span>
                 </div>
-              )}
+              </div>
+            )}
 
               <button
                 type="button"

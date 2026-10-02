@@ -19,9 +19,8 @@ func NewHandler(service *Service) *Handler {
 }
 
 type createGoalRequest struct {
-	Title         string `json:"title"`
-	Description   string `json:"description"`
-	ApproverEmail string `json:"approverEmail"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +42,6 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		userID,
 		req.Title,
 		req.Description,
-		req.ApproverEmail,
 	)
 
 	if err != nil {
