@@ -106,3 +106,34 @@ export async function updateGoal(
     body: JSON.stringify(payload),
   });
 }
+
+export async function submitProof(goalId, { proofType = "text", textExplanation = "", externalLink = "", photoUrl = "" } = {}) {
+  return request(`/goals/${encodeURIComponent(goalId)}/proofs`, {
+    method: "POST",
+    body: JSON.stringify({
+      proofType,
+      textExplanation,
+      externalLink,
+      photoUrl,
+    }),
+  });
+}
+
+export async function getProofs(goalId) {
+  const data = await request(`/goals/${encodeURIComponent(goalId)}/proofs`, {
+    method: "GET",
+  });
+  return Array.isArray(data) ? data : [];
+}
+
+export async function decideApproval(goalId, proofId, { ownerId, status, comment = "" }) {
+  return request(`/goals/${encodeURIComponent(goalId)}/proofs/${encodeURIComponent(proofId)}/approval`, {
+    method: "POST",
+    body: JSON.stringify({
+      ownerId,
+      status,
+      comment,
+    }),
+  });
+}
+

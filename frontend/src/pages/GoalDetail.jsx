@@ -23,6 +23,8 @@ import {
 import { getUser, clearAuth } from "../lib/auth";
 import { getGoal, updateGoal, deleteGoal } from "../lib/api";
 
+import AppLayout from "../components/AppLayout";
+
 export default function GoalDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -167,7 +169,7 @@ export default function GoalDetail() {
 
     try {
       await deleteGoal(id);
-      navigate("/dashboard");
+      navigate("/goals");
     } catch (err) {
       console.error("Failed to delete goal:", err);
       setError(err.message || "Failed to delete goal");
@@ -191,72 +193,19 @@ export default function GoalDetail() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#292929] text-[#FFFFFF]">
-      {/* Smoky ambient backgrounds */}
-      <div className="pointer-events-none absolute -left-40 -top-40 h-[600px] w-[600px] rounded-full bg-[#616161]/20 blur-[120px]" />
-      <div className="pointer-events-none absolute -right-40 top-[20%] h-[600px] w-[600px] rounded-full bg-[#777777]/10 blur-[130px]" />
-      <div className="pointer-events-none absolute bottom-[-250px] left-[25%] h-[600px] w-[600px] rounded-full bg-[#3A3A3A] blur-[120px]" />
-
-      {/* Subtle texture grid */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.045]"
-        style={{
-          backgroundImage: "radial-gradient(#ffffff 0.7px, transparent 0.7px)",
-          backgroundSize: "5px 5px",
-        }}
-      />
-
-      <div className="relative z-10 flex min-h-screen flex-col">
-        {/* Navigation Bar */}
-        <header className="border-b border-[#777777]/50 bg-[#3A3A3A]/70 backdrop-blur-md">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-4">
-              <Link
-                to="/dashboard"
-                className="group flex items-center gap-2 rounded-xl border border-[#777777] bg-[#292929] px-3.5 py-2 text-xs font-semibold text-[#B5B5B5] transition hover:border-white hover:text-white"
-              >
-                <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" />
-                <span>Dashboard</span>
-              </Link>
-
-              <div className="hidden h-5 w-px bg-[#777777]/50 sm:block" />
-
-              <a href="/dashboard" className="hidden items-center gap-2 sm:flex">
-                <img
-                  src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
-                  alt="ONUSLY"
-                  className="h-6 w-auto object-contain drop-shadow"
-                />
-              </a>
-            </div>
-
-            {/* User Profile */}
-            <div className="flex items-center gap-3">
-              {user && (
-                <div className="flex items-center gap-2.5 rounded-full border border-[#777777]/60 bg-[#292929]/80 py-1.5 pl-2 pr-3 text-xs shadow-sm">
-                  {user.picture ? (
-                    <img
-                      src={user.picture}
-                      alt={user.name || "User"}
-                      className="h-7 w-7 rounded-full object-cover border border-[#777777]"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#616161] text-xs font-bold text-white">
-                      {(user.name?.[0] || user.email?.[0] || "U").toUpperCase()}
-                    </div>
-                  )}
-                  <span className="font-semibold text-white max-w-[120px] truncate hidden sm:inline">
-                    {user.name || "User"}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        </header>
-
-        {/* Main Content Area */}
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
+    <AppLayout>
+      <div className="mx-auto max-w-5xl space-y-6">
+        {/* Navigation Bar back button */}
+        <div className="flex items-center justify-between border-b border-[#777777]/30 pb-4">
+          <Link
+            to="/goals"
+            className="group flex items-center gap-2 rounded-xl border border-[#777777] bg-[#3A3A3A] px-3.5 py-2 text-xs font-semibold text-[#B5B5B5] transition hover:border-white hover:text-white"
+          >
+            <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" />
+            <span>Back to Goals</span>
+          </Link>
+          <span className="text-xs font-semibold text-[#8E8E8E]">Goal ID: {id}</span>
+        </div>
           {/* Notifications */}
           {successNotice && (
             <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/30 px-5 py-3.5 text-sm text-emerald-300 shadow-lg">
@@ -483,20 +432,20 @@ export default function GoalDetail() {
                     onClick={() => setSelectedApprovalType("community")}
                     className={`group relative flex cursor-pointer flex-col justify-between rounded-2xl border p-6 transition-all duration-200 ${
                       selectedApprovalType === "community"
-                        ? "border-emerald-400 bg-[#292929] shadow-[0_0_25px_rgba(52,211,153,0.15)] ring-2 ring-emerald-400/30"
-                        : "border-[#777777]/60 bg-[#292929]/60 hover:border-[#B5B5B5] hover:bg-[#292929]"
+                        ? "border-white bg-[#262626] shadow-sm ring-1 ring-white/30"
+                        : "border-[#333333] bg-[#1A1A1A] hover:border-[#555555]"
                     }`}
                   >
                     <div>
                       <div className="flex items-center justify-between">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#777777] bg-[#3A3A3A] text-white">
-                          <Users size={22} className={selectedApprovalType === "community" ? "text-emerald-400" : "text-[#B5B5B5]"} />
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#444444] bg-[#222222] text-white">
+                          <Users size={22} className="text-white" />
                         </div>
                         <div
                           className={`flex h-6 w-6 items-center justify-center rounded-full border transition-all ${
                             selectedApprovalType === "community"
-                              ? "border-emerald-400 bg-emerald-500 text-black"
-                              : "border-[#777777] bg-transparent"
+                              ? "border-white bg-white text-black"
+                              : "border-[#444444] bg-transparent"
                           }`}
                         >
                           {selectedApprovalType === "community" && <Check size={14} className="stroke-[3]" />}
@@ -506,18 +455,13 @@ export default function GoalDetail() {
                       <h3 className="mt-4 text-base font-bold text-white">
                         Approval via Community
                       </h3>
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#A3A3A3]">
                         Decentralized Peer Review
                       </span>
 
-                      <p className="mt-2.5 text-xs leading-relaxed text-[#B5B5B5]">
-                        Submit your proof to the ONUSLY community pool. Verified fellow goal achievers review your evidence and reach a collective verdict.
+                      <p className="mt-2.5 text-xs leading-relaxed text-[#A3A3A3]">
+                        Submit your proof to your community quorum. Verified fellow members review your evidence and reach a collective verdict.
                       </p>
-                    </div>
-
-                    <div className="mt-5 flex items-center gap-1.5 text-[11px] text-[#777777]">
-                      <Sparkles size={12} className="text-emerald-400" />
-                      <span>Best for public commitments & crowd motivation</span>
                     </div>
                   </div>
 
@@ -526,20 +470,20 @@ export default function GoalDetail() {
                     onClick={() => setSelectedApprovalType("friend")}
                     className={`group relative flex cursor-pointer flex-col justify-between rounded-2xl border p-6 transition-all duration-200 ${
                       selectedApprovalType === "friend"
-                        ? "border-purple-400 bg-[#292929] shadow-[0_0_25px_rgba(192,132,252,0.15)] ring-2 ring-purple-400/30"
-                        : "border-[#777777]/60 bg-[#292929]/60 hover:border-[#B5B5B5] hover:bg-[#292929]"
+                        ? "border-white bg-[#262626] shadow-sm ring-1 ring-white/30"
+                        : "border-[#333333] bg-[#1A1A1A] hover:border-[#555555]"
                     }`}
                   >
                     <div>
                       <div className="flex items-center justify-between">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#777777] bg-[#3A3A3A] text-white">
-                          <UserCheck size={22} className={selectedApprovalType === "friend" ? "text-purple-400" : "text-[#B5B5B5]"} />
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#444444] bg-[#222222] text-white">
+                          <UserCheck size={22} className="text-white" />
                         </div>
                         <div
                           className={`flex h-6 w-6 items-center justify-center rounded-full border transition-all ${
                             selectedApprovalType === "friend"
-                              ? "border-purple-400 bg-purple-500 text-black"
-                              : "border-[#777777] bg-transparent"
+                              ? "border-white bg-white text-black"
+                              : "border-[#444444] bg-transparent"
                           }`}
                         >
                           {selectedApprovalType === "friend" && <Check size={14} className="stroke-[3]" />}
@@ -549,29 +493,24 @@ export default function GoalDetail() {
                       <h3 className="mt-4 text-base font-bold text-white">
                         Approval via Friend
                       </h3>
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-purple-400">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#A3A3A3]">
                         Direct 1-on-1 Accountability Partner
                       </span>
 
-                      <p className="mt-2.5 text-xs leading-relaxed text-[#B5B5B5]">
-                        Assign a trusted friend, gym buddy, or mentor. Only they have the authority to inspect your proof submissions and decide the outcome.
+                      <p className="mt-2.5 text-xs leading-relaxed text-[#A3A3A3]">
+                        Assign a trusted friend or partner. They have the authority to inspect your proof submissions and decide the outcome.
                       </p>
-                    </div>
-
-                    <div className="mt-5 flex items-center gap-1.5 text-[11px] text-[#777777]">
-                      <Sparkles size={12} className="text-purple-400" />
-                      <span>Best for intimate goals & high personal stakes</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Friend Email Input (Animated display when "friend" is selected) */}
                 {selectedApprovalType === "friend" && (
-                  <div className="mt-6 rounded-2xl border border-purple-500/40 bg-[#292929] p-5">
+                  <div className="mt-6 rounded-2xl border border-[#333333] bg-[#1A1A1A] p-5">
                     <label className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-white">
                       <span className="flex items-center gap-1.5">
-                        <Mail size={14} className="text-purple-400" />
-                        Accountability Partner's Email <span className="text-rose-400">*</span>
+                        <Mail size={14} className="text-white" />
+                        Accountability Partner's Email <span className="text-neutral-400">*</span>
                       </span>
                       <span className="text-[11px] font-normal lowercase text-[#B5B5B5]">
                         Friend must sign in to ONUSLY to review
@@ -656,13 +595,8 @@ export default function GoalDetail() {
               </div>
             </div>
           )}
-        </main>
-
-        {/* Footer */}
-        <footer className="mt-auto border-t border-[#777777]/30 py-6 text-center text-[10px] tracking-[0.25em] text-[#777777] uppercase">
-          ONUSLY · FOCUS · CONSISTENCY · GROWTH
-        </footer>
       </div>
-    </div>
+    </AppLayout>
   );
 }
+
