@@ -21,6 +21,7 @@ func NewService(repo *Repository, authRepo auth.Repository) *Service {
 		authRepo: authRepo,
 	}
 }
+
 func (s *Service) Create(
 	ctx context.Context,
 	ownerID string,
@@ -46,7 +47,7 @@ func (s *Service) Create(
 		SK:          "GOAL#" + goalID,
 		ID:          goalID,
 		OwnerID:     ownerID,
-		ApproverID:  "", // No longer used
+		ApproverID:  "",
 		Title:       title,
 		Description: description,
 		Status:      "active",
@@ -59,6 +60,7 @@ func (s *Service) Create(
 
 	return &goal, nil
 }
+
 func (s *Service) GetByID(
 	ctx context.Context,
 	ownerID string,
@@ -109,8 +111,7 @@ func (s *Service) Update(
 	ctx context.Context,
 	ownerID string,
 	goalID string,
-	title string,
-	description string,
+	input UpdateGoalInput,
 ) (*Goal, error) {
 
 	if ownerID == "" {
@@ -121,21 +122,79 @@ func (s *Service) Update(
 		return nil, errors.New("goal ID is required")
 	}
 
-	title = strings.TrimSpace(title)
-	description = strings.TrimSpace(description)
-
-	if title == "" {
-		return nil, errors.New("title is required")
+	// Verify goal exists
+	_, err := s.repo.GetByID(ctx, ownerID, goalID)
+	if err != nil {
+		return nil, err
 	}
+
+	if input.Title != nil {
+		trimmed := strings.TrimSpace(*input.Title)
+		if trimmed == "" {
+			return nil, errors.New("title is required")
+		}
+		input.Title = &trimmed
+	}
+
+	if input.Description != nil {
+		trimmed := strings.TrimSpace(*input.Description)
+		input.Description = &trimmed
+	}
+
+	if input.ApprovalType != nil {
+		appType := strings.ToLower(strings.TrimSpace(*input.ApprovalType))
+		if appType != "" && appType != "community" && appType != "friend" && appType != "none" {
+			return nil, errors.New("approval type must be 'community', 'friend', or 'none'")
+		}
+		if appType == "none" {
+			appType = ""
+		}
+		input.ApprovalType = &appType
+
+		if appType == "community" {
+			comm := "COMMUNITY"
+			empty := ""
+			input.ApproverID = &comm
+			input.ApproverEmail = &empty
+		} else if appType == "friend" {
+			if input.ApproverEmail != nil {
+				email := strings.ToLower(strings.TrimSpace(*input.ApproverEmail))
+				input.ApproverEmail = &email
+				if email != "" {
+					if s.authRepo != nil {
+						friendUser, err := s.authRepo.GetUserByEmail(ctx, email)
+						if err == nil && friendUser != nil {
+							if friendUser.ID == ownerID {
+								return nil, errors.New("you cannot assign yourself as your accountability partner")
+							}
+							input.ApproverID = &friendUser.ID
+						} else {
+							empty := ""
+							input.ApproverID = &empty
+						}
+					}
+				} else {
+					empty := ""
+					input.ApproverID = &empty
+				}
+			}
+		} else if appType == "" {
+			empty := ""
+			input.ApproverEmail = &empty
+			input.ApproverID = &empty
+		}
+	}
+
+	input.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 	return s.repo.Update(
 		ctx,
 		ownerID,
 		goalID,
-		title,
-		description,
+		input,
 	)
 }
+
 func (s *Service) UpdateStatus(
 	ctx context.Context,
 	ownerID string,

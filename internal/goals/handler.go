@@ -80,7 +80,10 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goalID := strings.TrimPrefix(r.URL.Path, "/goals/")
+	goalID := r.PathValue("id")
+	if goalID == "" {
+		goalID = strings.TrimPrefix(r.URL.Path, "/goals/")
+	}
 
 	goal, err := h.service.GetByID(
 		r.Context(),
@@ -105,7 +108,10 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goalID := strings.TrimPrefix(r.URL.Path, "/goals/")
+	goalID := r.PathValue("id")
+	if goalID == "" {
+		goalID = strings.TrimPrefix(r.URL.Path, "/goals/")
+	}
 
 	if err := h.service.Delete(
 		r.Context(),
@@ -126,11 +132,16 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goalID := strings.TrimPrefix(r.URL.Path, "/goals/")
+	goalID := r.PathValue("id")
+	if goalID == "" {
+		goalID = strings.TrimPrefix(r.URL.Path, "/goals/")
+	}
 
 	var req struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
+		Title         *string `json:"title"`
+		Description   *string `json:"description"`
+		ApprovalType  *string `json:"approvalType"`
+		ApproverEmail *string `json:"approverEmail"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -138,12 +149,18 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	input := UpdateGoalInput{
+		Title:         req.Title,
+		Description:   req.Description,
+		ApprovalType:  req.ApprovalType,
+		ApproverEmail: req.ApproverEmail,
+	}
+
 	goal, err := h.service.Update(
 		r.Context(),
 		userID,
 		goalID,
-		req.Title,
-		req.Description,
+		input,
 	)
 
 	if err != nil {

@@ -69,6 +69,12 @@ export async function getGoals() {
   return Array.isArray(data) ? data : [];
 }
 
+export async function getGoal(goalId) {
+  return request(`/goals/${encodeURIComponent(goalId)}`, {
+    method: "GET",
+  });
+}
+
 export async function createGoal({ title, description = "" }) {
   return request("/goals", {
     method: "POST",
@@ -85,10 +91,15 @@ export async function deleteGoal(goalId) {
   });
 }
 
-export async function updateGoal(goalId, { title, description } = {}) {
+export async function updateGoal(
+  goalId,
+  { title, description, approvalType, approverEmail } = {}
+) {
   const payload = {};
   if (title !== undefined) payload.title = title.trim();
   if (description !== undefined) payload.description = description.trim();
+  if (approvalType !== undefined) payload.approvalType = approvalType;
+  if (approverEmail !== undefined) payload.approverEmail = approverEmail.trim();
 
   return request(`/goals/${encodeURIComponent(goalId)}`, {
     method: "PATCH",

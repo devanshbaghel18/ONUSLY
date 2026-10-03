@@ -3,6 +3,8 @@ package goals
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
@@ -105,9 +107,52 @@ func (r *Repository) Update(
 	ctx context.Context,
 	ownerID string,
 	goalID string,
-	title string,
-	description string,
+	input UpdateGoalInput,
 ) (*Goal, error) {
+
+	var setParts []string
+	names := map[string]string{}
+	values := map[string]types.AttributeValue{}
+
+	updatedAt := input.UpdatedAt
+	if updatedAt == "" {
+		updatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	setParts = append(setParts, "#updatedAt = :updatedAt")
+	names["#updatedAt"] = "UpdatedAt"
+	values[":updatedAt"] = &types.AttributeValueMemberS{Value: updatedAt}
+
+	if input.Title != nil {
+		setParts = append(setParts, "#title = :title")
+		names["#title"] = "Title"
+		values[":title"] = &types.AttributeValueMemberS{Value: *input.Title}
+	}
+
+	if input.Description != nil {
+		setParts = append(setParts, "#description = :description")
+		names["#description"] = "Description"
+		values[":description"] = &types.AttributeValueMemberS{Value: *input.Description}
+	}
+
+	if input.ApprovalType != nil {
+		setParts = append(setParts, "#approvalType = :approvalType")
+		names["#approvalType"] = "ApprovalType"
+		values[":approvalType"] = &types.AttributeValueMemberS{Value: *input.ApprovalType}
+	}
+
+	if input.ApproverEmail != nil {
+		setParts = append(setParts, "#approverEmail = :approverEmail")
+		names["#approverEmail"] = "ApproverEmail"
+		values[":approverEmail"] = &types.AttributeValueMemberS{Value: *input.ApproverEmail}
+	}
+
+	if input.ApproverID != nil {
+		setParts = append(setParts, "#approverId = :approverId")
+		names["#approverId"] = "ApproverID"
+		values[":approverId"] = &types.AttributeValueMemberS{Value: *input.ApproverID}
+	}
+
+	updateExpression := "SET " + strings.Join(setParts, ", ")
 
 	result, err := r.db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(r.tableName),
@@ -119,22 +164,10 @@ func (r *Repository) Update(
 				Value: "GOAL#" + goalID,
 			},
 		},
-		UpdateExpression: aws.String(
-			"SET #title = :title, #description = :description",
-		),
-		ExpressionAttributeNames: map[string]string{
-			"#title":       "Title",
-			"#description": "Description",
-		},
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":title": &types.AttributeValueMemberS{
-				Value: title,
-			},
-			":description": &types.AttributeValueMemberS{
-				Value: description,
-			},
-		},
-		ReturnValues: types.ReturnValueAllNew,
+		UpdateExpression:          aws.String(updateExpression),
+		ExpressionAttributeNames:  names,
+		ExpressionAttributeValues: values,
+		ReturnValues:              types.ReturnValueAllNew,
 	})
 
 	if err != nil {
@@ -149,6 +182,7 @@ func (r *Repository) Update(
 
 	return &goal, nil
 }
+
 func (r *Repository) UpdateStatus(
 	ctx context.Context,
 	ownerID string,

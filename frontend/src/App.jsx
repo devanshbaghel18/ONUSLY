@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { useState, useEffect } from 'react';
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
+import GoalDetail from './pages/GoalDetail';
 import ProtectedRoute from './components/ProtectedRoute';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
@@ -38,6 +39,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/goals/:id"
+            element={
+              <ProtectedRoute>
+                <GoalDetail />
               </ProtectedRoute>
             }
           />

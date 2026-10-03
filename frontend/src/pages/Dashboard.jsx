@@ -10,6 +10,9 @@ import {
   CheckCircle2,
   Loader2,
   X,
+  Users,
+  UserCheck,
+  ChevronRight,
 } from "lucide-react";
 import { getUser, clearAuth } from "../lib/auth";
 import { getGoals, createGoal, deleteGoal } from "../lib/api";
@@ -26,7 +29,6 @@ export default function Dashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
-  const [newApproverEmail, setNewApproverEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -89,117 +91,115 @@ export default function Dashboard() {
     setSubmitting(true);
     setFormError("");
     try {
-    const created = await createGoal({
-      title: newTitle,
-      description: newDescription,
-      approverEmail: newApproverEmail,
-    });
+      const created = await createGoal({
+        title: newTitle,
+        description: newDescription,
+      });
 
-    setGoals((prev) => [created, ...prev]);
-    setNewTitle("");
-    setNewDescription("");
-    setNewApproverEmail("");
-    setShowCreateModal(false);
-    setSuccessNotice("Goal created successfully!");
-    setTimeout(() => setSuccessNotice(""), 4000);
-  } catch (err) {
-    console.error("Failed to create goal:", err);
-    setFormError(err.message || "Failed to create goal");
-  } finally {
-    setSubmitting(false);
-  }
-};
+      setGoals((prev) => [created, ...prev]);
+      setNewTitle("");
+      setNewDescription("");
+      setShowCreateModal(false);
+      setSuccessNotice("Goal created successfully! Click on it to set your accountability method.");
+      setTimeout(() => setSuccessNotice(""), 4500);
+    } catch (err) {
+      console.error("Failed to create goal:", err);
+      setFormError(err.message || "Failed to create goal");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-// Handle Delete Goal
-const handleDeleteGoal = async (goalId) => {
-  if (!window.confirm("Are you sure you want to delete this goal?")) {
-    return;
-  }
+  // Handle Delete Goal
+  const handleDeleteGoal = async (goalId) => {
+    if (!window.confirm("Are you sure you want to delete this goal?")) {
+      return;
+    }
 
-  try {
-    await deleteGoal(goalId);
-    setGoals((prev) => prev.filter((g) => g.id !== goalId));
-    setSuccessNotice("Goal deleted.");
-    setTimeout(() => setSuccessNotice(""), 3000);
-  } catch (err) {
-    console.error("Failed to delete goal:", err);
-    setError(err.message || "Failed to delete goal");
-  }
-};
+    try {
+      await deleteGoal(goalId);
+      setGoals((prev) => prev.filter((g) => g.id !== goalId));
+      setSuccessNotice("Goal deleted.");
+      setTimeout(() => setSuccessNotice(""), 3000);
+    } catch (err) {
+      console.error("Failed to delete goal:", err);
+      setError(err.message || "Failed to delete goal");
+    }
+  };
 
-const formatDate = (dateString) => {
-  if (!dateString) return "";
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return dateString;
-  }
-};
+  const formatDate = (dateString) => {
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    } catch {
+      return dateString;
+    }
+  };
 
-return (
-  <div className="relative min-h-screen overflow-hidden bg-[#292929] text-[#FFFFFF]">
-    {/* Smoky ambient backgrounds */}
-    <div className="pointer-events-none absolute -left-40 -top-40 h-[600px] w-[600px] rounded-full bg-[#616161]/20 blur-[120px]" />
-    <div className="pointer-events-none absolute -right-40 top-[20%] h-[600px] w-[600px] rounded-full bg-[#777777]/10 blur-[130px]" />
-    <div className="pointer-events-none absolute bottom-[-250px] left-[25%] h-[600px] w-[600px] rounded-full bg-[#3A3A3A] blur-[120px]" />
+  return (
+    <div className="relative min-h-screen overflow-hidden bg-[#292929] text-[#FFFFFF]">
+      {/* Smoky ambient backgrounds */}
+      <div className="pointer-events-none absolute -left-40 -top-40 h-[600px] w-[600px] rounded-full bg-[#616161]/20 blur-[120px]" />
+      <div className="pointer-events-none absolute -right-40 top-[20%] h-[600px] w-[600px] rounded-full bg-[#777777]/10 blur-[130px]" />
+      <div className="pointer-events-none absolute bottom-[-250px] left-[25%] h-[600px] w-[600px] rounded-full bg-[#3A3A3A] blur-[120px]" />
 
-    {/* Subtle texture grid */}
-    <div
-      className="pointer-events-none absolute inset-0 opacity-[0.045]"
-      style={{
-        backgroundImage: "radial-gradient(#ffffff 0.7px, transparent 0.7px)",
-        backgroundSize: "5px 5px",
-      }}
-    />
+      {/* Subtle texture grid */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.045]"
+        style={{
+          backgroundImage: "radial-gradient(#ffffff 0.7px, transparent 0.7px)",
+          backgroundSize: "5px 5px",
+        }}
+      />
 
-    <div className="relative z-10 flex min-h-screen flex-col">
-      {/* =====================================================
-          TOP NAVIGATION BAR
-      ===================================================== */}
-      <header className="border-b border-[#777777]/50 bg-[#3A3A3A]/70 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          {/* Logo / Brand */}
-          <div className="flex items-center gap-3">
-            <a href="/dashboard" className="block">
-              <img
-                src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
-                alt="ONUSLY"
-                className="h-7 w-auto object-contain drop-shadow-lg"
-              />
-            </a>
-            <span className="hidden rounded-full border border-[#777777] bg-[#292929] px-2.5 py-0.5 text-[11px] font-semibold tracking-wider text-[#B5B5B5] uppercase sm:inline-block">
-              Dashboard
-            </span>
-          </div>
+      <div className="relative z-10 flex min-h-screen flex-col">
+        {/* =====================================================
+            TOP NAVIGATION BAR
+        ===================================================== */}
+        <header className="border-b border-[#777777]/50 bg-[#3A3A3A]/70 backdrop-blur-md">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+            {/* Logo / Brand */}
+            <div className="flex items-center gap-3">
+              <a href="/dashboard" className="block">
+                <img
+                  src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
+                  alt="ONUSLY"
+                  className="h-7 w-auto object-contain drop-shadow-lg"
+                />
+              </a>
+              <span className="hidden rounded-full border border-[#777777] bg-[#292929] px-2.5 py-0.5 text-[11px] font-semibold tracking-wider text-[#B5B5B5] uppercase sm:inline-block">
+                Dashboard
+              </span>
+            </div>
 
-          {/* User Profile & Logout */}
-          <div className="flex items-center gap-3 sm:gap-4">
-            {user && (
-              <div className="flex items-center gap-3 rounded-full border border-[#777777]/60 bg-[#292929]/80 py-1.5 pl-2 pr-3.5 shadow-sm">
-                {user.picture ? (
-                  <img
-                    src={user.picture}
-                    alt={user.name || "User"}
-                    className="h-8 w-8 rounded-full object-cover border border-[#777777]"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#616161] text-xs font-bold text-white">
-                    {(user.name?.[0] || user.email?.[0] || "U").toUpperCase()}
+            {/* User Profile & Logout */}
+            <div className="flex items-center gap-3 sm:gap-4">
+              {user && (
+                <div className="flex items-center gap-3 rounded-full border border-[#777777]/60 bg-[#292929]/80 py-1.5 pl-2 pr-3.5 shadow-sm">
+                  {user.picture ? (
+                    <img
+                      src={user.picture}
+                      alt={user.name || "User"}
+                      className="h-8 w-8 rounded-full object-cover border border-[#777777]"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#616161] text-xs font-bold text-white">
+                      {(user.name?.[0] || user.email?.[0] || "U").toUpperCase()}
+                    </div>
+                  )}
+                  <div className="hidden flex-col text-left sm:flex justify-center h-full">
+                    <span className="text-sm font-semibold text-[#FFFFFF] leading-tight max-w-[140px] truncate">
+                      {user.name || "User"}
+                    </span>
                   </div>
-                )}
-                <div className="hidden flex-col text-left sm:flex justify-center h-full">
-                  <span className="text-sm font-semibold text-[#FFFFFF] leading-tight max-w-[140px] truncate">
-                    {user.name || "User"}
-                  </span>
                 </div>
-              </div>
-            )}
+              )}
 
               <button
                 type="button"
@@ -226,7 +226,7 @@ return (
                   Welcome back, {user?.name?.split(" ")?.[0] || "Goal Achiever"} 👋
                 </h1>
                 <p className="mt-1 text-sm text-[#B5B5B5]">
-                  Stay disciplined. Hold yourself accountable and conquer your targets.
+                  Stay disciplined. Select any goal below to configure verification and edit details.
                 </p>
               </div>
 
@@ -283,7 +283,10 @@ return (
 
           {/* Goals Header */}
           <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-xl font-bold tracking-tight text-[#FFFFFF]">Your Goals</h2>
+            <div>
+              <h2 className="text-xl font-bold tracking-tight text-[#FFFFFF]">Your Goals</h2>
+              <p className="text-xs text-[#B5B5B5] mt-0.5">Click any goal to view details, edit, or configure verification</p>
+            </div>
             {!loading && goals.length > 0 && (
               <span className="text-xs text-[#B5B5B5]">
                 Showing {goals.length} {goals.length === 1 ? "goal" : "goals"}
@@ -298,7 +301,7 @@ return (
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="h-44 animate-pulse rounded-2xl border border-[#777777]/30 bg-[#3A3A3A]/50 p-6"
+                  className="h-48 animate-pulse rounded-2xl border border-[#777777]/30 bg-[#3A3A3A]/50 p-6"
                 />
               ))}
             </div>
@@ -327,17 +330,38 @@ return (
               {goals.map((goal) => (
                 <div
                   key={goal.id}
-                  className="group flex flex-col justify-between rounded-2xl border border-[#777777] bg-[#3A3A3A] p-6 shadow-md transition-all duration-200 hover:-translate-y-1 hover:border-[#B5B5B5] hover:shadow-[0_15px_30px_rgba(0,0,0,0.35)]"
+                  onClick={() => navigate(`/goals/${goal.id}`)}
+                  className="group relative flex cursor-pointer flex-col justify-between rounded-2xl border border-[#777777] bg-[#3A3A3A] p-6 shadow-md transition-all duration-200 hover:-translate-y-1 hover:border-white hover:shadow-[0_15px_30px_rgba(0,0,0,0.35)]"
                 >
                   <div>
-                    {/* Status & Actions Header */}
+                    {/* Status & Accountability Badges Header */}
                     <div className="flex items-center justify-between gap-2">
-                      <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300 uppercase tracking-wider">
-                        {goal.status || "active"}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300 uppercase tracking-wider">
+                          {goal.status || "active"}
+                        </span>
+
+                        {goal.approvalType === "community" ? (
+                          <span className="flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300">
+                            <Users size={11} /> Community
+                          </span>
+                        ) : goal.approvalType === "friend" ? (
+                          <span className="flex items-center gap-1 rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-300">
+                            <UserCheck size={11} /> Partner
+                          </span>
+                        ) : (
+                          <span className="rounded-full border border-[#777777]/50 bg-[#292929] px-2 py-0.5 text-[10px] font-medium text-[#B5B5B5]">
+                            No partner
+                          </span>
+                        )}
+                      </div>
+
                       <button
                         type="button"
-                        onClick={() => handleDeleteGoal(goal.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteGoal(goal.id);
+                        }}
                         className="rounded-lg p-1.5 text-[#B5B5B5] opacity-80 transition hover:bg-rose-500/20 hover:text-rose-400 group-hover:opacity-100"
                         title="Delete Goal"
                       >
@@ -346,22 +370,33 @@ return (
                     </div>
 
                     {/* Goal Title */}
-                    <h3 className="mt-3 text-lg font-bold tracking-tight text-[#FFFFFF] line-clamp-2">
+                    <h3 className="mt-3 text-lg font-bold tracking-tight text-[#FFFFFF] line-clamp-2 transition-colors group-hover:text-emerald-300">
                       {goal.title}
                     </h3>
 
                     {/* Goal Description */}
-                    {goal.description && (
+                    {goal.description ? (
                       <p className="mt-2 text-sm text-[#B5B5B5] line-clamp-3">
                         {goal.description}
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-xs italic text-[#777777]">
+                        Click to configure accountability & details
                       </p>
                     )}
                   </div>
 
-                  {/* Goal Footer / Date */}
-                  <div className="mt-5 flex items-center gap-2 border-t border-[#777777]/30 pt-4 text-xs text-[#B5B5B5]">
-                    <Calendar size={13} />
-                    <span>Created {formatDate(goal.createdAt)}</span>
+                  {/* Goal Footer / Date & Navigation CTA */}
+                  <div className="mt-5 flex items-center justify-between border-t border-[#777777]/30 pt-4 text-xs text-[#B5B5B5]">
+                    <span className="flex items-center gap-1.5">
+                      <Calendar size={13} />
+                      <span>{formatDate(goal.createdAt)}</span>
+                    </span>
+
+                    <span className="flex items-center gap-1 font-semibold text-white transition-transform group-hover:translate-x-1">
+                      <span>Manage</span>
+                      <ChevronRight size={14} />
+                    </span>
                   </div>
                 </div>
               ))}
@@ -376,7 +411,7 @@ return (
       </div>
 
       {/* =====================================================
-          CREATE GOAL MODAL
+          CREATE GOAL MODAL (Simple: Title & Description only)
       ===================================================== */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -432,6 +467,10 @@ return (
                   rows={3}
                   className="w-full resize-none rounded-xl border border-[#777777] bg-[#4A4A4A] px-4 py-3 text-sm text-[#FFFFFF] placeholder:text-[#B5B5B5] outline-none transition focus:border-white focus:ring-2 focus:ring-white/10"
                 />
+              </div>
+
+              <div className="rounded-xl border border-[#777777]/40 bg-[#292929]/50 p-3 text-xs text-[#B5B5B5]">
+                💡 You can choose your accountability partner (Community vs. Friend) on the Goal Detail page right after creation!
               </div>
 
               <div className="mt-6 flex items-center justify-end gap-3 pt-3">
