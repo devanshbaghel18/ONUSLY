@@ -1,0 +1,492 @@
+openapi: 3.0.3
+info:
+  title: ONUSLY API
+  description: Accountability and single-approver goal-verification REST API for Phase 1.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns service availability status.
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /auth/google:
+    post:
+      summary: Authenticate with Google
+      description: Exchanges a Google ID Token / credential for an ONUSLY JWT token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                idToken:
+                  type: string
+                credential:
+                  type: string
+      responses:
+        '200':
+          description: Successful authentication.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    example: eyJhbGciOi...
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid request body.
+        '401':
+          description: Invalid Google token.
+
+  /goals:
+    post:
+      summary: Create a new goal
+      security:
+        - BearerAuth: []
+      description: Creates an active goal belonging to the authenticated user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+              properties:
+                title:
+                  type: string
+                  example: Complete Chapter 4
+                description:
+                  type: string
+                  example: Read and solve exercises
+      responses:
+        '201':
+          description: Goal created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+        '400':
+          description: Title is required or request body is invalid.
+        '401':
+          description: Missing or invalid JWT.
+
+    get:
+      summary: List user goals
+      security:
+        - BearerAuth: []
+      description: Returns all goals owned by the authenticated caller.
+      responses:
+        '200':
+          description: List of goals.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Goal'
+        '401':
+          description: Missing or invalid JWT.
+
+  /goals/{id}:
+    get:
+      summary: Get goal by ID
+      security:
+        - BearerAuth: []
+      description: Returns a specific goal owned by the authenticated caller.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Goal retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+        '401':
+          description: Missing or invalid JWT.
+        '404':
+          description: Goal not found or belongs to another user.
+
+    patch:
+      summary: Update goal details or accountability
+      security:
+        - BearerAuth: []
+      description: |
+        Updates goal title, description, or accountability settings.
+        Protected fields (status, ownerId, approverId) cannot be directly manipulated.
+        Accountability settings can only be altered when the goal is active.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                approvalType:
+                  type: string
+                  enum: [community, friend, none]
+                approverEmail:
+                  type: string
+      responses:
+        '200':
+          description: Goal updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Goal'
+        '400':
+          description: Validation error (e.g. self-assigned partner, invalid approval type, or goal not active).
+        '401':
+          description: Missing or invalid JWT.
+        '404':
+          description: Goal not found.
+
+    delete:
+      summary: Delete goal
+      security:
+        - BearerAuth: []
+      description: Deletes a goal owned by the authenticated caller.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Goal deleted.
+        '401':
+          description: Missing or invalid JWT.
+
+  /goals/{id}/proofs:
+    post:
+      summary: Submit proof for an active goal
+      security:
+        - BearerAuth: []
+      description: |
+        Submits proof and atomically transitions the goal from active to proof_submitted.
+        DynamoDB conditional transactions prevent duplicate submissions or submissions against non-active goals.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - proofType
+              properties:
+                proofType:
+                  type: string
+                  enum: [text, link, photo]
+                textExplanation:
+                  type: string
+                externalLink:
+                  type: string
+                photoUrl:
+                  type: string
+      responses:
+        '201':
+          description: Proof submitted and goal transitioned to proof_submitted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proof'
+        '400':
+          description: Invalid proof type or missing required evidence fields.
+        '401':
+          description: Missing or invalid JWT.
+        '404':
+          description: Goal not found.
+        '409':
+          description: Proof has already been submitted or goal is not active.
+
+    get:
+      summary: List proofs for a goal
+      security:
+        - BearerAuth: []
+      description: Returns all proof records submitted for the specified goal.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of proofs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Proof'
+        '401':
+          description: Missing or invalid JWT.
+
+  /goals/{id}/proofs/{proofId}:
+    get:
+      summary: Get proof by ID
+      security:
+        - BearerAuth: []
+      description: Returns a specific proof by ID.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: proofId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Proof retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proof'
+        '401':
+          description: Missing or invalid JWT.
+        '404':
+          description: Proof not found.
+
+  /goals/{id}/proofs/{proofId}/approval:
+    post:
+      summary: Decide on submitted proof
+      security:
+        - BearerAuth: []
+      description: |
+        Assigned approver submits a decision ("approved" or "rejected").
+        Atomically records the approval and transitions the goal:
+        - approved -> completed
+        - rejected -> active
+        Protected by DynamoDB conditional transactions ensuring only goals in proof_submitted can be decided.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: proofId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ownerId
+                - status
+              properties:
+                ownerId:
+                  type: string
+                  description: User ID of the goal owner.
+                status:
+                  type: string
+                  enum: [approved, rejected]
+                comment:
+                  type: string
+      responses:
+        '201':
+          description: Approval decision recorded and goal status transitioned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Approval'
+        '400':
+          description: Invalid decision status or mismatched proof.
+        '401':
+          description: Missing or invalid JWT.
+        '403':
+          description: Forbidden (authenticated user is not the assigned approver, or owner attempted self-approval).
+        '404':
+          description: Goal or proof not found.
+        '409':
+          description: Proof has already been decided or goal is not in proof_submitted state.
+
+  /goals/{id}/approvals:
+    get:
+      summary: List approvals for a goal
+      security:
+        - BearerAuth: []
+      description: Returns decision records for the goal.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of approval decisions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Approval'
+        '401':
+          description: Missing or invalid JWT.
+
+  /goals/{id}/approvals/{approvalId}:
+    get:
+      summary: Get approval decision by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: approvalId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Approval decision retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Approval'
+        '401':
+          description: Missing or invalid JWT.
+        '404':
+          description: Approval not found.
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        picture:
+          type: string
+        createdAt:
+          type: string
+
+    Goal:
+      type: object
+      properties:
+        id:
+          type: string
+        ownerId:
+          type: string
+        approverId:
+          type: string
+        approverEmail:
+          type: string
+        approvalType:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [active, proof_submitted, completed]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    Proof:
+      type: object
+      properties:
+        id:
+          type: string
+        goalId:
+          type: string
+        ownerId:
+          type: string
+        proofType:
+          type: string
+          enum: [text, link, photo]
+        textExplanation:
+          type: string
+        externalLink:
+          type: string
+        photoUrl:
+          type: string
+        submittedAt:
+          type: string
+
+    Approval:
+      type: object
+      properties:
+        id:
+          type: string
+        goalId:
+          type: string
+        proofId:
+          type: string
+        ownerId:
+          type: string
+        approverId:
+          type: string
+        status:
+          type: string
+          enum: [approved, rejected]
+        comment:
+          type: string
+        decidedAt:
+          type: string

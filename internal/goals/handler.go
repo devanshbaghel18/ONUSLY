@@ -164,6 +164,10 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

@@ -11,10 +11,6 @@ import {
   Users,
   UserCheck,
   Link2,
-  Image,
-  Paperclip,
-  ArrowRight,
-  ExternalLink,
 } from "lucide-react";
 import { getGoals, submitProof, updateGoal } from "../lib/api";
 import { getStoredCommunities } from "../lib/communities";

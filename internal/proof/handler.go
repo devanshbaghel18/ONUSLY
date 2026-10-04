@@ -2,6 +2,7 @@ package proof
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -32,7 +33,10 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goalID := extractGoalID(r.URL.Path)
+	goalID := r.PathValue("id")
+	if goalID == "" {
+		goalID = extractGoalID(r.URL.Path)
+	}
 
 	var req submitProofRequest
 
@@ -52,6 +56,18 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		if errors.Is(err, ErrProofAlreadySubmitted) || errors.Is(err, ErrGoalNotActive) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if errors.Is(err, ErrGoalNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, ErrInvalidProofType) || errors.Is(err, ErrInvalidProof) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -69,7 +85,10 @@ func (h *Handler) ListByGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goalID := extractGoalID(r.URL.Path)
+	goalID := r.PathValue("id")
+	if goalID == "" {
+		goalID = extractGoalID(r.URL.Path)
+	}
 
 	proofs, err := h.service.ListByGoal(
 		r.Context(),
@@ -94,7 +113,17 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goalID, proofID := extractGoalAndProofID(r.URL.Path)
+	goalID := r.PathValue("id")
+	proofID := r.PathValue("proofId")
+	if goalID == "" || proofID == "" {
+		g, p := extractGoalAndProofID(r.URL.Path)
+		if goalID == "" {
+			goalID = g
+		}
+		if proofID == "" {
+			proofID = p
+		}
+	}
 
 	proof, err := h.service.GetByID(
 		r.Context(),

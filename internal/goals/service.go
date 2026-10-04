@@ -123,9 +123,13 @@ func (s *Service) Update(
 	}
 
 	// Verify goal exists
-	_, err := s.repo.GetByID(ctx, ownerID, goalID)
+	goal, err := s.repo.GetByID(ctx, ownerID, goalID)
 	if err != nil {
 		return nil, err
+	}
+
+	if (input.ApprovalType != nil || input.ApproverEmail != nil) && goal.Status != "active" {
+		return nil, errors.New("cannot modify accountability settings on a goal that is not active")
 	}
 
 	if input.Title != nil {

@@ -6,15 +6,10 @@ import {
   Plus,
   ArrowLeft,
   Copy,
-  CheckCircle2,
   X,
   MessageSquare,
   Send,
   UserPlus,
-  Shield,
-  Clock,
-  Sparkles,
-  Paperclip,
 } from "lucide-react";
 import {
   getStoredCommunities,
@@ -38,7 +33,7 @@ export default function Communities() {
   // COMMUNITIES STATE
   // ==========================================
   const [communities, setCommunities] = useState(() => getStoredCommunities());
-  const [communityTab, setCommunityTab] = useState("all"); // 'all' | 'my' | 'discover'
+  const communityTab = "all"; // 'all' | 'my' | 'discover'
   const [searchQuery, setSearchQuery] = useState("");
   const [privateCode, setPrivateCode] = useState("");
   const [codeNotice, setCodeNotice] = useState({ error: "", success: "" });
@@ -58,9 +53,19 @@ export default function Communities() {
   // ==========================================
   const [friends, setFriends] = useState(() => getStoredFriends());
   const [friendSearch, setFriendSearch] = useState("");
-  const [activeFriendId, setActiveFriendId] = useState(null);
-  const [chatMessages, setChatMessages] = useState([]);
+  const [activeFriendId, setActiveFriendId] = useState(() =>
+    getStoredFriends().length > 0 ? getStoredFriends()[0].id : null
+  );
+  const [chatMessages, setChatMessages] = useState(() => {
+    const stored = getStoredFriends();
+    return stored.length > 0 ? getChatMessages(stored[0].id) : [];
+  });
   const [messageInput, setMessageInput] = useState("");
+
+  const selectFriend = (id) => {
+    setActiveFriendId(id);
+    setChatMessages(getChatMessages(id));
+  };
 
   // Add Friend Modal
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
@@ -74,16 +79,6 @@ export default function Communities() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
-
-  // Load chat messages when active friend changes
-  useEffect(() => {
-    if (activeFriendId) {
-      setChatMessages(getChatMessages(activeFriendId));
-    } else if (friends.length > 0 && !activeFriendId) {
-      setActiveFriendId(friends[0].id);
-      setChatMessages(getChatMessages(friends[0].id));
-    }
-  }, [activeFriendId, friends]);
 
   // Filtered communities
   const filteredCommunities = useMemo(() => {
@@ -194,7 +189,7 @@ export default function Communities() {
     setNewFriendEmail("");
     setFriendError("");
     if (updated.length > 0) {
-      setActiveFriendId(updated[0].id);
+      selectFriend(updated[0].id);
     }
   };
 
@@ -487,7 +482,7 @@ export default function Communities() {
                     return (
                       <div
                         key={f.id}
-                        onClick={() => setActiveFriendId(f.id)}
+                        onClick={() => selectFriend(f.id)}
                         className={`flex cursor-pointer items-center justify-between rounded-xl p-3 transition-colors ${
                           isSelected
                             ? "bg-[#252525] border border-white/20"

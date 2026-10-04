@@ -165,6 +165,7 @@ func (r *Repository) Update(
 			},
 		},
 		UpdateExpression:          aws.String(updateExpression),
+		ConditionExpression:       aws.String("attribute_exists(PK)"),
 		ExpressionAttributeNames:  names,
 		ExpressionAttributeValues: values,
 		ReturnValues:              types.ReturnValueAllNew,

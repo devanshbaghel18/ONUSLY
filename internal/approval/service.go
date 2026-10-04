@@ -14,6 +14,9 @@ import (
 var (
 	ErrInvalidDecision = errors.New("invalid approval decision")
 	ErrUnauthorized    = errors.New("user is not the assigned approver")
+	ErrSelfApproval    = errors.New("goal owner cannot approve their own goal")
+	ErrGoalNotFound    = errors.New("goal not found")
+	ErrProofNotFound   = errors.New("proof not found")
 	ErrInvalidProof    = errors.New("invalid proof")
 	ErrAlreadyDecided  = errors.New("proof has already been decided")
 )
@@ -61,19 +64,36 @@ func (s *Service) Decide(
 		return nil, ErrInvalidDecision
 	}
 
-	goal, err := s.goalService.GetByID(ctx, ownerID, goalID)
-	if err != nil {
-		return nil, err
+	if len(comment) > 2000 {
+		return nil, errors.New("comment exceeds maximum allowed length of 2000 characters")
 	}
 
-	if goal.ApproverID != approverID {
+	goal, err := s.goalService.GetByID(ctx, ownerID, goalID)
+	if err != nil {
+		return nil, ErrGoalNotFound
+	}
+
+	// 1. Goal owner must NEVER be able to approve their own goal.
+	if goal.OwnerID == approverID {
+		return nil, ErrSelfApproval
+	}
+
+	// 2. Goal must have a valid configured approver and caller must match.
+	if goal.ApproverID == "" || goal.ApproverID != approverID {
 		return nil, ErrUnauthorized
 	}
 
+	// 3. Goal must belong to the specified owner.
+	if goal.OwnerID != ownerID {
+		return nil, ErrUnauthorized
+	}
+
+	// 4. Goal must currently be in proof_submitted state.
 	if goal.Status != "proof_submitted" {
 		return nil, ErrAlreadyDecided
 	}
 
+	// 5. Proof must exist.
 	p, err := s.proofService.GetByID(
 		ctx,
 		ownerID,
@@ -81,42 +101,41 @@ func (s *Service) Decide(
 		proofID,
 	)
 	if err != nil {
+		if errors.Is(err, proof.ErrProofNotFound) {
+			return nil, ErrProofNotFound
+		}
 		return nil, ErrInvalidProof
 	}
 
-	if p.GoalID != goalID || p.OwnerID != ownerID {
+	// 6. Proof must belong to this specific goal and legitimate goal owner.
+	if p.GoalID != goalID || p.OwnerID != goal.OwnerID || p.OwnerID != ownerID {
 		return nil, ErrInvalidProof
 	}
 
 	approvalID := uuid.NewString()
 
 	approval := Approval{
-		PK:         "USER#" + ownerID,
+		PK:         "USER#" + goal.OwnerID,
 		SK:         "APPROVAL#" + goalID + "#" + approvalID,
 		ID:         approvalID,
 		GoalID:     goalID,
 		ProofID:    proofID,
-		OwnerID:    ownerID,
+		OwnerID:    goal.OwnerID,
 		ApproverID: approverID,
 		Status:     status,
 		Comment:    comment,
 		DecidedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if err := s.repo.Create(ctx, approval); err != nil {
-		return nil, err
-	}
-
 	goalStatus := "active"
-
 	if status == "approved" {
 		goalStatus = "completed"
 	}
 
-	if _, err := s.goalService.UpdateStatus(
+	if err := s.repo.CreateDecision(
 		ctx,
-		ownerID,
-		goalID,
+		approval,
+		"proof_submitted",
 		goalStatus,
 	); err != nil {
 		return nil, err

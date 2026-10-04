@@ -7,7 +7,6 @@ import {
   UserCheck,
   Edit3,
   Check,
-  X,
   AlertCircle,
   CheckCircle2,
   Calendar,
@@ -15,12 +14,11 @@ import {
   Trash2,
   Loader2,
   ShieldCheck,
-  Sparkles,
   Mail,
   Send,
   HelpCircle,
 } from "lucide-react";
-import { getUser, clearAuth } from "../lib/auth";
+import { getUser } from "../lib/auth";
 import { getGoal, updateGoal, deleteGoal } from "../lib/api";
 
 import AppLayout from "../components/AppLayout";
@@ -53,9 +51,6 @@ export default function GoalDetail() {
   // Load Goal
   useEffect(() => {
     let ignore = false;
-
-    setLoading(true);
-    setError("");
 
     getGoal(id)
       .then((data) => {

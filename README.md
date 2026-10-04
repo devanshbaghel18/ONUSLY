@@ -83,32 +83,21 @@ active -> proof_submitted
 
 ### Approval
 
--   Only the assigned approver can decide
--   Approve proof: `proof_submitted -> completed`
--   Reject proof: `proof_submitted -> active`
--   Approval comments
--   Decision timestamps
+-   Only the assigned approver can decide (`403 Forbidden` if caller != approver)
+-   Self-approval strictly prevented (`403 Forbidden` if owner == approver)
+-   Approve proof: atomic transition `proof_submitted -> completed`
+-   Reject proof: atomic transition `proof_submitted -> active`
+-   Approval comments and decision timestamps
 -   Duplicate decisions return HTTP `409 Conflict`
 
-### Security Hardening
+### Security Hardening & Concurrency Guarantees
 
-The normal goal update endpoint cannot modify:
-
--   `status`
--   `ownerId`
--   `approverId`
-
-The owner therefore cannot bypass approval by sending:
-
-``` json
-{
-  "status": "completed"
-}
-```
-
-A duplicate approval is also rejected.
-
-These protections have been manually tested.
+-   **Owner Isolation**: Partition key `USER#<ownerID>` ensures goals, proofs, and approvals are strictly isolated.
+-   **No Status Bypass**: Normal goal updates (`PATCH /goals/{id}`) cannot modify `status`, `ownerId`, or `approverId`.
+-   **Accountability Freeze**: Accountability settings (`approvalType`, `approverEmail`) cannot be modified unless the goal is `active`.
+-   **Atomic Proof Submission**: DynamoDB `TransactWriteItems` writes the proof record and updates goal status from `active` to `proof_submitted` conditionally (`#status = "active"`). Duplicate submissions while pending return HTTP `409 Conflict`.
+-   **Atomic Approval Decision**: DynamoDB `TransactWriteItems` writes the approval record and updates goal status conditionally (`#status = "proof_submitted"`). Concurrent approval requests race at the DynamoDB transaction layer; the losing request deterministically receives HTTP `409 Conflict` ("proof has already been decided").
+-   **Protected Updates**: Goal updates use `ConditionExpression: attribute_exists(PK)` preventing resurrection or phantom insertions on nonexistent goals (`404 Not Found`).
 
 ## Architecture
 
@@ -453,43 +442,54 @@ Goal.ApproverID
 
 There is no quorum or community approval logic yet.
 
-## Roadmap
+## Implementation Status & Roadmap
 
-### Current
+### Phase 1 — IMPLEMENTED (Backend Core & Security Hardening Complete)
 
--   Google authentication
--   JWT authentication
--   DynamoDB persistence
--   Goal CRUD
--   Proof submission
--   Single-approver workflow
--   Approval/rejection
--   Status-bypass protection
--   Duplicate-decision protection
--   Initial React frontend
+-   **Authentication & User Management**:
+    -   Google ID token verification (`POST /auth/google`)
+    -   Automatic user profile persistence in DynamoDB
+    -   JWT issuance (HS256) with claim validation (`sub`, `email`, `exp`)
+    -   Strict Bearer token middleware derivation (no trust in request bodies for user identity)
+-   **Goal CRUD & Isolation**:
+    -   Full CRUD (`POST`, `GET`, `PATCH`, `DELETE /goals`)
+    -   Strict owner isolation via `PK = USER#<ownerID>`
+    -   Status bypass prevention (`PATCH` cannot modify `status`, `ownerId`, or `approverId`)
+    -   Accountability settings protection (`approvalType` / `approverEmail` locked once proof is submitted)
+    -   Conditional updates preventing resurrection or phantom creations (`ConditionExpression: attribute_exists(PK)`)
+-   **Proof Submission**:
+    -   Evidence submission (`POST /goals/{id}/proofs`) with payload validation (`text`, `link`, `photo`)
+    -   Atomic transition `active -> proof_submitted` via DynamoDB `TransactWriteItems` (`#status = "active"`)
+    -   Rejection of duplicate submissions while proof is pending (`409 Conflict`)
+-   **Single-Approver Approval Workflow**:
+    -   Approver resolution by email at goal creation
+    -   Self-approval strictly rejected (`403 Forbidden`)
+    -   Non-assigned approver calls rejected (`403 Forbidden`)
+    -   Atomic decision execution (`POST /goals/{id}/proofs/{proofId}/approval`) via DynamoDB `TransactWriteItems`
+    -   `approved`: atomic transition `proof_submitted -> completed`
+    -   `rejected`: atomic transition `proof_submitted -> active`
+    -   Concurreny-safe duplicate resolution: simultaneous racing approval requests handled at DynamoDB transaction layer; losing requests return HTTP `409 Conflict`
+-   **API Documentation**:
+    -   Complete OpenAPI 3.0 specification available at `docs/openapi.yaml`
+-   **Verification & Test Suites**:
+    -   Automated suites for authentication, goal isolation, proof submission concurrency, and approval race conditions (`internal/*/*_test.go`)
+-   **Initial Frontend**:
+    -   Authenticated dashboard, goal management, inline editing, and proof submission UI
 
-### Next
+### Phase 2+ — NOT YET IMPLEMENTED (Future Product Phases)
 
--   Complete frontend authentication
--   API client
--   Goal dashboard
--   Goal creation/editing UI
--   Proof submission UI
--   Approver dashboard
--   Approval/rejection UI
--   Better error/loading states
--   Production frontend integration
-
-### Future
-
--   Community-based approval
--   Multiple approvers
--   Quorum approval
--   More proof types
--   Notifications
--   Better audit history
--   Atomic approval transactions
--   Stronger concurrency handling
+-   **Phase 2: Real-Time & Reliability (Deferred)**:
+    -   Instant unlock via API Gateway WebSockets / persistent push
+    -   SQS queues for background event processing
+    -   Notification worker with Firebase Cloud Messaging (FCM) push
+-   **Phase 3: Platform Blocking (Deferred)**:
+    -   Android `AccessibilityService` module for native app blocking
+    -   Desktop browser extension (Chrome Manifest V3) for site blocking
+    -   Active enforcement daemon on user devices
+-   **Phase 4: Communities & Quorum (Deferred)**:
+    -   Community creation, invite codes, and group memberships in backend
+    -   Multi-approver voting and consensus/quorum logic
+    -   Real-time community chat and activity streams
 
 ## Design Decisions
 

@@ -11,9 +11,12 @@ import (
 )
 
 var (
-	ErrInvalidProofType = errors.New("invalid proof type")
-	ErrInvalidProof     = errors.New("invalid proof")
-	ErrProofNotFound    = errors.New("proof not found")
+	ErrInvalidProofType      = errors.New("invalid proof type")
+	ErrInvalidProof          = errors.New("invalid proof")
+	ErrProofNotFound         = errors.New("proof not found")
+	ErrGoalNotFound          = errors.New("goal not found")
+	ErrProofAlreadySubmitted = errors.New("proof has already been submitted for this goal")
+	ErrGoalNotActive         = errors.New("goal is not active")
 )
 
 type Service struct {
@@ -69,13 +72,22 @@ func (s *Service) Submit(
 		}
 	}
 
-	// Verify that the goal belongs to the authenticated user.
-	_, err := s.goalService.GetByID(ctx, ownerID, goalID)
+	// Verify that the goal belongs to the authenticated user and is in "active" state.
+	goal, err := s.goalService.GetByID(ctx, ownerID, goalID)
 	if err != nil {
-		return nil, err
+		return nil, ErrGoalNotFound
+	}
+
+	if goal.Status == "proof_submitted" {
+		return nil, ErrProofAlreadySubmitted
+	}
+
+	if goal.Status != "active" {
+		return nil, ErrGoalNotActive
 	}
 
 	proofID := uuid.New().String()
+	now := time.Now().UTC().Format(time.RFC3339)
 
 	p := Proof{
 		PK:              "USER#" + ownerID,
@@ -87,17 +99,13 @@ func (s *Service) Submit(
 		TextExplanation: strings.TrimSpace(textExplanation),
 		ExternalLink:    strings.TrimSpace(externalLink),
 		PhotoURL:        strings.TrimSpace(photoURL),
-		SubmittedAt:     time.Now().UTC().Format(time.RFC3339),
+		SubmittedAt:     now,
 	}
 
-	if err := s.repo.Create(ctx, p); err != nil {
-		return nil, err
-	}
-
-	if _, err := s.goalService.UpdateStatus(
+	if err := s.repo.CreateWithGoalTransition(
 		ctx,
-		ownerID,
-		goalID,
+		p,
+		"active",
 		"proof_submitted",
 	); err != nil {
 		return nil, err

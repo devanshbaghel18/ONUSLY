@@ -1,21 +1,16 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import AppLayout from "../components/AppLayout";
 import {
   Target,
   Plus,
-  Users,
   ChevronRight,
-  ArrowRight,
   Loader2,
-  Lock,
-  Unlock,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
 import { getGoals } from "../lib/api";
 
 export default function Dashboard() {
-  const navigate = useNavigate();
   const user = getUser();
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);

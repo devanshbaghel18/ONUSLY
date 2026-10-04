@@ -2,6 +2,7 @@ package approval
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -30,7 +31,17 @@ func (h *Handler) Decide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goalID, proofID := extractGoalAndProofID(r.URL.Path)
+	goalID := r.PathValue("id")
+	proofID := r.PathValue("proofId")
+	if goalID == "" || proofID == "" {
+		g, p := extractGoalAndProofID(r.URL.Path)
+		if goalID == "" {
+			goalID = g
+		}
+		if proofID == "" {
+			proofID = p
+		}
+	}
 
 	if goalID == "" || proofID == "" {
 		http.Error(w, "invalid goal or proof ID", http.StatusBadRequest)
@@ -61,22 +72,23 @@ func (h *Handler) Decide(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		switch err {
-		case ErrUnauthorized:
+		if errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrSelfApproval) {
 			http.Error(w, "forbidden", http.StatusForbidden)
-
-		case ErrInvalidDecision:
-			http.Error(w, err.Error(), http.StatusBadRequest)
-
-		case ErrAlreadyDecided:
-			http.Error(w, err.Error(), http.StatusConflict)
-
-		case ErrInvalidProof:
-			http.Error(w, err.Error(), http.StatusBadRequest)
-
-		default:
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
+		if errors.Is(err, ErrGoalNotFound) || errors.Is(err, ErrProofNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, ErrAlreadyDecided) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if errors.Is(err, ErrInvalidDecision) || errors.Is(err, ErrInvalidProof) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

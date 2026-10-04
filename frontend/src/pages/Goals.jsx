@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import AppLayout from "../components/AppLayout";
 import {
   Target,
-  Plus,
   Lock,
   Unlock,
   Users,
