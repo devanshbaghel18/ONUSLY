@@ -11,6 +11,7 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/proof"
+	"github.com/devanshbaghel18/ONUSLY/internal/realtime"
 	"github.com/devanshbaghel18/ONUSLY/internal/shared"
 )
 
@@ -51,6 +52,11 @@ func main() {
 	// Public routes
 	mux.HandleFunc("GET /health", health)
 	auth.RegisterRoutes(mux)
+
+	// Real-time WebSocket Hub
+	wsHub := realtime.NewHub()
+	mux.HandleFunc("GET /ws", realtime.ServeWS(wsHub, cfg.JWTSecret))
+	mux.HandleFunc("GET /ws/", realtime.ServeWS(wsHub, cfg.JWTSecret))
 
 	// DynamoDB
 	db := shared.NewDynamoClient()
