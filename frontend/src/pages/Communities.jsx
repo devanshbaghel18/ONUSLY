@@ -23,7 +23,10 @@ import {
   addFriend,
   getChatMessages,
   sendChatMessage,
+  receiveChatMessage,
 } from "../lib/friendsChat";
+import { getUser } from "../lib/auth";
+import { useWebSocket } from "../hooks/useWebSocket";
 
 export default function Communities() {
   // Main mode: 'communities' | 'friends'
@@ -56,11 +59,53 @@ export default function Communities() {
   const [activeFriendId, setActiveFriendId] = useState(() =>
     getStoredFriends().length > 0 ? getStoredFriends()[0].id : null
   );
+  const activeFriendIdRef = useRef(activeFriendId);
+  useEffect(() => {
+    activeFriendIdRef.current = activeFriendId;
+  }, [activeFriendId]);
+
+  const currentUser = getUser();
   const [chatMessages, setChatMessages] = useState(() => {
     const stored = getStoredFriends();
     return stored.length > 0 ? getChatMessages(stored[0].id) : [];
   });
   const [messageInput, setMessageInput] = useState("");
+
+  // Real-time WebSocket hook for instant live chat delivery
+  const { isConnected, send } = useWebSocket((event) => {
+    if (event?.type === "chat.message") {
+      const payload = event.payload || {};
+      console.log("[Communities] Incoming real-time chat message:", payload);
+
+      const timeFormatted = payload.time
+        ? new Date(payload.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      const { friend, messages } = receiveChatMessage({
+        friendEmail: payload.senderEmail,
+        text: payload.text,
+        time: timeFormatted,
+        sender: "friend",
+      });
+
+      // Refresh friends list
+      const updatedFriends = getStoredFriends();
+      setFriends(updatedFriends);
+
+      // If viewing this friend, update message view live
+      const currentActiveId = activeFriendIdRef.current;
+      const currentActive = updatedFriends.find((f) => f.id === currentActiveId);
+      const isViewingThisFriend =
+        currentActiveId === friend?.id ||
+        (currentActive?.email && friend?.email && currentActive.email.toLowerCase() === friend.email.toLowerCase()) ||
+        !currentActiveId;
+
+      if (friend && isViewingThisFriend) {
+        if (!currentActiveId) setActiveFriendId(friend.id);
+        setChatMessages(messages);
+      }
+    }
+  });
 
   const selectFriend = (id) => {
     setActiveFriendId(id);
@@ -197,7 +242,25 @@ export default function Communities() {
     e.preventDefault();
     if (!messageInput.trim() || !activeFriendId) return;
 
-    const updatedMessages = sendChatMessage(activeFriendId, messageInput, "me");
+    const text = messageInput.trim();
+    const currentFriend = friends.find((f) => f.id === activeFriendId);
+    const senderEmail = currentUser?.email || getUser()?.email || "";
+
+    // 1. Dispatch live over WebSocket to recipient
+    if (currentFriend?.email) {
+      console.log(`[Communities] Sending chat message to ${currentFriend.email} from ${senderEmail}: ${text}`);
+      send({
+        type: "chat.message",
+        payload: {
+          recipientEmail: currentFriend.email,
+          senderEmail: senderEmail,
+          text: text,
+        },
+      });
+    }
+
+    // 2. Save locally for sender
+    const updatedMessages = sendChatMessage(activeFriendId, text, "me");
     setChatMessages(updatedMessages);
     setMessageInput("");
     setFriends(getStoredFriends());
@@ -529,8 +592,13 @@ export default function Communities() {
                         <h3 className="text-sm font-bold text-white">
                           {activeFriend.name}
                         </h3>
-                        <p className="text-[11px] text-[#A3A3A3]">
-                          Accountability Partner • Online
+                        <p className="text-[11px] text-[#A3A3A3] flex items-center gap-1.5">
+                          <span>{activeFriend.email || "Accountability Partner"}</span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                            <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-400 animate-pulse" : "bg-neutral-500"}`} />
+                            {isConnected ? "Live Chat Active" : "Connecting..."}
+                          </span>
                         </p>
                       </div>
                     </div>

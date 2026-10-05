@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -26,20 +27,22 @@ type Client struct {
 	hub    *Hub
 	conn   *websocket.Conn
 	userID string
+	email  string
 	send   chan []byte
 }
 
-// NewClient initializes a new Client.
-func NewClient(hub *Hub, conn *websocket.Conn, userID string) *Client {
+// NewClient initializes a new Client with authenticated userID and email.
+func NewClient(hub *Hub, conn *websocket.Conn, userID string, email string) *Client {
 	return &Client{
 		hub:    hub,
 		conn:   conn,
 		userID: userID,
+		email:  strings.TrimSpace(strings.ToLower(email)),
 		send:   make(chan []byte, 64),
 	}
 }
 
-// readPump pumps messages from the websocket connection to ensure heartbeats are processed.
+// ReadPump pumps messages from the websocket connection to the hub.
 // When an error occurs or connection drops, it unregisters from the hub.
 func (c *Client) ReadPump() {
 	defer func() {
@@ -55,18 +58,20 @@ func (c *Client) ReadPump() {
 	})
 
 	for {
-		// Read messages (and discards client-side input for now; handles pong & close frames)
-		_, _, err := c.conn.ReadMessage()
+		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("[WebSocket] Read error for user %s: %v", c.userID, err)
 			}
 			break
 		}
+
+		// Handle client-to-server messages (e.g. real-time chat)
+		c.hub.HandleClientMessage(c, message)
 	}
 }
 
-// writePump pumps messages from the hub to the websocket connection.
+// WritePump pumps messages from the hub to the websocket connection.
 // Periodically sends a ping message to keep the connection alive.
 func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)

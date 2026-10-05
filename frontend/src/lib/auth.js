@@ -3,14 +3,44 @@ export function getToken() {
 }
 
 export function getUser() {
+  let user = null;
   const userStr = localStorage.getItem("user");
-  if (!userStr) return null;
-  try {
-    return JSON.parse(userStr);
-  } catch (err) {
-    console.error("Failed to parse stored user data:", err);
-    return null;
+  if (userStr && userStr !== "null" && userStr !== "undefined") {
+    try {
+      user = JSON.parse(userStr);
+    } catch (err) {
+      console.error("Failed to parse stored user data:", err);
+    }
   }
+
+  // Fallback: decode JWT token payload for id and email
+  const token = getToken();
+  if (token) {
+    try {
+      const parts = token.split(".");
+      if (parts.length === 3) {
+        let base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        while (base64.length % 4) {
+          base64 += "=";
+        }
+        const payload = JSON.parse(atob(base64));
+        if (!user) {
+          user = {
+            id: payload.sub,
+            email: payload.email,
+            name: payload.name || (payload.email ? payload.email.split("@")[0] : "User"),
+          };
+        } else {
+          if (!user.email && payload.email) user.email = payload.email;
+          if (!user.id && payload.sub) user.id = payload.sub;
+        }
+      }
+    } catch {
+      // Ignore token decode errors
+    }
+  }
+
+  return user;
 }
 
 export function setAuth(token, user) {
