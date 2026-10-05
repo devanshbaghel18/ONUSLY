@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -81,6 +82,25 @@ func main() {
 		goalService,
 		proofService,
 	)
+
+	// Real-time unlock delivery: notify owner via WebSocket when an approval is committed
+	approvalService.AddDecisionListener(approval.DecisionListenerFunc(func(ctx context.Context, app *approval.Approval, goal *goals.Goal) {
+		if app.Status == "approved" {
+			log.Printf("[Realtime] Dispatching goal.unlocked event to owner %s for goal %s", app.OwnerID, app.GoalID)
+			_ = wsHub.SendToUser(app.OwnerID, realtime.Event{
+				Type: "goal.unlocked",
+				Payload: map[string]interface{}{
+					"goalId":     app.GoalID,
+					"ownerId":    app.OwnerID,
+					"approverId": app.ApproverID,
+					"status":     "completed",
+					"title":      goal.Title,
+					"unlockedAt": app.DecidedAt,
+				},
+			})
+		}
+	}))
+
 	approvalHandler := approval.NewHandler(approvalService)
 
 	// Protected routes
