@@ -8,7 +8,15 @@ type User struct {
 
 	ID        string `dynamodbav:"ID" json:"id"`
 	Email     string `dynamodbav:"Email" json:"email"`
+	Handle    string `dynamodbav:"Handle" json:"handle"`
 	Name      string `dynamodbav:"Name" json:"name"`
 	Picture   string `dynamodbav:"Picture" json:"picture"`
 	CreatedAt string `dynamodbav:"CreatedAt" json:"createdAt"`
+}
+
+type PublicProfile struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Handle  string `json:"handle"`
+	Picture string `json:"picture"`
 }

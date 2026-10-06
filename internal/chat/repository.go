@@ -26,34 +26,46 @@ func NewRepository(db *dynamodb.Client, tableName string) *Repository {
 
 // SaveMessage stores two copies of the message (sender copy and recipient copy) atomically.
 func (r *Repository) SaveMessage(ctx context.Context, msg realtime.StoredMessage, isRecipientOnline bool) error {
-	senderEmail := strings.TrimSpace(strings.ToLower(msg.SenderEmail))
-	recipientEmail := strings.TrimSpace(strings.ToLower(msg.RecipientEmail))
-	if senderEmail == "" || recipientEmail == "" {
-		return fmt.Errorf("sender and recipient emails are required")
+	senderKey := strings.TrimSpace(strings.ToLower(msg.SenderEmail))
+	if senderKey == "" && msg.SenderHandle != "" {
+		senderKey = "@" + strings.TrimPrefix(strings.TrimSpace(strings.ToLower(msg.SenderHandle)), "@")
+	}
+
+	recipientKey := strings.TrimSpace(strings.ToLower(msg.RecipientEmail))
+	if recipientKey == "" && msg.RecipientHandle != "" {
+		recipientKey = "@" + strings.TrimPrefix(strings.TrimSpace(strings.ToLower(msg.RecipientHandle)), "@")
+	}
+
+	if senderKey == "" || recipientKey == "" {
+		return fmt.Errorf("sender and recipient identifiers are required")
 	}
 
 	senderItem := Message{
-		PK:             "USER#" + senderEmail,
-		SK:             fmt.Sprintf("CHAT#%s#%s#%s", recipientEmail, msg.Time, msg.ID),
-		ID:             msg.ID,
-		SenderEmail:    senderEmail,
-		SenderID:       msg.SenderID,
-		RecipientEmail: recipientEmail,
-		Text:           msg.Text,
-		Time:           msg.Time,
-		Delivered:      true,
+		PK:              "USER#" + senderKey,
+		SK:              fmt.Sprintf("CHAT#%s#%s#%s", recipientKey, msg.Time, msg.ID),
+		ID:              msg.ID,
+		SenderEmail:     msg.SenderEmail,
+		SenderHandle:    msg.SenderHandle,
+		SenderID:        msg.SenderID,
+		RecipientEmail:  msg.RecipientEmail,
+		RecipientHandle: msg.RecipientHandle,
+		Text:            msg.Text,
+		Time:            msg.Time,
+		Delivered:       true,
 	}
 
 	recipientItem := Message{
-		PK:             "USER#" + recipientEmail,
-		SK:             fmt.Sprintf("CHAT#%s#%s#%s", senderEmail, msg.Time, msg.ID),
-		ID:             msg.ID,
-		SenderEmail:    senderEmail,
-		SenderID:       msg.SenderID,
-		RecipientEmail: recipientEmail,
-		Text:           msg.Text,
-		Time:           msg.Time,
-		Delivered:      isRecipientOnline,
+		PK:              "USER#" + recipientKey,
+		SK:              fmt.Sprintf("CHAT#%s#%s#%s", senderKey, msg.Time, msg.ID),
+		ID:              msg.ID,
+		SenderEmail:     msg.SenderEmail,
+		SenderHandle:    msg.SenderHandle,
+		SenderID:        msg.SenderID,
+		RecipientEmail:  msg.RecipientEmail,
+		RecipientHandle: msg.RecipientHandle,
+		Text:            msg.Text,
+		Time:            msg.Time,
+		Delivered:       isRecipientOnline,
 	}
 
 	sMap, err := attributevalue.MarshalMap(senderItem)

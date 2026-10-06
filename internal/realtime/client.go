@@ -29,16 +29,18 @@ type Client struct {
 	conn   *websocket.Conn
 	userID string
 	email  string
+	handle string
 	send   chan []byte
 }
 
-// NewClient initializes a new Client with authenticated userID and email.
-func NewClient(hub *Hub, conn *websocket.Conn, userID string, email string) *Client {
+// NewClient initializes a new Client with authenticated userID, email, and handle.
+func NewClient(hub *Hub, conn *websocket.Conn, userID string, email string, handle string) *Client {
 	return &Client{
 		hub:    hub,
 		conn:   conn,
 		userID: userID,
 		email:  strings.TrimSpace(strings.ToLower(email)),
+		handle: strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@")),
 		send:   make(chan []byte, 64),
 	}
 }

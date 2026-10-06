@@ -22,13 +22,17 @@ export function saveFriends(friends) {
   }
 }
 
-export function addFriend({ name, email }) {
+export function addFriend({ name, handle, email, picture }) {
   const list = getStoredFriends();
-  const trimmedName = name.trim();
+  const cleanHandle = handle ? handle.trim().replace(/^@/, "").toLowerCase() : "";
   const trimmedEmail = email ? email.trim().toLowerCase() : "";
+  const trimmedName = (name || "").trim() || (cleanHandle ? `@${cleanHandle}` : "Friend");
 
-  // Check if friend with same email already exists
-  const existing = list.find((f) => f.email && f.email === trimmedEmail);
+  // Check if friend with same handle or email already exists
+  const existing = list.find((f) => 
+    (cleanHandle && f.handle && f.handle.toLowerCase() === cleanHandle) ||
+    (trimmedEmail && f.email && f.email === trimmedEmail)
+  );
   if (existing) {
     return list;
   }
@@ -36,7 +40,9 @@ export function addFriend({ name, email }) {
   const newFriend = {
     id: `friend-${Date.now()}`,
     name: trimmedName,
+    handle: cleanHandle,
     email: trimmedEmail,
+    picture: picture || "",
     status: "Active Partner",
     lastMessage: "Connected as accountability friend",
     lastMessageTime: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -94,19 +100,24 @@ export function sendChatMessage(friendId, text, sender = "me") {
   }
 }
 
-export function receiveChatMessage({ friendEmail, text, time, sender = "friend", messageId }) {
+export function receiveChatMessage({ friendEmail, friendHandle, text, time, sender = "friend", messageId }) {
   try {
     const normalizedEmail = friendEmail ? friendEmail.trim().toLowerCase() : "";
+    const cleanHandle = friendHandle ? friendHandle.trim().replace(/^@/, "").toLowerCase() : "";
     let friends = getStoredFriends();
-    let friend = friends.find((f) => f.email && f.email.toLowerCase() === normalizedEmail);
+    let friend = friends.find((f) => 
+      (cleanHandle && f.handle && f.handle.toLowerCase() === cleanHandle) ||
+      (normalizedEmail && f.email && f.email.toLowerCase() === normalizedEmail)
+    );
 
     // If the friend is not yet in our friend list, automatically add them!
     if (!friend) {
-      const nameGuess = normalizedEmail.split("@")[0] || "Friend";
-      const capitalName = nameGuess.charAt(0).toUpperCase() + nameGuess.slice(1);
+      const displayName = cleanHandle ? `@${cleanHandle}` : (normalizedEmail ? normalizedEmail.split("@")[0] : "Friend");
+      const capitalName = displayName.startsWith("@") ? displayName : displayName.charAt(0).toUpperCase() + displayName.slice(1);
       friend = {
         id: `friend-${Date.now()}`,
         name: capitalName,
+        handle: cleanHandle,
         email: normalizedEmail,
         status: "Active Partner",
         lastMessage: text,
@@ -155,14 +166,15 @@ export function receiveChatMessage({ friendEmail, text, time, sender = "friend",
   }
 }
 
-export function mergeChatHistory(friendId, serverMessages, currentUserEmail) {
+export function mergeChatHistory(friendId, serverMessages, currentUserEmail, currentUserHandle) {
   if (!serverMessages || !Array.isArray(serverMessages)) return getChatMessages(friendId);
   try {
     const raw = localStorage.getItem(CHATS_KEY);
     const allChats = raw ? JSON.parse(raw) : {};
     const local = allChats[friendId] || [];
 
-    const normCurrent = (currentUserEmail || "").toLowerCase();
+    const normCurrentEmail = (currentUserEmail || "").toLowerCase();
+    const normCurrentHandle = (currentUserHandle || "").toLowerCase().replace(/^@/, "");
     const map = new Map();
 
     local.forEach((m) => {
@@ -170,7 +182,10 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail) {
     });
 
     serverMessages.forEach((m) => {
-      const isMe = (m.senderEmail || "").toLowerCase() === normCurrent;
+      const senderE = (m.senderEmail || "").toLowerCase();
+      const senderH = (m.senderHandle || "").toLowerCase().replace(/^@/, "");
+      const isMe = (normCurrentEmail && senderE === normCurrentEmail) ||
+                   (normCurrentHandle && senderH === normCurrentHandle);
       const formatted = {
         id: m.id,
         text: m.text,

@@ -164,24 +164,47 @@ func (s *Service) Update(
 			input.ApproverEmail = &empty
 		} else if appType == "friend" {
 			if input.ApproverEmail != nil {
-				email := strings.ToLower(strings.TrimSpace(*input.ApproverEmail))
-				input.ApproverEmail = &email
-				if email != "" {
+				inputVal := strings.TrimSpace(*input.ApproverEmail)
+				if inputVal != "" {
 					if s.authRepo != nil {
-						friendUser, err := s.authRepo.GetUserByEmail(ctx, email)
+						var friendUser *auth.User
+						var err error
+
+						cleanedHandle := strings.TrimPrefix(inputVal, "@")
+						if strings.HasPrefix(inputVal, "@") || !strings.Contains(inputVal, ".") {
+							friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
+						} else {
+							friendUser, err = s.authRepo.GetUserByEmail(ctx, inputVal)
+							if err == nil && friendUser == nil {
+								friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
+							}
+						}
+
 						if err == nil && friendUser != nil {
 							if friendUser.ID == ownerID {
 								return nil, errors.New("you cannot assign yourself as your accountability partner")
 							}
 							input.ApproverID = &friendUser.ID
+
+							// Privacy Protection: Store and display @handle instead of raw Gmail address
+							displayTag := friendUser.Handle
+							if displayTag != "" {
+								if !strings.HasPrefix(displayTag, "@") {
+									displayTag = "@" + displayTag
+								}
+								input.ApproverEmail = &displayTag
+							} else {
+								low := strings.ToLower(friendUser.Email)
+								input.ApproverEmail = &low
+							}
 						} else {
-							empty := ""
-							input.ApproverID = &empty
+							return nil, errors.New("accountability partner not found by handle or email")
 						}
 					}
 				} else {
 					empty := ""
 					input.ApproverID = &empty
+					input.ApproverEmail = &empty
 				}
 			}
 		} else if appType == "" {

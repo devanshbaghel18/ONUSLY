@@ -147,3 +147,26 @@ export async function getChatHistory(peerEmail) {
   return Array.isArray(data) ? data : [];
 }
 
+export async function lookupUser(handle) {
+  if (!handle) return null;
+  const clean = handle.trim().replace(/^@/, "");
+  return request(`/users/search?handle=${encodeURIComponent(clean)}`, {
+    method: "GET",
+  });
+}
+
+export async function updateHandle(newHandle) {
+  const clean = (newHandle || "").trim().replace(/^@/, "");
+  return request("/users/handle", {
+    method: "PATCH",
+    body: JSON.stringify({ handle: clean }),
+  });
+}
+
+export async function getMyProfile() {
+  return request("/users/me", {
+    method: "GET",
+  });
+}
+
+

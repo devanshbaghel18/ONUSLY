@@ -21,8 +21,9 @@ var upgrader = websocket.Upgrader{
 
 // AuthUser represents the authenticated identity extracted from a JWT.
 type AuthUser struct {
-	ID    string
-	Email string
+	ID     string
+	Email  string
+	Handle string
 }
 
 // ExtractAndValidateAuthUser extracts the JWT from query param "token" or "Authorization" header
@@ -66,6 +67,7 @@ func ExtractAndValidateAuthUser(r *http.Request, jwtSecret string) (*AuthUser, e
 	}
 
 	email, _ := claims["email"].(string)
+	handle, _ := claims["handle"].(string)
 
 	if exp, ok := claims["exp"].(float64); ok {
 		if time.Now().Unix() > int64(exp) {
@@ -74,8 +76,9 @@ func ExtractAndValidateAuthUser(r *http.Request, jwtSecret string) (*AuthUser, e
 	}
 
 	return &AuthUser{
-		ID:    strings.TrimSpace(userID),
-		Email: strings.TrimSpace(strings.ToLower(email)),
+		ID:     strings.TrimSpace(userID),
+		Email:  strings.TrimSpace(strings.ToLower(email)),
+		Handle: strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@")),
 	}, nil
 }
 
@@ -103,7 +106,7 @@ func ServeWS(hub *Hub, jwtSecret string) http.HandlerFunc {
 			return
 		}
 
-		client := NewClient(hub, conn, user.ID, user.Email)
+		client := NewClient(hub, conn, user.ID, user.Email, user.Handle)
 		hub.Register(client)
 
 		// Start reader and writer pumps

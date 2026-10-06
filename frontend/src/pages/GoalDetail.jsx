@@ -22,6 +22,7 @@ import {
   ThumbsDown,
   FileText,
   Share2,
+  AtSign,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
 import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval } from "../lib/api";
@@ -223,16 +224,20 @@ export default function GoalDetail() {
     setAccountabilityNotice("");
 
     if (selectedApprovalType === "friend") {
-      const trimmedEmail = friendEmail.trim();
-      if (!trimmedEmail) {
-        setAccountabilityError("Please enter your friend's email address");
+      const trimmedVal = friendEmail.trim();
+      if (!trimmedVal) {
+        setAccountabilityError("Please enter your partner's ONUSLY handle (e.g. @robert_01)");
         return;
       }
-      if (!trimmedEmail.includes("@") || !trimmedEmail.includes(".")) {
-        setAccountabilityError("Please enter a valid email address");
+      const cleanHandle = trimmedVal.replace(/^@/, "").toLowerCase();
+      if (cleanHandle.length < 3) {
+        setAccountabilityError("Handle must be at least 3 characters");
         return;
       }
-      if (user?.email && trimmedEmail.toLowerCase() === user.email.toLowerCase()) {
+      if (
+        (user?.handle && cleanHandle === user.handle.toLowerCase().replace(/^@/, "")) ||
+        (user?.email && trimmedVal.toLowerCase() === user.email.toLowerCase())
+      ) {
         setAccountabilityError("You cannot assign yourself as your accountability partner");
         return;
       }
@@ -559,10 +564,12 @@ export default function GoalDetail() {
                   </div>
 
                   {goal.approvalType && (
-                    <span className="self-start sm:self-auto rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-300">
+                    <span className="self-start sm:self-auto rounded-full border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300">
                       Current:{" "}
-                      <strong className="capitalize text-white">
-                        {goal.approvalType === "community" ? "Community Verification" : "Friend Partner"}
+                      <strong className="text-white">
+                        {goal.approvalType === "community"
+                          ? "Community Quorum"
+                          : `Friend: ${goal.approverEmail ? (goal.approverEmail.startsWith("@") ? goal.approverEmail : `@${goal.approverEmail}`) : "Assigned Partner"}`}
                       </strong>
                     </span>
                   )}
@@ -661,27 +668,32 @@ export default function GoalDetail() {
                   </div>
                 </div>
 
-                {/* Friend Email Input (Animated display when "friend" is selected) */}
+                {/* Friend Handle / Tag Input (Animated display when "friend" is selected) */}
                 {selectedApprovalType === "friend" && (
                   <div className="mt-6 rounded-2xl border border-[#333333] bg-[#1A1A1A] p-5">
                     <label className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-white">
                       <span className="flex items-center gap-1.5">
-                        <Mail size={14} className="text-white" />
-                        Accountability Partner's Email <span className="text-neutral-400">*</span>
+                        <AtSign size={14} className="text-white" />
+                        Partner's ONUSLY Tag / Handle <span className="text-neutral-400">*</span>
                       </span>
-                      <span className="text-[11px] font-normal lowercase text-[#B5B5B5]">
-                        Friend must sign in to ONUSLY to review
+                      <span className="text-[11px] font-normal lowercase text-[#A3A3A3]">
+                        Enter @handle (100% Privacy Shield)
                       </span>
                     </label>
-                    <input
-                      type="email"
-                      value={friendEmail}
-                      onChange={(e) => setFriendEmail(e.target.value)}
-                      placeholder="e.g. partner@example.com"
-                      className="w-full rounded-xl border border-[#777777] bg-[#4A4A4A] px-4 py-3 text-sm text-[#FFFFFF] placeholder:text-[#B5B5B5] outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20"
-                    />
-                    <p className="mt-2 text-[11px] text-[#B5B5B5]">
-                      When you submit proof for this goal, your partner will receive the notification to review your evidence.
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-3 font-mono text-sm text-[#737373]">
+                        @
+                      </span>
+                      <input
+                        type="text"
+                        value={friendEmail.replace(/^@/, "")}
+                        onChange={(e) => setFriendEmail(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                        placeholder="e.g. robert_01"
+                        className="w-full rounded-xl border border-[#333333] bg-[#121212] pl-8 pr-4 py-3 font-mono text-sm text-white placeholder-[#737373] outline-none transition focus:border-white focus:ring-1 focus:ring-white/20"
+                      />
+                    </div>
+                    <p className="mt-2 text-[11px] text-[#A3A3A3]">
+                      Enter your partner's public handle. Your personal Google email and their email stay 100% private.
                     </p>
                   </div>
                 )}

@@ -19,9 +19,15 @@ func NewHandler(repo *Repository) *Handler {
 }
 
 func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
-	callerEmail, ok := middleware.GetUserEmail(r.Context())
-	if !ok || strings.TrimSpace(callerEmail) == "" {
-		http.Error(w, "unauthorized: email required in token", http.StatusUnauthorized)
+	callerEmail, _ := middleware.GetUserEmail(r.Context())
+	callerHandle, _ := middleware.GetUserHandle(r.Context())
+
+	callerKey := strings.TrimSpace(callerEmail)
+	if callerKey == "" && callerHandle != "" {
+		callerKey = "@" + callerHandle
+	}
+	if callerKey == "" {
+		http.Error(w, "unauthorized: email or handle required in token", http.StatusUnauthorized)
 		return
 	}
 
@@ -31,7 +37,12 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msgs, err := h.repo.GetConversationHistory(r.Context(), callerEmail, peer, 100)
+	msgs, err := h.repo.GetConversationHistory(r.Context(), callerKey, peer, 100)
+	if (msgs == nil || len(msgs) == 0) && callerHandle != "" && callerKey != ("@"+callerHandle) {
+		if altMsgs, _ := h.repo.GetConversationHistory(r.Context(), "@"+callerHandle, peer, 100); len(altMsgs) > 0 {
+			msgs = altMsgs
+		}
+	}
 	if err != nil {
 		http.Error(w, "failed to load chat history: "+err.Error(), http.StatusInternalServerError)
 		return

@@ -6,10 +6,14 @@ import {
   Plus,
   ArrowLeft,
   Copy,
+  Check,
   X,
   MessageSquare,
   Send,
   UserPlus,
+  AtSign,
+  ShieldCheck,
+  Loader2,
 } from "lucide-react";
 import {
   getStoredCommunities,
@@ -26,7 +30,7 @@ import {
   receiveChatMessage,
   mergeChatHistory,
 } from "../lib/friendsChat";
-import { getChatHistory } from "../lib/api";
+import { getChatHistory, lookupUser } from "../lib/api";
 import { getUser } from "../lib/auth";
 import { useWebSocket } from "../hooks/useWebSocket";
 
@@ -74,12 +78,15 @@ export default function Communities() {
   });
   const [messageInput, setMessageInput] = useState("");
   const [onlineEmails, setOnlineEmails] = useState(new Set());
+  const [onlineHandles, setOnlineHandles] = useState(new Set());
 
   // Real-time WebSocket hook for instant live chat delivery and presence
   const { isConnected, send } = useWebSocket((event) => {
     if (event?.type === "presence.list") {
       const list = event.payload?.onlineEmails || [];
       setOnlineEmails(new Set(list.map((e) => String(e).toLowerCase())));
+      const handles = event.payload?.onlineHandles || [];
+      setOnlineHandles(new Set(handles.map((h) => String(h).toLowerCase().replace(/^@/, ""))));
     }
 
     if (event?.type === "chat.message") {
@@ -93,6 +100,7 @@ export default function Communities() {
       const { friend, messages } = receiveChatMessage({
         messageId: payload.id,
         friendEmail: payload.senderEmail,
+        friendHandle: payload.senderHandle,
         text: payload.text,
         time: timeFormatted,
         sender: "friend",
@@ -107,6 +115,7 @@ export default function Communities() {
       const currentActive = updatedFriends.find((f) => f.id === currentActiveId);
       const isViewingThisFriend =
         currentActiveId === friend?.id ||
+        (currentActive?.handle && friend?.handle && currentActive.handle.toLowerCase() === friend.handle.toLowerCase()) ||
         (currentActive?.email && friend?.email && currentActive.email.toLowerCase() === friend.email.toLowerCase()) ||
         !currentActiveId;
 
@@ -134,11 +143,12 @@ export default function Communities() {
     setChatMessages(getChatMessages(id));
 
     const f = friends.find((item) => item.id === id);
-    if (f?.email) {
-      getChatHistory(f.email)
+    const peerKey = f?.handle ? `@${f.handle}` : (f?.email || "");
+    if (peerKey) {
+      getChatHistory(peerKey)
         .then((serverMsgs) => {
           if (serverMsgs && serverMsgs.length > 0) {
-            const merged = mergeChatHistory(id, serverMsgs, currentUser?.email);
+            const merged = mergeChatHistory(id, serverMsgs, currentUser?.email, currentUser?.handle);
             setChatMessages(merged);
           }
         })
@@ -148,21 +158,26 @@ export default function Communities() {
 
   // Sync latest chat messages from DynamoDB when activeFriend changes
   useEffect(() => {
-    if (!activeFriend?.email) return;
-    getChatHistory(activeFriend.email)
+    if (!activeFriend) return;
+    const peerKey = activeFriend.handle ? `@${activeFriend.handle}` : (activeFriend.email || "");
+    if (!peerKey) return;
+    getChatHistory(peerKey)
       .then((serverMsgs) => {
         if (serverMsgs && serverMsgs.length > 0) {
-          const merged = mergeChatHistory(activeFriend.id, serverMsgs, currentUser?.email);
+          const merged = mergeChatHistory(activeFriend.id, serverMsgs, currentUser?.email, currentUser?.handle);
           setChatMessages(merged);
         }
       })
       .catch(() => {});
-  }, [activeFriend?.id, activeFriend?.email, currentUser?.email]);
+  }, [activeFriend?.id, activeFriend?.handle, activeFriend?.email, currentUser?.email, currentUser?.handle]);
 
-  // Add Friend Modal
+  // Add Friend Modal State
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
+  const [newFriendHandle, setNewFriendHandle] = useState("");
   const [newFriendName, setNewFriendName] = useState("");
   const [newFriendEmail, setNewFriendEmail] = useState("");
+  const [verifiedPartner, setVerifiedPartner] = useState(null);
+  const [verifyingHandle, setVerifyingHandle] = useState(false);
   const [friendError, setFriendError] = useState("");
 
   const chatEndRef = useRef(null);
@@ -261,22 +276,62 @@ export default function Communities() {
   };
 
   // Friend handlers
-  const handleAddFriendSubmit = (e) => {
+  const handleVerifyTag = async () => {
+    const clean = newFriendHandle.trim().replace(/^@/, "").toLowerCase();
+    if (!clean) return;
+    setVerifyingHandle(true);
+    setFriendError("");
+    try {
+      const profile = await lookupUser(clean);
+      if (profile) {
+        setVerifiedPartner(profile);
+        if (!newFriendName.trim() && profile.name) {
+          setNewFriendName(profile.name);
+        }
+      }
+    } catch (err) {
+      setVerifiedPartner(null);
+      setFriendError(err.message || "User not found with this handle");
+    } finally {
+      setVerifyingHandle(false);
+    }
+  };
+
+  const handleAddFriendSubmit = async (e) => {
     e.preventDefault();
-    if (!newFriendName.trim()) {
-      setFriendError("Friend name is required");
+    const cleanHandle = newFriendHandle.trim().replace(/^@/, "").toLowerCase();
+    if (!cleanHandle && !newFriendEmail.trim()) {
+      setFriendError("Friend's ONUSLY handle is required (e.g. @himanshu)");
       return;
     }
 
-    const updated = addFriend({
-      name: newFriendName,
-      email: newFriendEmail,
-    });
+    let friendData = {
+      name: newFriendName.trim() || (verifiedPartner?.name || (cleanHandle ? `@${cleanHandle}` : "Friend")),
+      handle: cleanHandle,
+      email: newFriendEmail.trim(),
+      picture: verifiedPartner?.picture || "",
+    };
+
+    if (cleanHandle && !verifiedPartner) {
+      try {
+        const profile = await lookupUser(cleanHandle);
+        if (profile) {
+          friendData.name = newFriendName.trim() || profile.name || `@${cleanHandle}`;
+          friendData.picture = profile.picture;
+        }
+      } catch {
+        // Fallback to manual add
+      }
+    }
+
+    const updated = addFriend(friendData);
 
     setFriends(updated);
     setShowAddFriendModal(false);
     setNewFriendName("");
+    setNewFriendHandle("");
     setNewFriendEmail("");
+    setVerifiedPartner(null);
     setFriendError("");
     if (updated.length > 0) {
       selectFriend(updated[0].id);
@@ -290,19 +345,20 @@ export default function Communities() {
     const text = messageInput.trim();
     const currentFriend = friends.find((f) => f.id === activeFriendId);
     const senderEmail = currentUser?.email || getUser()?.email || "";
+    const senderHandle = currentUser?.handle || getUser()?.handle || "";
 
     // 1. Dispatch live over WebSocket to recipient
-    if (currentFriend?.email) {
-      console.log(`[Communities] Sending chat message to ${currentFriend.email} from ${senderEmail}: ${text}`);
-      send({
-        type: "chat.message",
-        payload: {
-          recipientEmail: currentFriend.email,
-          senderEmail: senderEmail,
-          text: text,
-        },
-      });
-    }
+    console.log(`[Communities] Sending chat message to (${currentFriend?.email || ''}/@${currentFriend?.handle || ''}) from (${senderEmail}/@${senderHandle}): ${text}`);
+    send({
+      type: "chat.message",
+      payload: {
+        recipientEmail: currentFriend?.email || "",
+        recipientHandle: currentFriend?.handle || "",
+        senderEmail: senderEmail,
+        senderHandle: senderHandle,
+        text: text,
+      },
+    });
 
     // 2. Save locally for sender
     const updatedMessages = sendChatMessage(activeFriendId, text, "me");
@@ -598,23 +654,38 @@ export default function Communities() {
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-xs font-bold text-white">
-                            {f.name[0]?.toUpperCase() || "F"}
-                            {f.email && (
-                              <span
-                                className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#1E1E1E] ${
-                                  onlineEmails.has(f.email.trim().toLowerCase())
-                                    ? "bg-emerald-400"
-                                    : "bg-neutral-600"
-                                }`}
-                                title={onlineEmails.has(f.email.trim().toLowerCase()) ? "Online" : "Offline"}
-                              />
+                          <div className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-xs font-bold text-white overflow-hidden">
+                            {f.picture ? (
+                              <img src={f.picture} alt={f.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              f.name[0]?.toUpperCase() || "F"
                             )}
+                            <span
+                              className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#1E1E1E] ${
+                                (f.handle && onlineHandles.has(f.handle.toLowerCase().replace(/^@/, ""))) ||
+                                (f.email && onlineEmails.has(f.email.trim().toLowerCase()))
+                                  ? "bg-emerald-400"
+                                  : "bg-neutral-600"
+                              }`}
+                              title={
+                                (f.handle && onlineHandles.has(f.handle.toLowerCase().replace(/^@/, ""))) ||
+                                (f.email && onlineEmails.has(f.email.trim().toLowerCase()))
+                                  ? "Online"
+                                  : "Offline"
+                              }
+                            />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-xs font-semibold text-white">
-                              {f.name}
-                            </p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="truncate text-xs font-semibold text-white">
+                                {f.name}
+                              </p>
+                              {f.handle && (
+                                <span className="font-mono text-[10px] text-[#A3A3A3]">
+                                  @{f.handle.replace(/^@/, "")}
+                                </span>
+                              )}
+                            </div>
                             <p className="truncate text-[11px] text-[#737373]">
                               {f.lastMessage || "Click to start chatting"}
                             </p>
@@ -640,28 +711,39 @@ export default function Communities() {
                   {/* Chat Header */}
                   <div className="flex items-center justify-between border-b border-[#2A2A2A] bg-[#181818] p-4">
                     <div className="flex items-center gap-3">
-                      <div className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#444444] bg-[#282828] text-sm font-bold text-white">
-                        {activeFriend.name[0]?.toUpperCase()}
-                        {activeFriend.email && (
-                          <span
-                            className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#181818] ${
-                              onlineEmails.has(activeFriend.email.trim().toLowerCase())
-                                ? "bg-emerald-400"
-                                : "bg-neutral-600"
-                            }`}
-                          />
+                      <div className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#444444] bg-[#282828] text-sm font-bold text-white overflow-hidden">
+                        {activeFriend.picture ? (
+                          <img src={activeFriend.picture} alt={activeFriend.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          activeFriend.name[0]?.toUpperCase()
                         )}
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#181818] ${
+                            (activeFriend.handle && onlineHandles.has(activeFriend.handle.toLowerCase().replace(/^@/, ""))) ||
+                            (activeFriend.email && onlineEmails.has(activeFriend.email.trim().toLowerCase()))
+                              ? "bg-emerald-400"
+                              : "bg-neutral-600"
+                          }`}
+                        />
                       </div>
                       <div>
-                        <h3 className="text-sm font-bold text-white">
-                          {activeFriend.name}
-                        </h3>
-                        <p className="text-[11px] text-[#A3A3A3] flex items-center gap-1.5">
-                          <span>{activeFriend.email || "Accountability Partner"}</span>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-white">
+                            {activeFriend.name}
+                          </h3>
+                          {activeFriend.handle && (
+                            <span className="rounded-md border border-[#3A3A3A] bg-[#222222] px-2 py-0.5 font-mono text-[11px] font-semibold text-white">
+                              @{activeFriend.handle.replace(/^@/, "")}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#A3A3A3] flex items-center gap-1.5 mt-0.5">
+                          <span>Accountability Partner</span>
                           <span>•</span>
                           {(() => {
                             const isFriendOnline = Boolean(
-                              activeFriend.email && onlineEmails.has(activeFriend.email.trim().toLowerCase())
+                              (activeFriend.handle && onlineHandles.has(activeFriend.handle.toLowerCase().replace(/^@/, ""))) ||
+                              (activeFriend.email && onlineEmails.has(activeFriend.email.trim().toLowerCase()))
                             );
                             return (
                               <span className={`flex items-center gap-1 font-medium ${isFriendOnline ? "text-emerald-400" : "text-neutral-400"}`}>
@@ -862,15 +944,20 @@ export default function Communities() {
         )}
 
         {/* ============================================================
-            ADD FRIEND MODAL (Black & White)
+            ADD FRIEND MODAL (100% Privacy Protection via @handle)
         ============================================================ */}
         {showAddFriendModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
             <div className="w-full max-w-md rounded-2xl border border-[#333333] bg-[#1A1A1A] p-6 shadow-2xl">
               <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
-                <h3 className="text-base font-bold text-white">
-                  Add Accountability Friend
-                </h3>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Add Accountability Friend
+                  </h3>
+                  <p className="mt-0.5 text-xs text-[#A3A3A3]">
+                    Connect using their unique public handle (@tag).
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowAddFriendModal(false)}
@@ -880,20 +967,83 @@ export default function Communities() {
                 </button>
               </div>
 
+              {/* Privacy Shield Banner */}
+              <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-[#333333] bg-[#141414] p-3 text-[11px] text-[#A3A3A3] leading-relaxed">
+                <ShieldCheck size={16} className="text-white flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-white">100% Privacy Protected:</span> Connect with friends using their public ONUSLY handle. No personal Google email address is exposed.
+                </div>
+              </div>
+
               {friendError && (
-                <div className="mt-4 rounded-xl border border-[#444444] bg-[#252525] p-3 text-xs text-white">
+                <div className="mt-4 rounded-xl border border-red-900/50 bg-red-950/40 p-3 text-xs text-red-300">
                   {friendError}
                 </div>
               )}
 
               <form onSubmit={handleAddFriendSubmit} className="mt-4 space-y-4">
+                {/* Handle Input with Verification */}
                 <div>
                   <label className="block text-xs font-semibold text-[#A3A3A3] mb-1">
-                    Friend's Name
+                    Friend's ONUSLY Tag (@handle)
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3.5 top-2.5 font-mono text-xs text-[#737373]">
+                        @
+                      </span>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. robert_01"
+                        value={newFriendHandle}
+                        onChange={(e) => {
+                          setNewFriendHandle(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""));
+                          setVerifiedPartner(null);
+                        }}
+                        className="w-full rounded-xl border border-[#333333] bg-[#121212] pl-8 pr-3.5 py-2.5 font-mono text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleVerifyTag}
+                      disabled={!newFriendHandle.trim() || verifyingHandle}
+                      className="rounded-xl border border-[#3A3A3A] bg-[#222222] px-3.5 py-2 text-xs font-semibold text-white transition hover:border-white disabled:opacity-40"
+                    >
+                      {verifyingHandle ? <Loader2 size={14} className="animate-spin" /> : "Verify Tag"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Verified Partner Badge */}
+                {verifiedPartner && (
+                  <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/5 p-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black font-bold text-xs overflow-hidden">
+                      {verifiedPartner.picture ? (
+                        <img src={verifiedPartner.picture} alt={verifiedPartner.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        verifiedPartner.name?.[0]?.toUpperCase() || "U"
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold text-white flex items-center gap-1.5">
+                        {verifiedPartner.name}
+                        <Check size={13} className="text-emerald-400" />
+                      </p>
+                      <p className="font-mono text-[10px] text-[#A3A3A3]">
+                        @{verifiedPartner.handle}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Friend's Name (Optional Customization) */}
+                <div>
+                  <label className="block text-xs font-semibold text-[#A3A3A3] mb-1">
+                    Display Nickname (Optional)
                   </label>
                   <input
                     type="text"
-                    required
                     placeholder="e.g. Alex"
                     value={newFriendName}
                     onChange={(e) => setNewFriendName(e.target.value)}
@@ -901,23 +1051,13 @@ export default function Communities() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-[#A3A3A3] mb-1">
-                    Friend's Email (Optional)
-                  </label>
-                  <input
-                    type="email"
-                    placeholder="partner@example.com"
-                    value={newFriendEmail}
-                    onChange={(e) => setNewFriendEmail(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#121212] px-3.5 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
-                  />
-                </div>
-
                 <div className="flex justify-end gap-2 pt-3 border-t border-[#2A2A2A]">
                   <button
                     type="button"
-                    onClick={() => setShowAddFriendModal(false)}
+                    onClick={() => {
+                      setShowAddFriendModal(false);
+                      setVerifiedPartner(null);
+                    }}
                     className="rounded-xl border border-[#333333] px-4 py-2 text-xs font-semibold text-[#A3A3A3] hover:text-white"
                   >
                     Cancel
