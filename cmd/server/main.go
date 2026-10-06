@@ -8,6 +8,7 @@ import (
 
 	"github.com/devanshbaghel18/ONUSLY/internal/approval"
 	"github.com/devanshbaghel18/ONUSLY/internal/auth"
+	"github.com/devanshbaghel18/ONUSLY/internal/chat"
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
@@ -103,8 +104,19 @@ func main() {
 
 	approvalHandler := approval.NewHandler(approvalService)
 
+	// Chat Repository, Store & Handler
+	chatRepo := chat.NewRepository(db, "Onusly")
+	chatHandler := chat.NewHandler(chatRepo)
+	wsHub.SetMessageStore(chatRepo)
+
 	// Protected routes
 	goalRoutes := http.NewServeMux()
+
+	// Chat
+	goalRoutes.HandleFunc(
+		"GET /chat/messages",
+		chatHandler.GetHistory,
+	)
 
 	// Goals
 	goalRoutes.HandleFunc(
@@ -165,10 +177,12 @@ func main() {
 	)
 
 	// JWT authentication for all protected routes
-	protectedGoals := middleware.Auth(cfg.JWTSecret)(goalRoutes)
+	protectedRoutes := middleware.Auth(cfg.JWTSecret)(goalRoutes)
 
-	mux.Handle("/goals", protectedGoals)
-	mux.Handle("/goals/", protectedGoals)
+	mux.Handle("/goals", protectedRoutes)
+	mux.Handle("/goals/", protectedRoutes)
+	mux.Handle("/chat", protectedRoutes)
+	mux.Handle("/chat/", protectedRoutes)
 
 	log.Println("Server running on :8080")
 

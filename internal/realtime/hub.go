@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,24 @@ import (
 var (
 	ErrUserOffline = errors.New("user has no active connections")
 )
+
+// StoredMessage represents a chat message persisted in storage.
+type StoredMessage struct {
+	ID             string `json:"id" dynamodbav:"ID"`
+	SenderEmail    string `json:"senderEmail" dynamodbav:"SenderEmail"`
+	SenderID       string `json:"senderId" dynamodbav:"SenderID"`
+	RecipientEmail string `json:"recipientEmail" dynamodbav:"RecipientEmail"`
+	Text           string `json:"text" dynamodbav:"Text"`
+	Time           string `json:"time" dynamodbav:"Time"`
+	Delivered      bool   `json:"delivered" dynamodbav:"Delivered"`
+}
+
+// MessageStore is an optional persistent storage layer for chat messages.
+type MessageStore interface {
+	SaveMessage(ctx context.Context, msg StoredMessage, isRecipientOnline bool) error
+	GetPendingMessages(ctx context.Context, recipientEmail string) ([]StoredMessage, error)
+	MarkMessagesDelivered(ctx context.Context, recipientEmail string, msgIDs []string) error
+}
 
 // Event represents a standard real-time message payload sent to clients.
 type Event struct {
@@ -30,6 +49,9 @@ type Hub struct {
 
 	// emails maps lowercased email -> set of active *Client connections
 	emails map[string]map[*Client]bool
+
+	// msgStore is an optional persistent message store for offline delivery
+	msgStore MessageStore
 }
 
 // NewHub initializes and returns a new Hub instance.
@@ -38,6 +60,13 @@ func NewHub() *Hub {
 		users:  make(map[string]map[*Client]bool),
 		emails: make(map[string]map[*Client]bool),
 	}
+}
+
+// SetMessageStore attaches a persistent MessageStore to the Hub.
+func (h *Hub) SetMessageStore(store MessageStore) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.msgStore = store
 }
 
 // Register adds a client connection under its authenticated UserID and Email.
@@ -194,8 +223,36 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 				h.emails[normalized] = emailConns
 			}
 			emailConns[c] = true
+			store := h.msgStore
 			h.mu.Unlock()
 			log.Printf("[WebSocket] Presence confirmed: user %s registered email %s", c.userID, normalized)
+
+			// Deliver any stored offline messages to this user
+			if store != nil {
+				go func(userEmail string, cl *Client, s MessageStore) {
+					pending, err := s.GetPendingMessages(context.Background(), userEmail)
+					if err == nil && len(pending) > 0 {
+						var deliveredIDs []string
+						for _, m := range pending {
+							cl.SendEvent(Event{
+								Type: "chat.message",
+								Payload: map[string]interface{}{
+									"id":             m.ID,
+									"senderEmail":    m.SenderEmail,
+									"senderId":       m.SenderID,
+									"recipientEmail": m.RecipientEmail,
+									"text":           m.Text,
+									"time":           m.Time,
+									"isOffline":      true,
+								},
+							})
+							deliveredIDs = append(deliveredIDs, m.ID)
+						}
+						_ = s.MarkMessagesDelivered(context.Background(), userEmail, deliveredIDs)
+						log.Printf("[WebSocket] Delivered %d offline messages to %s", len(pending), userEmail)
+					}
+				}(normalized, c, store)
+			}
 		}
 
 	case "presence.query":
@@ -261,11 +318,37 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			},
 		}
 
+		isRecipientOnline := h.IsEmailOnline(req.RecipientEmail)
+
+		// Persist message in store if configured
+		h.mu.RLock()
+		store := h.msgStore
+		h.mu.RUnlock()
+
+		if store != nil {
+			stored := StoredMessage{
+				ID:             msgID,
+				SenderEmail:    senderEmail,
+				SenderID:       c.userID,
+				RecipientEmail: req.RecipientEmail,
+				Text:           req.Text,
+				Time:           now,
+				Delivered:      isRecipientOnline,
+			}
+			if err := store.SaveMessage(context.Background(), stored, isRecipientOnline); err != nil {
+				log.Printf("[WebSocket] Failed to persist chat message: %v", err)
+			}
+		}
+
 		// Forward to recipient's live connection
-		if err := h.SendToEmail(req.RecipientEmail, outEvent); err != nil {
-			log.Printf("[WebSocket] Delivery failed: recipient %q is offline. Currently online emails: %v", req.RecipientEmail, h.GetOnlineEmails())
+		if isRecipientOnline {
+			if err := h.SendToEmail(req.RecipientEmail, outEvent); err != nil {
+				log.Printf("[WebSocket] Live delivery failed to %s: %v", req.RecipientEmail, err)
+			} else {
+				log.Printf("[WebSocket] Live delivered message to %s", req.RecipientEmail)
+			}
 		} else {
-			log.Printf("[WebSocket] Successfully delivered chat message to %q", req.RecipientEmail)
+			log.Printf("[WebSocket] Recipient %s is offline. Message saved in DynamoDB for delivery on login.", req.RecipientEmail)
 		}
 	}
 }

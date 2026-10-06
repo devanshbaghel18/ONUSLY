@@ -7,6 +7,7 @@ import GoalDetail from './pages/GoalDetail';
 import Communities from './pages/Communities';
 import SubmitProof from './pages/SubmitProof';
 import ProtectedRoute from './components/ProtectedRoute';
+import GlobalChatNotifier from './components/GlobalChatNotifier';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
 function CursorGlow() {
@@ -35,6 +36,7 @@ function App() {
     <GoogleOAuthProvider clientId={clientId}>
       <CursorGlow />
       <Router>
+        <GlobalChatNotifier />
         <Routes>
           <Route path="/" element={<Auth />} />
           <Route

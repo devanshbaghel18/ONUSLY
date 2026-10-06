@@ -94,7 +94,7 @@ export function sendChatMessage(friendId, text, sender = "me") {
   }
 }
 
-export function receiveChatMessage({ friendEmail, text, time, sender = "friend" }) {
+export function receiveChatMessage({ friendEmail, text, time, sender = "friend", messageId }) {
   try {
     const normalizedEmail = friendEmail ? friendEmail.trim().toLowerCase() : "";
     let friends = getStoredFriends();
@@ -121,8 +121,13 @@ export function receiveChatMessage({ friendEmail, text, time, sender = "friend" 
     const allChats = raw ? JSON.parse(raw) : {};
     const friendMessages = allChats[friend.id] || [];
 
+    const finalId = messageId || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    if (messageId && friendMessages.some((m) => m.id === messageId)) {
+      return { friend, messages: friendMessages };
+    }
+
     const newMsg = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: finalId,
       text: text.trim(),
       sender,
       time: time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -147,5 +152,40 @@ export function receiveChatMessage({ friendEmail, text, time, sender = "friend" 
   } catch (err) {
     console.error("Failed to receive message:", err);
     return { friend: null, messages: [] };
+  }
+}
+
+export function mergeChatHistory(friendId, serverMessages, currentUserEmail) {
+  if (!serverMessages || !Array.isArray(serverMessages)) return getChatMessages(friendId);
+  try {
+    const raw = localStorage.getItem(CHATS_KEY);
+    const allChats = raw ? JSON.parse(raw) : {};
+    const local = allChats[friendId] || [];
+
+    const normCurrent = (currentUserEmail || "").toLowerCase();
+    const map = new Map();
+
+    local.forEach((m) => {
+      if (m.id) map.set(m.id, m);
+    });
+
+    serverMessages.forEach((m) => {
+      const isMe = (m.senderEmail || "").toLowerCase() === normCurrent;
+      const formatted = {
+        id: m.id,
+        text: m.text,
+        sender: isMe ? "me" : "friend",
+        time: m.time ? new Date(m.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+      };
+      map.set(m.id, formatted);
+    });
+
+    const merged = Array.from(map.values());
+    allChats[friendId] = merged;
+    localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
+    return merged;
+  } catch (err) {
+    console.error("Failed to merge chat history:", err);
+    return getChatMessages(friendId);
   }
 }

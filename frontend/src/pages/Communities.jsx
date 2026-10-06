@@ -24,7 +24,9 @@ import {
   getChatMessages,
   sendChatMessage,
   receiveChatMessage,
+  mergeChatHistory,
 } from "../lib/friendsChat";
+import { getChatHistory } from "../lib/api";
 import { getUser } from "../lib/auth";
 import { useWebSocket } from "../hooks/useWebSocket";
 
@@ -59,6 +61,7 @@ export default function Communities() {
   const [activeFriendId, setActiveFriendId] = useState(() =>
     getStoredFriends().length > 0 ? getStoredFriends()[0].id : null
   );
+  const activeFriend = friends.find((f) => f.id === activeFriendId);
   const activeFriendIdRef = useRef(activeFriendId);
   useEffect(() => {
     activeFriendIdRef.current = activeFriendId;
@@ -88,6 +91,7 @@ export default function Communities() {
         : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
       const { friend, messages } = receiveChatMessage({
+        messageId: payload.id,
         friendEmail: payload.senderEmail,
         text: payload.text,
         time: timeFormatted,
@@ -128,7 +132,32 @@ export default function Communities() {
   const selectFriend = (id) => {
     setActiveFriendId(id);
     setChatMessages(getChatMessages(id));
+
+    const f = friends.find((item) => item.id === id);
+    if (f?.email) {
+      getChatHistory(f.email)
+        .then((serverMsgs) => {
+          if (serverMsgs && serverMsgs.length > 0) {
+            const merged = mergeChatHistory(id, serverMsgs, currentUser?.email);
+            setChatMessages(merged);
+          }
+        })
+        .catch(() => {});
+    }
   };
+
+  // Sync latest chat messages from DynamoDB when activeFriend changes
+  useEffect(() => {
+    if (!activeFriend?.email) return;
+    getChatHistory(activeFriend.email)
+      .then((serverMsgs) => {
+        if (serverMsgs && serverMsgs.length > 0) {
+          const merged = mergeChatHistory(activeFriend.id, serverMsgs, currentUser?.email);
+          setChatMessages(merged);
+        }
+      })
+      .catch(() => {});
+  }, [activeFriend?.id, activeFriend?.email, currentUser?.email]);
 
   // Add Friend Modal
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
@@ -163,8 +192,6 @@ export default function Communities() {
       f.name.toLowerCase().includes(friendSearch.toLowerCase())
     );
   }, [friends, friendSearch]);
-
-  const activeFriend = friends.find((f) => f.id === activeFriendId);
 
   // Community handlers
   const handleJoin = (id, e) => {

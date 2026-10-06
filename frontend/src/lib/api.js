@@ -139,3 +139,11 @@ export async function decideApproval(goalId, proofId, { ownerId, status, comment
   });
 }
 
+export async function getChatHistory(peerEmail) {
+  if (!peerEmail) return [];
+  const data = await request(`/chat/messages?peer=${encodeURIComponent(peerEmail.trim())}`, {
+    method: "GET",
+  });
+  return Array.isArray(data) ? data : [];
+}
+
