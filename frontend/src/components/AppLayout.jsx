@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Lock, LogOut, AtSign, Check, Copy, Edit2, X } from "lucide-react";
 import { getUser, clearAuth, updateUserHandle } from "../lib/auth";
 import { updateHandle, getMyProfile } from "../lib/api";
+import { wsManager } from "../lib/websocket";
 
 export default function AppLayout({ children }) {
   const [user, setUser] = useState(() => getUser());
@@ -89,6 +90,13 @@ export default function AppLayout({ children }) {
       const newHandle = res.handle || clean;
       const updated = updateUserHandle(newHandle);
       setUser(updated);
+      wsManager.send({
+        type: "user.online",
+        payload: {
+          email: updated.email || "",
+          handle: newHandle,
+        },
+      });
       setHandleSuccess("Handle updated successfully!");
       setTimeout(() => {
         setShowHandleModal(false);
@@ -104,7 +112,6 @@ export default function AppLayout({ children }) {
     { name: "Dashboard", path: "/dashboard" },
     { name: "My Goals", path: "/goals" },
     { name: "Community & Friends", path: "/community-friends" },
-    { name: "Submit Proof", path: "/submit-proof" },
   ];
 
   const displayHandle = user?.handle ? `@${user.handle}` : "@tag";

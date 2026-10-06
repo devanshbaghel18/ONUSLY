@@ -277,7 +277,7 @@ export default function Goals() {
                           {g.approvalType === "community" ? (
                             <span className="flex items-center gap-1 text-white">
                               <Users size={13} />
-                              Community Quorum
+                              Community
                             </span>
                           ) : g.approvalType === "friend" ? (
                             <span className="flex items-center gap-1 text-white">
@@ -401,7 +401,7 @@ export default function Goals() {
                       </p>
                     </div>
 
-                    {/* 2. Quorum Community */}
+                    {/* 2. Community */}
                     <div
                       onClick={() => setProtocol("community")}
                       className={`cursor-pointer rounded-xl border p-3.5 transition-all ${
@@ -413,11 +413,11 @@ export default function Goals() {
                       <div className="flex items-center gap-1.5">
                         <Users size={14} className="text-white" />
                         <span className="text-xs font-bold text-white">
-                          Quorum Community
+                          Community Group
                         </span>
                       </div>
                       <p className="mt-1 text-[11px] text-[#A3A3A3]">
-                        Release requires peer approvals from members in your community quorum.
+                        Release requires member approvals from friends in your community.
                       </p>
 
                       {protocol === "community" && (

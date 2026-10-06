@@ -24,7 +24,7 @@ export function saveFriends(friends) {
 
 export function addFriend({ name, handle, email, picture }) {
   const list = getStoredFriends();
-  const cleanHandle = handle ? handle.trim().replace(/^@/, "").toLowerCase() : "";
+  const cleanHandle = handle ? handle.replace(/[@\s]/g, "").toLowerCase() : "";
   const trimmedEmail = email ? email.trim().toLowerCase() : "";
   const trimmedName = (name || "").trim() || (cleanHandle ? `@${cleanHandle}` : "Friend");
 
@@ -53,6 +53,26 @@ export function addFriend({ name, handle, email, picture }) {
   return updated;
 }
 
+export function deleteFriend(friendId) {
+  try {
+    const list = getStoredFriends();
+    const updated = list.filter((f) => f.id !== friendId);
+    saveFriends(updated);
+
+    // Clean up chat history with this friend
+    const raw = localStorage.getItem(CHATS_KEY);
+    if (raw) {
+      const allChats = JSON.parse(raw);
+      delete allChats[friendId];
+      localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
+    }
+    return updated;
+  } catch (err) {
+    console.error("Failed to delete friend:", err);
+    return getStoredFriends();
+  }
+}
+
 export function getChatMessages(friendId) {
   try {
     const raw = localStorage.getItem(CHATS_KEY);
@@ -64,16 +84,24 @@ export function getChatMessages(friendId) {
   }
 }
 
-export function sendChatMessage(friendId, text, sender = "me") {
+export function sendChatMessage(friendId, messageData, sender = "me") {
   try {
     const raw = localStorage.getItem(CHATS_KEY);
     const allChats = raw ? JSON.parse(raw) : {};
     const friendMessages = allChats[friendId] || [];
 
+    const isDataObj = typeof messageData === "object" && messageData !== null;
+    const text = isDataObj ? (messageData.text || "") : String(messageData || "");
+
     const newMsg = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: (isDataObj && messageData.id) || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       text: text.trim(),
       sender,
+      isProof: isDataObj ? Boolean(messageData.isProof) : false,
+      goalId: isDataObj ? (messageData.goalId || "") : "",
+      goalTitle: isDataObj ? (messageData.goalTitle || "") : "",
+      images: isDataObj && Array.isArray(messageData.images) ? messageData.images : [],
+      externalLink: isDataObj ? (messageData.externalLink || "") : "",
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
@@ -81,12 +109,13 @@ export function sendChatMessage(friendId, text, sender = "me") {
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
 
     // Also update friend's last message preview
+    const previewText = newMsg.isProof ? `📸 Proof: ${newMsg.goalTitle || "Goal"}` : newMsg.text;
     const friends = getStoredFriends();
     const updatedFriends = friends.map((f) =>
       f.id === friendId
         ? {
             ...f,
-            lastMessage: text.trim(),
+            lastMessage: previewText,
             lastMessageTime: newMsg.time,
           }
         : f
@@ -100,10 +129,10 @@ export function sendChatMessage(friendId, text, sender = "me") {
   }
 }
 
-export function receiveChatMessage({ friendEmail, friendHandle, text, time, sender = "friend", messageId }) {
+export function receiveChatMessage({ friendEmail, friendHandle, friendName, text, time, sender = "friend", messageId, isProof, goalId, goalTitle, images, externalLink }) {
   try {
     const normalizedEmail = friendEmail ? friendEmail.trim().toLowerCase() : "";
-    const cleanHandle = friendHandle ? friendHandle.trim().replace(/^@/, "").toLowerCase() : "";
+    const cleanHandle = friendHandle ? friendHandle.replace(/[@\s]/g, "").toLowerCase() : "";
     let friends = getStoredFriends();
     let friend = friends.find((f) => 
       (cleanHandle && f.handle && f.handle.toLowerCase() === cleanHandle) ||
@@ -112,7 +141,8 @@ export function receiveChatMessage({ friendEmail, friendHandle, text, time, send
 
     // If the friend is not yet in our friend list, automatically add them!
     if (!friend) {
-      const displayName = cleanHandle ? `@${cleanHandle}` : (normalizedEmail ? normalizedEmail.split("@")[0] : "Friend");
+      const fallback = cleanHandle ? `@${cleanHandle}` : (normalizedEmail ? normalizedEmail.split("@")[0] : "Friend");
+      const displayName = friendName ? friendName.trim() : fallback;
       const capitalName = displayName.startsWith("@") ? displayName : displayName.charAt(0).toUpperCase() + displayName.slice(1);
       friend = {
         id: `friend-${Date.now()}`,
@@ -120,7 +150,7 @@ export function receiveChatMessage({ friendEmail, friendHandle, text, time, send
         handle: cleanHandle,
         email: normalizedEmail,
         status: "Active Partner",
-        lastMessage: text,
+        lastMessage: isProof ? `📸 Proof: ${goalTitle || "Goal"}` : (text || "Connected"),
         lastMessageTime: time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       friends = [friend, ...friends];
@@ -139,8 +169,13 @@ export function receiveChatMessage({ friendEmail, friendHandle, text, time, send
 
     const newMsg = {
       id: finalId,
-      text: text.trim(),
+      text: (text || "").trim(),
       sender,
+      isProof: Boolean(isProof),
+      goalId: goalId || "",
+      goalTitle: goalTitle || "",
+      images: Array.isArray(images) ? images : [],
+      externalLink: externalLink || "",
       time: time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
@@ -148,11 +183,12 @@ export function receiveChatMessage({ friendEmail, friendHandle, text, time, send
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
 
     // Update friend's last message preview
+    const previewText = newMsg.isProof ? `📸 Proof: ${newMsg.goalTitle || "Goal"}` : newMsg.text;
     const updatedFriends = friends.map((f) =>
       f.id === friend.id
         ? {
             ...f,
-            lastMessage: text.trim(),
+            lastMessage: previewText,
             lastMessageTime: newMsg.time,
           }
         : f
@@ -164,6 +200,65 @@ export function receiveChatMessage({ friendEmail, friendHandle, text, time, send
     console.error("Failed to receive message:", err);
     return { friend: null, messages: [] };
   }
+}
+
+/**
+ * Deletes a chat message by ID across all chat threads and updates friend previews.
+ * @param {string} messageId
+ * @returns {void}
+ */
+export function deleteChatMessageGlobally(messageId) {
+  try {
+    if (!messageId) return;
+    const raw = localStorage.getItem(CHATS_KEY);
+    if (!raw) return;
+    const allChats = JSON.parse(raw);
+    let changed = false;
+
+    // Remove this message from ALL friend chat threads
+    for (const friendId of Object.keys(allChats)) {
+      const messages = allChats[friendId];
+      if (Array.isArray(messages)) {
+        const filtered = messages.filter((m) => m.id !== messageId);
+        if (filtered.length !== messages.length) {
+          allChats[friendId] = filtered;
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
+
+      // Update lastMessage preview for all friends
+      const friends = getStoredFriends();
+      const updatedFriends = friends.map((f) => {
+        const remaining = allChats[f.id] || [];
+        const lastMsg = remaining.length > 0 ? remaining[remaining.length - 1] : null;
+        if (lastMsg) {
+          const preview = lastMsg.isProof ? `📸 Proof: ${lastMsg.goalTitle || "Goal"}` : lastMsg.text;
+          return {
+            ...f,
+            lastMessage: preview,
+            lastMessageTime: lastMsg.time,
+          };
+        }
+        return {
+          ...f,
+          lastMessage: "",
+          lastMessageTime: "",
+        };
+      });
+      saveFriends(updatedFriends);
+    }
+  } catch (err) {
+    console.error("Failed to delete chat message globally:", err);
+  }
+}
+
+export function deleteChatMessage(friendId, messageId) {
+  deleteChatMessageGlobally(messageId);
+  return getChatMessages(friendId);
 }
 
 export function mergeChatHistory(friendId, serverMessages, currentUserEmail, currentUserHandle) {

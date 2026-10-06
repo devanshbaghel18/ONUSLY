@@ -59,10 +59,14 @@ class WebSocketManager {
         console.log("[WebSocket] Connected to realtime gateway");
 
         const user = getUser();
-        if (user?.email) {
+        if (user) {
+          const cleanH = user.handle ? user.handle.replace(/[@\s]/g, "").toLowerCase() : "";
           this.send({
             type: "user.online",
-            payload: { email: user.email },
+            payload: {
+              email: user.email || "",
+              handle: cleanH,
+            },
           });
         }
       };

@@ -286,7 +286,7 @@ export default function Dashboard() {
 
                         <span className="text-[11px] font-medium text-[#A3A3A3]">
                           {g.approvalType === "community"
-                            ? "Community Quorum"
+                            ? "Community Group"
                             : g.approvalType === "friend"
                             ? "Single Friend"
                             : "Honor System"}

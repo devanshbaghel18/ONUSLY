@@ -123,13 +123,15 @@ func (r *Repository) GetPendingMessages(ctx context.Context, recipientEmail stri
 	out := make([]realtime.StoredMessage, len(msgs))
 	for i, m := range msgs {
 		out[i] = realtime.StoredMessage{
-			ID:             m.ID,
-			SenderEmail:    m.SenderEmail,
-			SenderID:       m.SenderID,
-			RecipientEmail: m.RecipientEmail,
-			Text:           m.Text,
-			Time:           m.Time,
-			Delivered:      m.Delivered,
+			ID:              m.ID,
+			SenderEmail:     m.SenderEmail,
+			SenderHandle:    m.SenderHandle,
+			SenderID:        m.SenderID,
+			RecipientEmail:  m.RecipientEmail,
+			RecipientHandle: m.RecipientHandle,
+			Text:            m.Text,
+			Time:            m.Time,
+			Delivered:       m.Delivered,
 		}
 	}
 
@@ -224,4 +226,39 @@ func (r *Repository) GetConversationHistory(ctx context.Context, userEmail, peer
 	}
 
 	return msgs, nil
+}
+
+// DeleteMessage removes a message by ID from DynamoDB so offline recipients won't receive it.
+func (r *Repository) DeleteMessage(ctx context.Context, msgID string) error {
+	normID := strings.TrimSpace(msgID)
+	if normID == "" {
+		return nil
+	}
+
+	result, err := r.db.Scan(ctx, &dynamodb.ScanInput{
+		TableName:        aws.String(r.tableName),
+		FilterExpression: aws.String("ID = :id"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":id": &types.AttributeValueMemberS{Value: normID},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, item := range result.Items {
+		pk := item["PK"]
+		sk := item["SK"]
+		if pk != nil && sk != nil {
+			_, _ = r.db.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+				TableName: aws.String(r.tableName),
+				Key: map[string]types.AttributeValue{
+					"PK": pk,
+					"SK": sk,
+				},
+			})
+		}
+	}
+
+	return nil
 }
