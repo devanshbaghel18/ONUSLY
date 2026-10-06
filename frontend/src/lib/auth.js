@@ -28,11 +28,13 @@ export function getUser() {
           user = {
             id: payload.sub,
             email: payload.email,
+            handle: payload.handle || (payload.email ? payload.email.split("@")[0] : ""),
             name: payload.name || (payload.email ? payload.email.split("@")[0] : "User"),
           };
         } else {
           if (!user.email && payload.email) user.email = payload.email;
           if (!user.id && payload.sub) user.id = payload.sub;
+          if (!user.handle && payload.handle) user.handle = payload.handle;
         }
       }
     } catch {
@@ -40,6 +42,14 @@ export function getUser() {
     }
   }
 
+  return user;
+}
+
+export function updateUserHandle(newHandle) {
+  const clean = (newHandle || "").trim().replace(/^@/, "");
+  let user = getUser() || {};
+  user.handle = clean;
+  localStorage.setItem("user", JSON.stringify(user));
   return user;
 }
 

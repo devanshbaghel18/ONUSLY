@@ -136,9 +136,9 @@ export default function Sidebar({ isOpen, onClose }) {
                 <p className="truncate text-xs font-semibold text-white">
                   {user?.name || "Account"}
                 </p>
-                <span className="text-[10px] text-[#737373] uppercase tracking-wider">
-                  Active Member
-                </span>
+                <p className="truncate font-mono text-[11px] text-[#A3A3A3]">
+                  {user?.handle ? `@${user.handle}` : "@tag"}
+                </p>
               </div>
             </div>
 

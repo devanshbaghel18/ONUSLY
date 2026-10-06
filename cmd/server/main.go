@@ -51,20 +51,23 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// DynamoDB
+	db := shared.NewDynamoClient()
+
+	// Auth repository, service & handler
+	authRepo := auth.NewRepository()
+	authService := auth.NewService(authRepo, cfg)
+	authHandler := auth.NewHandler(authService)
+
 	// Public routes
 	mux.HandleFunc("GET /health", health)
-	auth.RegisterRoutes(mux)
+	mux.HandleFunc("POST /auth/google", authHandler.GoogleLogin)
+	mux.HandleFunc("GET /auth/google/callback", authHandler.GoogleCallback)
 
 	// Real-time WebSocket Hub
 	wsHub := realtime.NewHub()
 	mux.HandleFunc("GET /ws", realtime.ServeWS(wsHub, cfg.JWTSecret))
 	mux.HandleFunc("GET /ws/", realtime.ServeWS(wsHub, cfg.JWTSecret))
-
-	// DynamoDB
-	db := shared.NewDynamoClient()
-
-	// Auth repository
-	authRepo := auth.NewRepository()
 
 	// Goals
 	goalRepo := goals.NewRepository(db, "Onusly")
@@ -176,6 +179,22 @@ func main() {
 		approvalHandler.GetByID,
 	)
 
+	// Users & Public Profiles
+	goalRoutes.HandleFunc(
+		"GET /users/search",
+		authHandler.LookupUser,
+	)
+
+	goalRoutes.HandleFunc(
+		"PATCH /users/handle",
+		authHandler.UpdateHandle,
+	)
+
+	goalRoutes.HandleFunc(
+		"GET /users/me",
+		authHandler.GetMe,
+	)
+
 	// JWT authentication for all protected routes
 	protectedRoutes := middleware.Auth(cfg.JWTSecret)(goalRoutes)
 
@@ -183,6 +202,8 @@ func main() {
 	mux.Handle("/goals/", protectedRoutes)
 	mux.Handle("/chat", protectedRoutes)
 	mux.Handle("/chat/", protectedRoutes)
+	mux.Handle("/users", protectedRoutes)
+	mux.Handle("/users/", protectedRoutes)
 
 	log.Println("Server running on :8080")
 

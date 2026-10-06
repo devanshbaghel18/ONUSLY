@@ -69,6 +69,9 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 			if email, ok := claims["email"].(string); ok && email != "" {
 				ctx = context.WithValue(ctx, UserEmailKey, strings.ToLower(strings.TrimSpace(email)))
 			}
+			if handle, ok := claims["handle"].(string); ok && handle != "" {
+				ctx = context.WithValue(ctx, UserHandleKey, strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@")))
+			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -76,8 +79,10 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 }
 
 type emailContextKey string
+type handleContextKey string
 
 const UserEmailKey emailContextKey = "user_email"
+const UserHandleKey handleContextKey = "user_handle"
 
 func GetUserID(ctx context.Context) (string, bool) {
 	userID, ok := ctx.Value(UserIDKey).(string)
@@ -88,3 +93,9 @@ func GetUserEmail(ctx context.Context) (string, bool) {
 	email, ok := ctx.Value(UserEmailKey).(string)
 	return email, ok
 }
+
+func GetUserHandle(ctx context.Context) (string, bool) {
+	handle, ok := ctx.Value(UserHandleKey).(string)
+	return handle, ok
+}
+

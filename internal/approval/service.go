@@ -89,8 +89,10 @@ func (s *Service) Decide(
 
 	// 2. Goal must have a valid configured approver and caller must match.
 	callerEmail, _ := middleware.GetUserEmail(ctx)
+	callerHandle, _ := middleware.GetUserHandle(ctx)
 	isAuthorized := (goal.ApproverID != "" && goal.ApproverID == approverID) ||
-		(goal.ApproverEmail != "" && callerEmail != "" && strings.EqualFold(goal.ApproverEmail, callerEmail))
+		(goal.ApproverEmail != "" && callerEmail != "" && strings.EqualFold(goal.ApproverEmail, callerEmail)) ||
+		(goal.ApproverEmail != "" && callerHandle != "" && (strings.EqualFold(goal.ApproverEmail, "@"+callerHandle) || strings.EqualFold(goal.ApproverEmail, callerHandle)))
 
 	if !isAuthorized {
 		return nil, ErrUnauthorized
