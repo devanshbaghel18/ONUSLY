@@ -66,16 +66,18 @@ func (s *Service) GetByID(
 	ownerID string,
 	goalID string,
 ) (*Goal, error) {
-
-	if ownerID == "" {
-		return nil, errors.New("owner ID is required")
-	}
-
 	if goalID == "" {
 		return nil, errors.New("goal ID is required")
 	}
 
-	return s.repo.GetByID(ctx, ownerID, goalID)
+	if ownerID != "" {
+		goal, err := s.repo.GetByID(ctx, ownerID, goalID)
+		if err == nil && goal != nil {
+			return goal, nil
+		}
+	}
+
+	return s.repo.FindByID(ctx, goalID)
 }
 
 func (s *Service) List(

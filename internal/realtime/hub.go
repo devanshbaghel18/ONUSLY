@@ -91,6 +91,26 @@ func (h *Hub) Unregister(c *Client) {
 	close(c.send)
 }
 
+// Broadcast sends an event to all connected clients across the entire hub.
+func (h *Hub) Broadcast(event Event) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, conns := range h.users {
+		for client := range conns {
+			select {
+			case client.send <- data:
+			default:
+			}
+		}
+	}
+}
+
 // SendToUser dispatches an Event to all active WebSocket connections for a given user ID.
 func (h *Hub) SendToUser(userID string, event Event) error {
 	data, err := json.Marshal(event)
@@ -177,6 +197,14 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			h.mu.Unlock()
 			log.Printf("[WebSocket] Presence confirmed: user %s registered email %s", c.userID, normalized)
 		}
+
+	case "presence.query":
+		c.SendEvent(Event{
+			Type: "presence.list",
+			Payload: map[string]interface{}{
+				"onlineEmails": h.GetOnlineEmails(),
+			},
+		})
 
 	case "chat.message":
 		var req struct {

@@ -69,8 +69,9 @@ export async function getGoals() {
   return Array.isArray(data) ? data : [];
 }
 
-export async function getGoal(goalId) {
-  return request(`/goals/${encodeURIComponent(goalId)}`, {
+export async function getGoal(goalId, ownerId = "") {
+  const query = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : "";
+  return request(`/goals/${encodeURIComponent(goalId)}${query}`, {
     method: "GET",
   });
 }
@@ -119,8 +120,9 @@ export async function submitProof(goalId, { proofType = "text", textExplanation 
   });
 }
 
-export async function getProofs(goalId) {
-  const data = await request(`/goals/${encodeURIComponent(goalId)}/proofs`, {
+export async function getProofs(goalId, ownerId = "") {
+  const query = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : "";
+  const data = await request(`/goals/${encodeURIComponent(goalId)}/proofs${query}`, {
     method: "GET",
   });
   return Array.isArray(data) ? data : [];

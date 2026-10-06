@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
   Target,
@@ -21,21 +21,65 @@ import {
   ThumbsUp,
   ThumbsDown,
   FileText,
+  Share2,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
 import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval } from "../lib/api";
+import { useWebSocket } from "../hooks/useWebSocket";
 
 import AppLayout from "../components/AppLayout";
 
 export default function GoalDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const ownerIdParam = searchParams.get("ownerId") || "";
   const [user] = useState(() => getUser());
 
   const [goal, setGoal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [successNotice, setSuccessNotice] = useState("");
+  const [unlockBanner, setUnlockBanner] = useState(null);
+
+  // Subscribe to real-time WebSocket events for instant unlock sync
+  const { isConnected } = useWebSocket((event) => {
+    if (event?.type === "goal.unlocked") {
+      const payload = event.payload || {};
+      if (String(payload.goalId) === String(id)) {
+        console.log("[GoalDetail] Real-time goal unlock received:", payload);
+
+        // 1. Instantly flip the goal status to "completed" in local state
+        setGoal((prev) => (prev ? { ...prev, status: "completed" } : prev));
+
+        // 2. Mark any pending proofs as approved
+        setProofs((prev) =>
+          prev.map((p) =>
+            p.status === "pending" || p.status === "proof_submitted" ? { ...p, status: "approved" } : p
+          )
+        );
+
+        // 3. Display celebratory real-time unlock banner
+        setUnlockBanner({
+          goalId: payload.goalId,
+          title: payload.title || goal?.title || "Your Goal",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        });
+
+        // 4. Background re-fetch to ensure full synchronization
+        getGoal(id, ownerIdParam)
+          .then((fresh) => {
+            if (fresh) setGoal(fresh);
+          })
+          .catch(() => {});
+        getProofs(id, ownerIdParam)
+          .then((fresh) => {
+            if (fresh) setProofs(fresh);
+          })
+          .catch(() => {});
+      }
+    }
+  });
 
   // Edit Goal Title/Description state
   const [isEditingGoal, setIsEditingGoal] = useState(false);
@@ -51,6 +95,7 @@ export default function GoalDetail() {
   const [savingAccountability, setSavingAccountability] = useState(false);
   const [accountabilityNotice, setAccountabilityNotice] = useState("");
   const [accountabilityError, setAccountabilityError] = useState("");
+  const [copiedReviewLink, setCopiedReviewLink] = useState(false);
 
   // Proofs & Decision State
   const [proofs, setProofs] = useState([]);
@@ -64,7 +109,7 @@ export default function GoalDetail() {
   useEffect(() => {
     let ignore = false;
 
-    getGoal(id)
+    getGoal(id, ownerIdParam)
       .then((data) => {
         if (!ignore && data) {
           setGoal(data);
@@ -84,7 +129,7 @@ export default function GoalDetail() {
         if (!ignore) setLoading(false);
       });
 
-    getProofs(id)
+    getProofs(id, ownerIdParam)
       .then((data) => {
         if (!ignore) setProofs(data);
       })
@@ -98,7 +143,7 @@ export default function GoalDetail() {
     return () => {
       ignore = true;
     };
-  }, [id]);
+  }, [id, ownerIdParam]);
 
   // Handle Approver Decision (Approve or Reject)
   const handleDecideApproval = async (proofId, status) => {
@@ -121,9 +166,9 @@ export default function GoalDetail() {
       );
 
       // Refresh goal and proofs to reflect new status
-      const updatedGoal = await getGoal(id);
+      const updatedGoal = await getGoal(id, ownerIdParam || goal.ownerId);
       setGoal(updatedGoal);
-      const updatedProofs = await getProofs(id);
+      const updatedProofs = await getProofs(id, ownerIdParam || goal.ownerId);
       setProofs(updatedProofs);
       setDecisionComment("");
     } catch (err) {
@@ -256,8 +301,68 @@ export default function GoalDetail() {
             <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" />
             <span>Back to Goals</span>
           </Link>
-          <span className="text-xs font-semibold text-[#8E8E8E]">Goal ID: {id}</span>
+          <div className="flex items-center gap-2.5">
+            {goal?.ownerId && (
+              <button
+                type="button"
+                onClick={() => {
+                  const link = `${window.location.origin}/goals/${id}?ownerId=${encodeURIComponent(goal.ownerId)}`;
+                  navigator.clipboard.writeText(link);
+                  setCopiedReviewLink(true);
+                  setTimeout(() => setCopiedReviewLink(false), 2500);
+                }}
+                className="flex items-center gap-1.5 rounded-xl border border-[#777777] bg-[#292929] px-3 py-1 text-[11px] font-semibold text-white hover:border-white transition"
+                title="Copy direct verification link for your assigned approver"
+              >
+                <Share2 size={12} className="text-emerald-400" />
+                <span>{copiedReviewLink ? "Link Copied! ✓" : "Share with Approver"}</span>
+              </button>
+            )}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                isConnected
+                  ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border border-neutral-700 bg-neutral-800 text-neutral-400"
+              }`}
+              title={isConnected ? "Real-Time WebSocket Connected" : "Connecting to real-time gateway..."}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-400 animate-pulse" : "bg-neutral-500"}`} />
+              <span>{isConnected ? "Live Sync Active" : "Connecting..."}</span>
+            </span>
+            <span className="text-xs font-semibold text-[#8E8E8E]">Goal ID: {id}</span>
+          </div>
         </div>
+
+        {/* Real-time Unlock Celebration Banner */}
+        {unlockBanner && (
+          <div className="relative mb-6 overflow-hidden rounded-2xl border border-emerald-500/50 bg-gradient-to-r from-emerald-950/80 via-[#22382e] to-emerald-950/80 p-5 text-white shadow-[0_10px_40px_rgba(16,185,129,0.25)] animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300">
+                  <ShieldCheck size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                      Goal Completed & Unlocked Live!
+                    </span>
+                    <span className="text-[10px] text-emerald-300/70">{unlockBanner.time}</span>
+                  </div>
+                  <p className="mt-0.5 text-sm font-semibold text-white">
+                    "{unlockBanner.title}" has been reviewed, approved, and unlocked in real time!
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUnlockBanner(null)}
+                className="rounded-lg p-1 text-emerald-400 hover:bg-emerald-900/50 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
           {/* Notifications */}
           {successNotice && (
             <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/30 px-5 py-3.5 text-sm text-emerald-300 shadow-lg">
@@ -613,7 +718,7 @@ export default function GoalDetail() {
                   3. PROOF & VERIFICATION TIMELINE PREVIEW
               ===================================================== */}
               <div className="rounded-[28px] border border-[#777777]/70 bg-[#3A3A3A] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.4)] sm:p-8">
-                <div className="flex items-center justify-between border-b border-[#777777]/30 pb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#777777]/30 pb-4">
                   <div className="flex items-center gap-2.5">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#292929] border border-[#777777] text-white">
                       <Send size={16} />
@@ -625,6 +730,31 @@ export default function GoalDetail() {
                       </p>
                     </div>
                   </div>
+
+                  {goal?.approverEmail && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const link = `${window.location.origin}/goals/${id}${goal?.ownerId ? `?ownerId=${goal.ownerId}` : ""}`;
+                        navigator.clipboard.writeText(link);
+                        setCopiedReviewLink(true);
+                        setTimeout(() => setCopiedReviewLink(false), 2500);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#777777] bg-[#292929] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#3A3A3A] transition shadow-sm"
+                    >
+                      {copiedReviewLink ? (
+                        <>
+                          <Check size={14} className="text-emerald-400" />
+                          <span className="text-emerald-400">Review Link Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <ExternalLink size={14} />
+                          <span>Share Review Link</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 {decisionSuccess && (

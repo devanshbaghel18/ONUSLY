@@ -29,7 +29,7 @@ function CursorGlow() {
 function App() {
   const clientId =
     import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-    '24284302254-n26lia4s6vi33koas28u1i26ejimdfp3.apps.googleusercontent.com';
+    '316293252544-c8s2tsrvd4g8tj0fv4f4hgavrtm44jg8.apps.googleusercontent.com';
 
   return (
     <GoogleOAuthProvider clientId={clientId}>

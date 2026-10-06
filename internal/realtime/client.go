@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"encoding/json"
 	"log"
 	"strings"
 	"time"
@@ -39,6 +40,18 @@ func NewClient(hub *Hub, conn *websocket.Conn, userID string, email string) *Cli
 		userID: userID,
 		email:  strings.TrimSpace(strings.ToLower(email)),
 		send:   make(chan []byte, 64),
+	}
+}
+
+// SendEvent serializes and sends an Event directly to this client.
+func (c *Client) SendEvent(event Event) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
 	}
 }
 

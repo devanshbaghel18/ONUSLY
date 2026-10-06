@@ -292,3 +292,45 @@ func TestChatRouting_EndToEnd(t *testing.T) {
 	}
 }
 
+func TestPresenceQuery(t *testing.T) {
+	jwtSecret := "test-presence-secret"
+	hub := NewHub()
+
+	server := httptest.NewServer(ServeWS(hub, jwtSecret))
+	defer server.Close()
+
+	claims := jwt.MapClaims{
+		"sub":   "alice-presence-id",
+		"email": "alice@test.com",
+		"exp":   time.Now().Add(1 * time.Hour).Unix(),
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenAlice, _ := tok.SignedString([]byte(jwtSecret))
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?token=" + tokenAlice
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("failed to dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	// Query presence
+	queryMsg := map[string]interface{}{
+		"type": "presence.query",
+	}
+	if err := conn.WriteJSON(queryMsg); err != nil {
+		t.Fatalf("failed to send presence query: %v", err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, respBytes, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read presence response: %v", err)
+	}
+
+	respStr := string(respBytes)
+	if !strings.Contains(respStr, "presence.list") || !strings.Contains(respStr, "alice@test.com") {
+		t.Fatalf("unexpected presence list response: %s", respStr)
+	}
+}
+

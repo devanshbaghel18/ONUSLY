@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
+	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/proof"
 	"github.com/google/uuid"
 )
@@ -87,7 +88,11 @@ func (s *Service) Decide(
 	}
 
 	// 2. Goal must have a valid configured approver and caller must match.
-	if goal.ApproverID == "" || goal.ApproverID != approverID {
+	callerEmail, _ := middleware.GetUserEmail(ctx)
+	isAuthorized := (goal.ApproverID != "" && goal.ApproverID == approverID) ||
+		(goal.ApproverEmail != "" && callerEmail != "" && strings.EqualFold(goal.ApproverEmail, callerEmail))
+
+	if !isAuthorized {
 		return nil, ErrUnauthorized
 	}
 
