@@ -11,7 +11,6 @@ async function request(endpoint, options = {}) {
   const token = getToken();
   const headers = {
     "Content-Type": "application/json",
-    "Bypass-Tunnel-Reminder": "true",
     ...options.headers,
   };
 

@@ -518,7 +518,8 @@ the proof/approval workflow.
 ## Production
 
 The backend can be deployed as a Go binary under systemd, with Nginx
-acting as the reverse proxy.
+acting as the reverse proxy. An Nginx configuration template with WebSocket
+upgrade proxy headers (`Upgrade` / `Connection`) is located at `deploy/nginx/onusly.conf`.
 
 Production architecture:
 
@@ -526,10 +527,11 @@ Production architecture:
 Internet
    |
    v
-Nginx :80
+Nginx :80 / :443 (HTTP + WebSocket reverse proxy)
    |
-   v
-Go API :8080
+   +---> /ws       --> Go WebSocket Gateway (:8080)
+   +---> /goals... --> Go REST API (:8080)
+   +---> /         --> Static SPA Assets (/var/www/onusly/frontend/dist)
    |
    v
 DynamoDB
