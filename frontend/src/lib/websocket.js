@@ -1,4 +1,4 @@
-import { getToken, getUser, isAuthenticated } from "./auth";
+import { getToken, getUser, isAuthenticated, registerAuthCleanup } from "./auth";
 
 function getWebSocketBaseUrl() {
   if (import.meta.env.VITE_WS_BASE_URL) {
@@ -172,3 +172,8 @@ class WebSocketManager {
 }
 
 export const wsManager = new WebSocketManager();
+
+// Automatically disconnect WebSocket when user logs out or session expires
+registerAuthCleanup(() => {
+  wsManager.disconnect();
+});

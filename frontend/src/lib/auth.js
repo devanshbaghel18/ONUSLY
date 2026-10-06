@@ -52,9 +52,25 @@ export function setAuth(token, user) {
   }
 }
 
+let authCleanupHandlers = new Set();
+
+export function registerAuthCleanup(handler) {
+  if (typeof handler === "function") {
+    authCleanupHandlers.add(handler);
+  }
+}
+
 export function clearAuth() {
   localStorage.removeItem("token");
   localStorage.removeItem("user");
+
+  authCleanupHandlers.forEach((handler) => {
+    try {
+      handler();
+    } catch (err) {
+      console.warn("[Auth] Cleanup handler failed:", err);
+    }
+  });
 }
 
 export function isAuthenticated() {
