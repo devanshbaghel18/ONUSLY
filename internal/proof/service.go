@@ -138,6 +138,20 @@ func (s *Service) ListByGoal(
 	ownerID string,
 	goalID string,
 ) ([]Proof, error) {
+	if ownerID == "" {
+		g, err := s.goalService.GetByID(ctx, "", goalID)
+		if err == nil && g != nil {
+			ownerID = g.OwnerID
+		}
+	}
 
-	return s.repo.ListByGoal(ctx, ownerID, goalID)
+	proofs, err := s.repo.ListByGoal(ctx, ownerID, goalID)
+	if (err != nil || len(proofs) == 0) && goalID != "" {
+		g, gErr := s.goalService.GetByID(ctx, "", goalID)
+		if gErr == nil && g != nil && g.OwnerID != ownerID {
+			return s.repo.ListByGoal(ctx, g.OwnerID, goalID)
+		}
+	}
+
+	return proofs, err
 }

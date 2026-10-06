@@ -219,3 +219,118 @@ func TestServeWS_EndToEnd(t *testing.T) {
 		t.Fatalf("unexpected message content received: %s", string(msg))
 	}
 }
+
+func TestChatRouting_EndToEnd(t *testing.T) {
+	hub := NewHub()
+	handler := ServeWS(hub, testSecret)
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	u, _ := url.Parse(server.URL)
+	u.Scheme = "ws"
+
+	// Alice token
+	aliceClaims := jwt.MapClaims{
+		"sub":   "alice-id",
+		"email": "alice@example.com",
+		"exp":   time.Now().Add(1 * time.Hour).Unix(),
+	}
+	tokA := jwt.NewWithClaims(jwt.SigningMethodHS256, aliceClaims)
+	aliceToken, _ := tokA.SignedString([]byte(testSecret))
+
+	// Bob token
+	bobClaims := jwt.MapClaims{
+		"sub":   "bob-id",
+		"email": "bob@example.com",
+		"exp":   time.Now().Add(1 * time.Hour).Unix(),
+	}
+	tokB := jwt.NewWithClaims(jwt.SigningMethodHS256, bobClaims)
+	bobToken, _ := tokB.SignedString([]byte(testSecret))
+
+	// Connect Alice
+	connAlice, _, err := websocket.DefaultDialer.Dial(u.String()+"?token="+aliceToken, nil)
+	if err != nil {
+		t.Fatalf("failed to dial Alice: %v", err)
+	}
+	defer connAlice.Close()
+
+	// Connect Bob
+	connBob, _, err := websocket.DefaultDialer.Dial(u.String()+"?token="+bobToken, nil)
+	if err != nil {
+		t.Fatalf("failed to dial Bob: %v", err)
+	}
+	defer connBob.Close()
+
+	time.Sleep(50 * time.Millisecond)
+	if !hub.IsEmailOnline("alice@example.com") || !hub.IsEmailOnline("bob@example.com") {
+		t.Fatalf("expected both Alice and Bob to be online")
+	}
+
+	// Alice sends a chat message to Bob
+	chatMsg := map[string]interface{}{
+		"type": "chat.message",
+		"payload": map[string]string{
+			"recipientEmail": "bob@example.com",
+			"text":           "hello from Alice!",
+		},
+	}
+	if err := connAlice.WriteJSON(chatMsg); err != nil {
+		t.Fatalf("failed to write chat message from Alice: %v", err)
+	}
+
+	// Bob reads the message
+	_ = connBob.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msgBob, err := connBob.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read message on Bob's socket: %v", err)
+	}
+
+	receivedStr := string(msgBob)
+	if !strings.Contains(receivedStr, "hello from Alice!") || !strings.Contains(receivedStr, "alice@example.com") {
+		t.Fatalf("unexpected message on Bob: %s", receivedStr)
+	}
+}
+
+func TestPresenceQuery(t *testing.T) {
+	jwtSecret := "test-presence-secret"
+	hub := NewHub()
+
+	server := httptest.NewServer(ServeWS(hub, jwtSecret))
+	defer server.Close()
+
+	claims := jwt.MapClaims{
+		"sub":   "alice-presence-id",
+		"email": "alice@test.com",
+		"exp":   time.Now().Add(1 * time.Hour).Unix(),
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenAlice, _ := tok.SignedString([]byte(jwtSecret))
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?token=" + tokenAlice
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("failed to dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	// Query presence
+	queryMsg := map[string]interface{}{
+		"type": "presence.query",
+	}
+	if err := conn.WriteJSON(queryMsg); err != nil {
+		t.Fatalf("failed to send presence query: %v", err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, respBytes, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read presence response: %v", err)
+	}
+
+	respStr := string(respBytes)
+	if !strings.Contains(respStr, "presence.list") || !strings.Contains(respStr, "alice@test.com") {
+		t.Fatalf("unexpected presence list response: %s", respStr)
+	}
+}
+

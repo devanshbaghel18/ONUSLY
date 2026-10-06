@@ -19,9 +19,15 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// ExtractAndValidateToken extracts the JWT from query param "token" or "Authorization" header
-// and validates it against the provided HS256 secret.
-func ExtractAndValidateToken(r *http.Request, jwtSecret string) (string, error) {
+// AuthUser represents the authenticated identity extracted from a JWT.
+type AuthUser struct {
+	ID    string
+	Email string
+}
+
+// ExtractAndValidateAuthUser extracts the JWT from query param "token" or "Authorization" header
+// and validates it against the provided HS256 secret, returning the authenticated user details.
+func ExtractAndValidateAuthUser(r *http.Request, jwtSecret string) (*AuthUser, error) {
 	tokenString := r.URL.Query().Get("token")
 	if tokenString == "" {
 		authHeader := r.Header.Get("Authorization")
@@ -32,7 +38,7 @@ func ExtractAndValidateToken(r *http.Request, jwtSecret string) (string, error) 
 
 	tokenString = strings.TrimSpace(tokenString)
 	if tokenString == "" {
-		return "", errors.New("missing authentication token")
+		return nil, errors.New("missing authentication token")
 	}
 
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
@@ -44,34 +50,48 @@ func ExtractAndValidateToken(r *http.Request, jwtSecret string) (string, error) 
 
 	if err != nil || !token.Valid {
 		if errors.Is(err, jwt.ErrTokenExpired) {
-			return "", errors.New("token expired")
+			return nil, errors.New("token expired")
 		}
-		return "", errors.New("invalid token")
+		return nil, errors.New("invalid token")
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", errors.New("invalid token claims")
+		return nil, errors.New("invalid token claims")
 	}
 
 	userID, ok := claims["sub"].(string)
 	if !ok || strings.TrimSpace(userID) == "" {
-		return "", errors.New("user ID missing from token claims")
+		return nil, errors.New("user ID missing from token claims")
 	}
+
+	email, _ := claims["email"].(string)
 
 	if exp, ok := claims["exp"].(float64); ok {
 		if time.Now().Unix() > int64(exp) {
-			return "", errors.New("token expired")
+			return nil, errors.New("token expired")
 		}
 	}
 
-	return userID, nil
+	return &AuthUser{
+		ID:    strings.TrimSpace(userID),
+		Email: strings.TrimSpace(strings.ToLower(email)),
+	}, nil
+}
+
+// ExtractAndValidateToken is kept for backward-compatibility with tests.
+func ExtractAndValidateToken(r *http.Request, jwtSecret string) (string, error) {
+	user, err := ExtractAndValidateAuthUser(r, jwtSecret)
+	if err != nil {
+		return "", err
+	}
+	return user.ID, nil
 }
 
 // ServeWS handles WebSocket connection upgrade requests.
 func ServeWS(hub *Hub, jwtSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := ExtractAndValidateToken(r, jwtSecret)
+		user, err := ExtractAndValidateAuthUser(r, jwtSecret)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
@@ -83,7 +103,7 @@ func ServeWS(hub *Hub, jwtSecret string) http.HandlerFunc {
 			return
 		}
 
-		client := NewClient(hub, conn, userID)
+		client := NewClient(hub, conn, user.ID, user.Email)
 		hub.Register(client)
 
 		// Start reader and writer pumps

@@ -17,6 +17,7 @@ import {
 import { getGoals, createGoal, updateGoal, deleteGoal } from "../lib/api";
 import { getStoredCommunities } from "../lib/communities";
 import { getUser } from "../lib/auth";
+import { useWebSocket } from "../hooks/useWebSocket";
 
 const APPS_TO_BLOCK = [
   { id: "youtube", label: "YouTube" },
@@ -48,6 +49,18 @@ export default function Goals() {
   const [formError, setFormError] = useState("");
 
   const communities = getStoredCommunities();
+
+  useWebSocket((event) => {
+    if (event?.type === "goal.unlocked") {
+      const payload = event.payload || {};
+      setGoals((prev) =>
+        prev.map((g) => (g.id === payload.goalId ? { ...g, status: "completed" } : g))
+      );
+      setSuccessNotice(`🎉 Real-time: "${payload.title || "Goal"}" was approved and unlocked!`);
+      setTimeout(() => setSuccessNotice(""), 6000);
+      getGoals().then((data) => setGoals(data)).catch(() => {});
+    }
+  });
 
   useEffect(() => {
     let ignore = false;

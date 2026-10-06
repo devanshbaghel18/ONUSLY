@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
   Target,
@@ -17,21 +17,69 @@ import {
   Mail,
   Send,
   HelpCircle,
+  ExternalLink,
+  ThumbsUp,
+  ThumbsDown,
+  FileText,
+  Share2,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
-import { getGoal, updateGoal, deleteGoal } from "../lib/api";
+import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval } from "../lib/api";
+import { useWebSocket } from "../hooks/useWebSocket";
 
 import AppLayout from "../components/AppLayout";
 
 export default function GoalDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const ownerIdParam = searchParams.get("ownerId") || "";
   const [user] = useState(() => getUser());
 
   const [goal, setGoal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [successNotice, setSuccessNotice] = useState("");
+  const [unlockBanner, setUnlockBanner] = useState(null);
+
+  // Subscribe to real-time WebSocket events for instant unlock sync
+  const { isConnected } = useWebSocket((event) => {
+    if (event?.type === "goal.unlocked") {
+      const payload = event.payload || {};
+      if (String(payload.goalId) === String(id)) {
+        console.log("[GoalDetail] Real-time goal unlock received:", payload);
+
+        // 1. Instantly flip the goal status to "completed" in local state
+        setGoal((prev) => (prev ? { ...prev, status: "completed" } : prev));
+
+        // 2. Mark any pending proofs as approved
+        setProofs((prev) =>
+          prev.map((p) =>
+            p.status === "pending" || p.status === "proof_submitted" ? { ...p, status: "approved" } : p
+          )
+        );
+
+        // 3. Display celebratory real-time unlock banner
+        setUnlockBanner({
+          goalId: payload.goalId,
+          title: payload.title || goal?.title || "Your Goal",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        });
+
+        // 4. Background re-fetch to ensure full synchronization
+        getGoal(id, ownerIdParam)
+          .then((fresh) => {
+            if (fresh) setGoal(fresh);
+          })
+          .catch(() => {});
+        getProofs(id, ownerIdParam)
+          .then((fresh) => {
+            if (fresh) setProofs(fresh);
+          })
+          .catch(() => {});
+      }
+    }
+  });
 
   // Edit Goal Title/Description state
   const [isEditingGoal, setIsEditingGoal] = useState(false);
@@ -47,12 +95,21 @@ export default function GoalDetail() {
   const [savingAccountability, setSavingAccountability] = useState(false);
   const [accountabilityNotice, setAccountabilityNotice] = useState("");
   const [accountabilityError, setAccountabilityError] = useState("");
+  const [copiedReviewLink, setCopiedReviewLink] = useState(false);
 
-  // Load Goal
+  // Proofs & Decision State
+  const [proofs, setProofs] = useState([]);
+  const [loadingProofs, setLoadingProofs] = useState(true);
+  const [decidingProofId, setDecidingProofId] = useState(null);
+  const [decisionComment, setDecisionComment] = useState("");
+  const [decisionError, setDecisionError] = useState("");
+  const [decisionSuccess, setDecisionSuccess] = useState("");
+
+  // Load Goal & Proofs
   useEffect(() => {
     let ignore = false;
 
-    getGoal(id)
+    getGoal(id, ownerIdParam)
       .then((data) => {
         if (!ignore && data) {
           setGoal(data);
@@ -72,10 +129,55 @@ export default function GoalDetail() {
         if (!ignore) setLoading(false);
       });
 
+    getProofs(id, ownerIdParam)
+      .then((data) => {
+        if (!ignore) setProofs(data);
+      })
+      .catch((err) => {
+        console.error("Failed to load proofs:", err);
+      })
+      .finally(() => {
+        if (!ignore) setLoadingProofs(false);
+      });
+
     return () => {
       ignore = true;
     };
-  }, [id]);
+  }, [id, ownerIdParam]);
+
+  // Handle Approver Decision (Approve or Reject)
+  const handleDecideApproval = async (proofId, status) => {
+    if (!goal) return;
+    setDecisionError("");
+    setDecisionSuccess("");
+    setDecidingProofId(proofId);
+
+    try {
+      await decideApproval(id, proofId, {
+        ownerId: goal.ownerId,
+        status,
+        comment: decisionComment,
+      });
+
+      setDecisionSuccess(
+        status === "approved"
+          ? "🎉 Proof approved successfully! The goal is unlocked and constraints released."
+          : "Proof rejected. The goal has returned to active status."
+      );
+
+      // Refresh goal and proofs to reflect new status
+      const updatedGoal = await getGoal(id, ownerIdParam || goal.ownerId);
+      setGoal(updatedGoal);
+      const updatedProofs = await getProofs(id, ownerIdParam || goal.ownerId);
+      setProofs(updatedProofs);
+      setDecisionComment("");
+    } catch (err) {
+      console.error("Failed to decide approval:", err);
+      setDecisionError(err.message || "Failed to submit decision");
+    } finally {
+      setDecidingProofId(null);
+    }
+  };
 
   // Handle Save Goal Edit (Title / Description)
   const handleSaveGoalInfo = async (e) => {
@@ -199,8 +301,68 @@ export default function GoalDetail() {
             <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" />
             <span>Back to Goals</span>
           </Link>
-          <span className="text-xs font-semibold text-[#8E8E8E]">Goal ID: {id}</span>
+          <div className="flex items-center gap-2.5">
+            {goal?.ownerId && (
+              <button
+                type="button"
+                onClick={() => {
+                  const link = `${window.location.origin}/goals/${id}?ownerId=${encodeURIComponent(goal.ownerId)}`;
+                  navigator.clipboard.writeText(link);
+                  setCopiedReviewLink(true);
+                  setTimeout(() => setCopiedReviewLink(false), 2500);
+                }}
+                className="flex items-center gap-1.5 rounded-xl border border-[#777777] bg-[#292929] px-3 py-1 text-[11px] font-semibold text-white hover:border-white transition"
+                title="Copy direct verification link for your assigned approver"
+              >
+                <Share2 size={12} className="text-emerald-400" />
+                <span>{copiedReviewLink ? "Link Copied! ✓" : "Share with Approver"}</span>
+              </button>
+            )}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                isConnected
+                  ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border border-neutral-700 bg-neutral-800 text-neutral-400"
+              }`}
+              title={isConnected ? "Real-Time WebSocket Connected" : "Connecting to real-time gateway..."}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-400 animate-pulse" : "bg-neutral-500"}`} />
+              <span>{isConnected ? "Live Sync Active" : "Connecting..."}</span>
+            </span>
+            <span className="text-xs font-semibold text-[#8E8E8E]">Goal ID: {id}</span>
+          </div>
         </div>
+
+        {/* Real-time Unlock Celebration Banner */}
+        {unlockBanner && (
+          <div className="relative mb-6 overflow-hidden rounded-2xl border border-emerald-500/50 bg-gradient-to-r from-emerald-950/80 via-[#22382e] to-emerald-950/80 p-5 text-white shadow-[0_10px_40px_rgba(16,185,129,0.25)] animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300">
+                  <ShieldCheck size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                      Goal Completed & Unlocked Live!
+                    </span>
+                    <span className="text-[10px] text-emerald-300/70">{unlockBanner.time}</span>
+                  </div>
+                  <p className="mt-0.5 text-sm font-semibold text-white">
+                    "{unlockBanner.title}" has been reviewed, approved, and unlocked in real time!
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUnlockBanner(null)}
+                className="rounded-lg p-1 text-emerald-400 hover:bg-emerald-900/50 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
           {/* Notifications */}
           {successNotice && (
             <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/30 px-5 py-3.5 text-sm text-emerald-300 shadow-lg">
@@ -556,7 +718,7 @@ export default function GoalDetail() {
                   3. PROOF & VERIFICATION TIMELINE PREVIEW
               ===================================================== */}
               <div className="rounded-[28px] border border-[#777777]/70 bg-[#3A3A3A] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.4)] sm:p-8">
-                <div className="flex items-center justify-between border-b border-[#777777]/30 pb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#777777]/30 pb-4">
                   <div className="flex items-center gap-2.5">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#292929] border border-[#777777] text-white">
                       <Send size={16} />
@@ -568,25 +730,208 @@ export default function GoalDetail() {
                       </p>
                     </div>
                   </div>
+
+                  {goal?.approverEmail && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const link = `${window.location.origin}/goals/${id}${goal?.ownerId ? `?ownerId=${goal.ownerId}` : ""}`;
+                        navigator.clipboard.writeText(link);
+                        setCopiedReviewLink(true);
+                        setTimeout(() => setCopiedReviewLink(false), 2500);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#777777] bg-[#292929] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#3A3A3A] transition shadow-sm"
+                    >
+                      {copiedReviewLink ? (
+                        <>
+                          <Check size={14} className="text-emerald-400" />
+                          <span className="text-emerald-400">Review Link Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <ExternalLink size={14} />
+                          <span>Share Review Link</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
-                <div className="mt-6 flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#777777]/60 bg-[#292929]/50 px-6 py-10 text-center">
-                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#3A3A3A] text-[#B5B5B5] border border-[#777777]">
-                    <Target size={24} />
+                {decisionSuccess && (
+                  <div className="mt-4 flex items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-950/30 px-4 py-3 text-xs text-emerald-300">
+                    <CheckCircle2 size={16} className="shrink-0" />
+                    <span>{decisionSuccess}</span>
                   </div>
-                  <h4 className="text-sm font-semibold text-white">No proof submitted yet</h4>
-                  <p className="mt-1 max-w-sm text-xs text-[#B5B5B5]">
-                    Once you make progress, submit your evidence here. It will be verified by your chosen accountability method (
-                    <strong className="text-white">
-                      {goal.approvalType === "community"
-                        ? "Community"
-                        : goal.approvalType === "friend"
-                        ? `Friend (${goal.approverEmail || "Partner"})`
-                        : "Not yet configured"}
-                    </strong>
-                    ).
-                  </p>
-                </div>
+                )}
+
+                {decisionError && (
+                  <div className="mt-4 flex items-center gap-3 rounded-xl border border-rose-500/40 bg-rose-950/30 px-4 py-3 text-xs text-rose-300">
+                    <AlertCircle size={16} className="shrink-0" />
+                    <span>{decisionError}</span>
+                  </div>
+                )}
+
+                {loadingProofs ? (
+                  <div className="mt-6 flex h-32 items-center justify-center rounded-2xl border border-[#777777]/30 bg-[#292929]/40">
+                    <Loader2 size={20} className="animate-spin text-white" />
+                  </div>
+                ) : proofs.length === 0 ? (
+                  <div className="mt-6 flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#777777]/60 bg-[#292929]/50 px-6 py-10 text-center">
+                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#3A3A3A] text-[#B5B5B5] border border-[#777777]">
+                      <Target size={24} />
+                    </div>
+                    <h4 className="text-sm font-semibold text-white">No proof submitted yet</h4>
+                    <p className="mt-1 max-w-sm text-xs text-[#B5B5B5]">
+                      Once progress is made, submit evidence to release constraints. Verification is assigned to{" "}
+                      <strong className="text-white">
+                        {goal.approvalType === "community"
+                          ? "Community Quorum"
+                          : goal.approvalType === "friend"
+                          ? `Friend Partner (${goal.approverEmail || "Partner"})`
+                          : "Honor System"}
+                      </strong>.
+                    </p>
+                    {goal.status === "active" && (
+                      <Link
+                        to="/submit-proof"
+                        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-[#292929] hover:bg-[#B5B5B5] transition"
+                      >
+                        <Send size={13} />
+                        Submit Verification Evidence
+                      </Link>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-6 space-y-4">
+                    {proofs.map((p, idx) => {
+                      const isApproverUser =
+                        Boolean(user?.email && goal?.approverEmail && user.email.toLowerCase() === goal.approverEmail.toLowerCase()) ||
+                        Boolean(user?.id && goal?.approverId && user.id === goal.approverId);
+                      const canDecide = isApproverUser && goal.status === "proof_submitted";
+                      const isDeciding = decidingProofId === p.id;
+
+                      return (
+                        <div
+                          key={p.id}
+                          className="rounded-2xl border border-[#777777]/50 bg-[#292929] p-5 shadow-sm space-y-4"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#777777]/20 pb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-lg bg-[#3A3A3A] px-2.5 py-1 text-[11px] font-bold text-white uppercase tracking-wider">
+                                Proof #{proofs.length - idx}
+                              </span>
+                              <span className="rounded-md border border-neutral-600 bg-neutral-800 px-2 py-0.5 text-[10px] font-semibold text-neutral-300 uppercase">
+                                {p.proofType || "evidence"}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-[#A3A3A3]">
+                              Submitted {formatDate(p.submittedAt)}
+                            </span>
+                          </div>
+
+                          {p.textExplanation && (
+                            <div className="rounded-xl border border-[#444444] bg-[#1E1E1E] p-3.5">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#A3A3A3] block mb-1">
+                                Explanation
+                              </span>
+                              <p className="text-xs text-white leading-relaxed whitespace-pre-wrap">
+                                {p.textExplanation}
+                              </p>
+                            </div>
+                          )}
+
+                          {p.externalLink && (
+                            <div className="flex items-center gap-2 text-xs">
+                              <ExternalLink size={14} className="text-blue-400 shrink-0" />
+                              <span className="text-[#A3A3A3]">Verification Link:</span>
+                              <a
+                                href={p.externalLink.startsWith("http") ? p.externalLink : `https://${p.externalLink}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-400 underline hover:text-blue-300 truncate"
+                              >
+                                {p.externalLink}
+                              </a>
+                            </div>
+                          )}
+
+                          {p.photoUrl && (
+                            <div className="flex items-center gap-2 text-xs text-[#A3A3A3]">
+                              <FileText size={14} className="text-purple-400 shrink-0" />
+                              <span>Attached: <strong className="text-white">{p.photoUrl}</strong></span>
+                            </div>
+                          )}
+
+                          {/* Approver Action Panel */}
+                          {canDecide ? (
+                            <div className="mt-4 rounded-xl border border-white/20 bg-gradient-to-b from-neutral-900 to-[#1F1F1F] p-4 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                                  <ShieldCheck size={15} className="text-emerald-400" />
+                                  Accountability Partner Decision
+                                </span>
+                                <span className="text-[10px] text-amber-300 bg-amber-950/60 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                                  Action Required
+                                </span>
+                              </div>
+
+                              <input
+                                type="text"
+                                value={decisionComment}
+                                onChange={(e) => setDecisionComment(e.target.value)}
+                                placeholder="Optional feedback or congratulatory comment..."
+                                className="w-full rounded-xl border border-[#555555] bg-[#2A2A2A] px-3.5 py-2 text-xs text-white placeholder:text-neutral-400 outline-none focus:border-white"
+                              />
+
+                              <div className="flex flex-wrap items-center gap-3 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={isDeciding}
+                                  onClick={() => handleDecideApproval(p.id, "approved")}
+                                  className="flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 text-xs font-bold transition shadow-md disabled:opacity-50"
+                                >
+                                  {isDeciding ? (
+                                    <Loader2 size={13} className="animate-spin" />
+                                  ) : (
+                                    <ThumbsUp size={13} />
+                                  )}
+                                  Approve & Unlock Goal
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={isDeciding}
+                                  onClick={() => handleDecideApproval(p.id, "rejected")}
+                                  className="flex items-center gap-2 rounded-xl border border-rose-500/50 bg-rose-950/20 hover:bg-rose-950/40 text-rose-300 px-4 py-2 text-xs font-bold transition disabled:opacity-50"
+                                >
+                                  {isDeciding ? (
+                                    <Loader2 size={13} className="animate-spin" />
+                                  ) : (
+                                    <ThumbsDown size={13} />
+                                  )}
+                                  Reject Proof
+                                </button>
+                              </div>
+                            </div>
+                          ) : goal.status === "completed" ? (
+                            <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-2.5">
+                              <CheckCircle2 size={15} />
+                              <span>Approved and unlocked! Constraints have been released.</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 text-xs text-neutral-400 bg-neutral-900/60 border border-neutral-700/30 rounded-xl p-2.5">
+                              <Clock size={14} className="text-amber-400" />
+                              <span>
+                                Waiting for review by partner{" "}
+                                <strong className="text-neutral-200">({goal.approverEmail || "Assigned Approver"})</strong>.
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}

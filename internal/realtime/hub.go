@@ -1,15 +1,37 @@
 package realtime
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
+	"time"
 )
 
 var (
 	ErrUserOffline = errors.New("user has no active connections")
 )
+
+// StoredMessage represents a chat message persisted in storage.
+type StoredMessage struct {
+	ID             string `json:"id" dynamodbav:"ID"`
+	SenderEmail    string `json:"senderEmail" dynamodbav:"SenderEmail"`
+	SenderID       string `json:"senderId" dynamodbav:"SenderID"`
+	RecipientEmail string `json:"recipientEmail" dynamodbav:"RecipientEmail"`
+	Text           string `json:"text" dynamodbav:"Text"`
+	Time           string `json:"time" dynamodbav:"Time"`
+	Delivered      bool   `json:"delivered" dynamodbav:"Delivered"`
+}
+
+// MessageStore is an optional persistent storage layer for chat messages.
+type MessageStore interface {
+	SaveMessage(ctx context.Context, msg StoredMessage, isRecipientOnline bool) error
+	GetPendingMessages(ctx context.Context, recipientEmail string) ([]StoredMessage, error)
+	MarkMessagesDelivered(ctx context.Context, recipientEmail string, msgIDs []string) error
+}
 
 // Event represents a standard real-time message payload sent to clients.
 type Event struct {
@@ -17,23 +39,37 @@ type Event struct {
 	Payload interface{} `json:"payload"`
 }
 
-// Hub maintains the set of active clients keyed by UserID and coordinates
+// Hub maintains the set of active clients keyed by UserID and Email, and coordinates
 // real-time event dispatching to specific users.
 type Hub struct {
 	mu sync.RWMutex
 
 	// users maps userID -> set of active *Client connections (supports multi-tab)
 	users map[string]map[*Client]bool
+
+	// emails maps lowercased email -> set of active *Client connections
+	emails map[string]map[*Client]bool
+
+	// msgStore is an optional persistent message store for offline delivery
+	msgStore MessageStore
 }
 
 // NewHub initializes and returns a new Hub instance.
 func NewHub() *Hub {
 	return &Hub{
-		users: make(map[string]map[*Client]bool),
+		users:  make(map[string]map[*Client]bool),
+		emails: make(map[string]map[*Client]bool),
 	}
 }
 
-// Register adds a client connection under its authenticated UserID.
+// SetMessageStore attaches a persistent MessageStore to the Hub.
+func (h *Hub) SetMessageStore(store MessageStore) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.msgStore = store
+}
+
+// Register adds a client connection under its authenticated UserID and Email.
 func (h *Hub) Register(c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -44,10 +80,20 @@ func (h *Hub) Register(c *Client) {
 		h.users[c.userID] = userConns
 	}
 	userConns[c] = true
-	log.Printf("[WebSocket] User connected: %s (active tabs: %d)", c.userID, len(userConns))
+
+	if c.email != "" {
+		emailConns, exists := h.emails[c.email]
+		if !exists {
+			emailConns = make(map[*Client]bool)
+			h.emails[c.email] = emailConns
+		}
+		emailConns[c] = true
+	}
+
+	log.Printf("[WebSocket] Connected: userID=%s email=%s (user tabs: %d)", c.userID, c.email, len(userConns))
 }
 
-// Unregister removes a client connection and cleans up empty user maps.
+// Unregister removes a client connection and cleans up empty user/email maps.
 func (h *Hub) Unregister(c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -55,17 +101,46 @@ func (h *Hub) Unregister(c *Client) {
 	userConns, exists := h.users[c.userID]
 	if exists {
 		delete(userConns, c)
-		close(c.send)
 		if len(userConns) == 0 {
 			delete(h.users, c.userID)
 			log.Printf("[WebSocket] User disconnected completely: %s", c.userID)
-		} else {
-			log.Printf("[WebSocket] User closed a tab: %s (remaining tabs: %d)", c.userID, len(userConns))
+		}
+	}
+
+	if c.email != "" {
+		emailConns, exists := h.emails[c.email]
+		if exists {
+			delete(emailConns, c)
+			if len(emailConns) == 0 {
+				delete(h.emails, c.email)
+			}
+		}
+	}
+
+	close(c.send)
+}
+
+// Broadcast sends an event to all connected clients across the entire hub.
+func (h *Hub) Broadcast(event Event) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, conns := range h.users {
+		for client := range conns {
+			select {
+			case client.send <- data:
+			default:
+			}
 		}
 	}
 }
 
-// SendToUser dispatches an Event to all active WebSocket connections for a given user.
+// SendToUser dispatches an Event to all active WebSocket connections for a given user ID.
 func (h *Hub) SendToUser(userID string, event Event) error {
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -84,7 +159,6 @@ func (h *Hub) SendToUser(userID string, event Event) error {
 		select {
 		case client.send <- data:
 		default:
-			// Buffer full, connection might be stuck; will be reaped by reader/writer
 			log.Printf("[WebSocket] Buffer full for client of user: %s", userID)
 		}
 	}
@@ -92,12 +166,223 @@ func (h *Hub) SendToUser(userID string, event Event) error {
 	return nil
 }
 
-// IsUserOnline returns true if the user has at least one active connection.
+// SendToEmail dispatches an Event to all active WebSocket connections for a given email.
+func (h *Hub) SendToEmail(email string, event Event) error {
+	normalized := strings.TrimSpace(strings.ToLower(email))
+	if normalized == "" {
+		return errors.New("empty email")
+	}
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	emailConns, exists := h.emails[normalized]
+	if !exists || len(emailConns) == 0 {
+		return ErrUserOffline
+	}
+
+	for client := range emailConns {
+		select {
+		case client.send <- data:
+		default:
+			log.Printf("[WebSocket] Buffer full for client of email: %s", normalized)
+		}
+	}
+
+	return nil
+}
+
+// HandleClientMessage processes incoming WebSocket messages sent from a connected client.
+func (h *Hub) HandleClientMessage(c *Client, message []byte) {
+	var base struct {
+		Type    string          `json:"type"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(message, &base); err != nil {
+		log.Printf("[WebSocket] Failed to parse client message JSON: %v", err)
+		return
+	}
+
+	switch base.Type {
+	case "user.online":
+		var req struct {
+			Email string `json:"email"`
+		}
+		if err := json.Unmarshal(base.Payload, &req); err == nil && req.Email != "" {
+			normalized := strings.TrimSpace(strings.ToLower(req.Email))
+			c.email = normalized
+			h.mu.Lock()
+			emailConns, exists := h.emails[normalized]
+			if !exists {
+				emailConns = make(map[*Client]bool)
+				h.emails[normalized] = emailConns
+			}
+			emailConns[c] = true
+			store := h.msgStore
+			h.mu.Unlock()
+			log.Printf("[WebSocket] Presence confirmed: user %s registered email %s", c.userID, normalized)
+
+			// Deliver any stored offline messages to this user
+			if store != nil {
+				go func(userEmail string, cl *Client, s MessageStore) {
+					pending, err := s.GetPendingMessages(context.Background(), userEmail)
+					if err == nil && len(pending) > 0 {
+						var deliveredIDs []string
+						for _, m := range pending {
+							cl.SendEvent(Event{
+								Type: "chat.message",
+								Payload: map[string]interface{}{
+									"id":             m.ID,
+									"senderEmail":    m.SenderEmail,
+									"senderId":       m.SenderID,
+									"recipientEmail": m.RecipientEmail,
+									"text":           m.Text,
+									"time":           m.Time,
+									"isOffline":      true,
+								},
+							})
+							deliveredIDs = append(deliveredIDs, m.ID)
+						}
+						_ = s.MarkMessagesDelivered(context.Background(), userEmail, deliveredIDs)
+						log.Printf("[WebSocket] Delivered %d offline messages to %s", len(pending), userEmail)
+					}
+				}(normalized, c, store)
+			}
+		}
+
+	case "presence.query":
+		c.SendEvent(Event{
+			Type: "presence.list",
+			Payload: map[string]interface{}{
+				"onlineEmails": h.GetOnlineEmails(),
+			},
+		})
+
+	case "chat.message":
+		var req struct {
+			RecipientEmail string `json:"recipientEmail"`
+			SenderEmail    string `json:"senderEmail"`
+			Text           string `json:"text"`
+		}
+		if err := json.Unmarshal(base.Payload, &req); err != nil {
+			log.Printf("[WebSocket] Failed to parse chat.message payload: %v", err)
+			return
+		}
+
+		req.RecipientEmail = strings.TrimSpace(strings.ToLower(req.RecipientEmail))
+		req.SenderEmail = strings.TrimSpace(strings.ToLower(req.SenderEmail))
+		req.Text = strings.TrimSpace(req.Text)
+
+		senderEmail := c.email
+		if senderEmail == "" {
+			senderEmail = req.SenderEmail
+		}
+
+		if senderEmail != "" && c.email == "" {
+			c.email = senderEmail
+			h.mu.Lock()
+			emailConns, exists := h.emails[senderEmail]
+			if !exists {
+				emailConns = make(map[*Client]bool)
+				h.emails[senderEmail] = emailConns
+			}
+			emailConns[c] = true
+			h.mu.Unlock()
+			log.Printf("[WebSocket] Dynamically indexed user %s to email %s", c.userID, senderEmail)
+		}
+
+		if req.RecipientEmail == "" || req.Text == "" {
+			log.Printf("[WebSocket] Invalid chat message: recipientEmail=%q, text=%q", req.RecipientEmail, req.Text)
+			return
+		}
+
+		log.Printf("[WebSocket] Chat from %q to %q: %q", senderEmail, req.RecipientEmail, req.Text)
+
+		now := time.Now().UTC().Format(time.RFC3339)
+		msgID := fmt.Sprintf("msg-%d", time.Now().UnixNano())
+
+		outEvent := Event{
+			Type: "chat.message",
+			Payload: map[string]interface{}{
+				"id":             msgID,
+				"senderEmail":    senderEmail,
+				"senderId":       c.userID,
+				"recipientEmail": req.RecipientEmail,
+				"text":           req.Text,
+				"time":           now,
+			},
+		}
+
+		isRecipientOnline := h.IsEmailOnline(req.RecipientEmail)
+
+		// Persist message in store if configured
+		h.mu.RLock()
+		store := h.msgStore
+		h.mu.RUnlock()
+
+		if store != nil {
+			stored := StoredMessage{
+				ID:             msgID,
+				SenderEmail:    senderEmail,
+				SenderID:       c.userID,
+				RecipientEmail: req.RecipientEmail,
+				Text:           req.Text,
+				Time:           now,
+				Delivered:      isRecipientOnline,
+			}
+			if err := store.SaveMessage(context.Background(), stored, isRecipientOnline); err != nil {
+				log.Printf("[WebSocket] Failed to persist chat message: %v", err)
+			}
+		}
+
+		// Forward to recipient's live connection
+		if isRecipientOnline {
+			if err := h.SendToEmail(req.RecipientEmail, outEvent); err != nil {
+				log.Printf("[WebSocket] Live delivery failed to %s: %v", req.RecipientEmail, err)
+			} else {
+				log.Printf("[WebSocket] Live delivered message to %s", req.RecipientEmail)
+			}
+		} else {
+			log.Printf("[WebSocket] Recipient %s is offline. Message saved in DynamoDB for delivery on login.", req.RecipientEmail)
+		}
+	}
+}
+
+// GetOnlineEmails returns a list of all emails with currently active connections.
+func (h *Hub) GetOnlineEmails() []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	var list []string
+	for email, conns := range h.emails {
+		if len(conns) > 0 {
+			list = append(list, email)
+		}
+	}
+	return list
+}
+
+// IsUserOnline returns true if the user ID has at least one active connection.
 func (h *Hub) IsUserOnline(userID string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	conns, exists := h.users[userID]
+	return exists && len(conns) > 0
+}
+
+// IsEmailOnline returns true if the email has at least one active connection.
+func (h *Hub) IsEmailOnline(email string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	normalized := strings.TrimSpace(strings.ToLower(email))
+	conns, exists := h.emails[normalized]
 	return exists && len(conns) > 0
 }
 

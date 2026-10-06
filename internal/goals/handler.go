@@ -74,7 +74,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
-	userID, ok := middleware.GetUserID(r.Context())
+	callerID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -85,14 +85,29 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		goalID = strings.TrimPrefix(r.URL.Path, "/goals/")
 	}
 
+	targetOwnerID := callerID
+	if qOwner := strings.TrimSpace(r.URL.Query().Get("ownerId")); qOwner != "" {
+		targetOwnerID = qOwner
+	}
+
 	goal, err := h.service.GetByID(
 		r.Context(),
-		userID,
+		targetOwnerID,
 		goalID,
 	)
 
 	if err != nil {
 		http.Error(w, "goal not found", http.StatusNotFound)
+		return
+	}
+
+	// Security: caller must be either the goal owner or the designated approver
+	callerEmail, _ := middleware.GetUserEmail(r.Context())
+	isApprover := (goal.ApproverID != "" && goal.ApproverID == callerID) ||
+		(goal.ApproverEmail != "" && callerEmail != "" && strings.EqualFold(goal.ApproverEmail, callerEmail))
+
+	if goal.OwnerID != callerID && !isApprover {
+		http.Error(w, "forbidden: you are not authorized to view this goal", http.StatusForbidden)
 		return
 	}
 

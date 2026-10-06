@@ -79,7 +79,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListByGoal(w http.ResponseWriter, r *http.Request) {
-	userID, ok := middleware.GetUserID(r.Context())
+	_, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -90,9 +90,11 @@ func (h *Handler) ListByGoal(w http.ResponseWriter, r *http.Request) {
 		goalID = extractGoalID(r.URL.Path)
 	}
 
+	targetOwnerID := strings.TrimSpace(r.URL.Query().Get("ownerId"))
+
 	proofs, err := h.service.ListByGoal(
 		r.Context(),
-		userID,
+		targetOwnerID,
 		goalID,
 	)
 

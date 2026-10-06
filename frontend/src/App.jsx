@@ -7,6 +7,7 @@ import GoalDetail from './pages/GoalDetail';
 import Communities from './pages/Communities';
 import SubmitProof from './pages/SubmitProof';
 import ProtectedRoute from './components/ProtectedRoute';
+import GlobalChatNotifier from './components/GlobalChatNotifier';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
 function CursorGlow() {
@@ -29,12 +30,13 @@ function CursorGlow() {
 function App() {
   const clientId =
     import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-    '24284302254-n26lia4s6vi33koas28u1i26ejimdfp3.apps.googleusercontent.com';
+    '316293252544-c8s2tsrvd4g8tj0fv4f4hgavrtm44jg8.apps.googleusercontent.com';
 
   return (
     <GoogleOAuthProvider clientId={clientId}>
       <CursorGlow />
       <Router>
+        <GlobalChatNotifier />
         <Routes>
           <Route path="/" element={<Auth />} />
           <Route

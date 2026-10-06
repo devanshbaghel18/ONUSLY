@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
+	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/proof"
 	"github.com/google/uuid"
 )
@@ -25,6 +26,7 @@ type Service struct {
 	repo         *Repository
 	goalService  *goals.Service
 	proofService *proof.Service
+	listeners    []DecisionListener
 }
 
 func NewService(
@@ -36,6 +38,13 @@ func NewService(
 		repo:         repo,
 		goalService:  goalService,
 		proofService: proofService,
+	}
+}
+
+// AddDecisionListener registers a listener to be notified after a decision is committed.
+func (s *Service) AddDecisionListener(l DecisionListener) {
+	if l != nil {
+		s.listeners = append(s.listeners, l)
 	}
 }
 
@@ -79,7 +88,11 @@ func (s *Service) Decide(
 	}
 
 	// 2. Goal must have a valid configured approver and caller must match.
-	if goal.ApproverID == "" || goal.ApproverID != approverID {
+	callerEmail, _ := middleware.GetUserEmail(ctx)
+	isAuthorized := (goal.ApproverID != "" && goal.ApproverID == approverID) ||
+		(goal.ApproverEmail != "" && callerEmail != "" && strings.EqualFold(goal.ApproverEmail, callerEmail))
+
+	if !isAuthorized {
 		return nil, ErrUnauthorized
 	}
 
@@ -139,6 +152,10 @@ func (s *Service) Decide(
 		goalStatus,
 	); err != nil {
 		return nil, err
+	}
+
+	for _, listener := range s.listeners {
+		listener.OnDecision(ctx, &approval, goal)
 	}
 
 	return &approval, nil

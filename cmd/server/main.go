@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/approval"
 	"github.com/devanshbaghel18/ONUSLY/internal/auth"
+	"github.com/devanshbaghel18/ONUSLY/internal/chat"
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/proof"
+	"github.com/devanshbaghel18/ONUSLY/internal/realtime"
 	"github.com/devanshbaghel18/ONUSLY/internal/shared"
 )
 
@@ -31,7 +34,7 @@ func cors(next http.Handler) http.Handler {
 		} else {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, ngrok-skip-browser-warning, Bypass-Tunnel-Reminder")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 
 		if r.Method == http.MethodOptions {
@@ -51,6 +54,11 @@ func main() {
 	// Public routes
 	mux.HandleFunc("GET /health", health)
 	auth.RegisterRoutes(mux)
+
+	// Real-time WebSocket Hub
+	wsHub := realtime.NewHub()
+	mux.HandleFunc("GET /ws", realtime.ServeWS(wsHub, cfg.JWTSecret))
+	mux.HandleFunc("GET /ws/", realtime.ServeWS(wsHub, cfg.JWTSecret))
 
 	// DynamoDB
 	db := shared.NewDynamoClient()
@@ -75,10 +83,40 @@ func main() {
 		goalService,
 		proofService,
 	)
+
+	// Real-time unlock delivery: notify owner via WebSocket when an approval is committed
+	approvalService.AddDecisionListener(approval.DecisionListenerFunc(func(ctx context.Context, app *approval.Approval, goal *goals.Goal) {
+		if app.Status == "approved" {
+			log.Printf("[Realtime] Dispatching goal.unlocked event to owner %s for goal %s", app.OwnerID, app.GoalID)
+			_ = wsHub.SendToUser(app.OwnerID, realtime.Event{
+				Type: "goal.unlocked",
+				Payload: map[string]interface{}{
+					"goalId":     app.GoalID,
+					"ownerId":    app.OwnerID,
+					"approverId": app.ApproverID,
+					"status":     "completed",
+					"title":      goal.Title,
+					"unlockedAt": app.DecidedAt,
+				},
+			})
+		}
+	}))
+
 	approvalHandler := approval.NewHandler(approvalService)
+
+	// Chat Repository, Store & Handler
+	chatRepo := chat.NewRepository(db, "Onusly")
+	chatHandler := chat.NewHandler(chatRepo)
+	wsHub.SetMessageStore(chatRepo)
 
 	// Protected routes
 	goalRoutes := http.NewServeMux()
+
+	// Chat
+	goalRoutes.HandleFunc(
+		"GET /chat/messages",
+		chatHandler.GetHistory,
+	)
 
 	// Goals
 	goalRoutes.HandleFunc(
@@ -139,10 +177,12 @@ func main() {
 	)
 
 	// JWT authentication for all protected routes
-	protectedGoals := middleware.Auth(cfg.JWTSecret)(goalRoutes)
+	protectedRoutes := middleware.Auth(cfg.JWTSecret)(goalRoutes)
 
-	mux.Handle("/goals", protectedGoals)
-	mux.Handle("/goals/", protectedGoals)
+	mux.Handle("/goals", protectedRoutes)
+	mux.Handle("/goals/", protectedRoutes)
+	mux.Handle("/chat", protectedRoutes)
+	mux.Handle("/chat/", protectedRoutes)
 
 	log.Println("Server running on :8080")
 

@@ -23,7 +23,12 @@ import {
   addFriend,
   getChatMessages,
   sendChatMessage,
+  receiveChatMessage,
+  mergeChatHistory,
 } from "../lib/friendsChat";
+import { getChatHistory } from "../lib/api";
+import { getUser } from "../lib/auth";
+import { useWebSocket } from "../hooks/useWebSocket";
 
 export default function Communities() {
   // Main mode: 'communities' | 'friends'
@@ -56,16 +61,103 @@ export default function Communities() {
   const [activeFriendId, setActiveFriendId] = useState(() =>
     getStoredFriends().length > 0 ? getStoredFriends()[0].id : null
   );
+  const activeFriend = friends.find((f) => f.id === activeFriendId);
+  const activeFriendIdRef = useRef(activeFriendId);
+  useEffect(() => {
+    activeFriendIdRef.current = activeFriendId;
+  }, [activeFriendId]);
+
+  const currentUser = getUser();
   const [chatMessages, setChatMessages] = useState(() => {
     const stored = getStoredFriends();
     return stored.length > 0 ? getChatMessages(stored[0].id) : [];
   });
   const [messageInput, setMessageInput] = useState("");
+  const [onlineEmails, setOnlineEmails] = useState(new Set());
+
+  // Real-time WebSocket hook for instant live chat delivery and presence
+  const { isConnected, send } = useWebSocket((event) => {
+    if (event?.type === "presence.list") {
+      const list = event.payload?.onlineEmails || [];
+      setOnlineEmails(new Set(list.map((e) => String(e).toLowerCase())));
+    }
+
+    if (event?.type === "chat.message") {
+      const payload = event.payload || {};
+      console.log("[Communities] Incoming real-time chat message:", payload);
+
+      const timeFormatted = payload.time
+        ? new Date(payload.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      const { friend, messages } = receiveChatMessage({
+        messageId: payload.id,
+        friendEmail: payload.senderEmail,
+        text: payload.text,
+        time: timeFormatted,
+        sender: "friend",
+      });
+
+      // Refresh friends list
+      const updatedFriends = getStoredFriends();
+      setFriends(updatedFriends);
+
+      // If viewing this friend, update message view live
+      const currentActiveId = activeFriendIdRef.current;
+      const currentActive = updatedFriends.find((f) => f.id === currentActiveId);
+      const isViewingThisFriend =
+        currentActiveId === friend?.id ||
+        (currentActive?.email && friend?.email && currentActive.email.toLowerCase() === friend.email.toLowerCase()) ||
+        !currentActiveId;
+
+      if (friend && isViewingThisFriend) {
+        if (!currentActiveId) setActiveFriendId(friend.id);
+        setChatMessages(messages);
+      }
+    }
+  });
+
+  // Query online presence every 4 seconds while connected
+  useEffect(() => {
+    if (!isConnected) return;
+    send({ type: "presence.query" });
+
+    const interval = setInterval(() => {
+      send({ type: "presence.query" });
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [isConnected, send]);
 
   const selectFriend = (id) => {
     setActiveFriendId(id);
     setChatMessages(getChatMessages(id));
+
+    const f = friends.find((item) => item.id === id);
+    if (f?.email) {
+      getChatHistory(f.email)
+        .then((serverMsgs) => {
+          if (serverMsgs && serverMsgs.length > 0) {
+            const merged = mergeChatHistory(id, serverMsgs, currentUser?.email);
+            setChatMessages(merged);
+          }
+        })
+        .catch(() => {});
+    }
   };
+
+  // Sync latest chat messages from DynamoDB when activeFriend changes
+  useEffect(() => {
+    if (!activeFriend?.email) return;
+    getChatHistory(activeFriend.email)
+      .then((serverMsgs) => {
+        if (serverMsgs && serverMsgs.length > 0) {
+          const merged = mergeChatHistory(activeFriend.id, serverMsgs, currentUser?.email);
+          setChatMessages(merged);
+        }
+      })
+      .catch(() => {});
+  }, [activeFriend?.id, activeFriend?.email, currentUser?.email]);
 
   // Add Friend Modal
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
@@ -100,8 +192,6 @@ export default function Communities() {
       f.name.toLowerCase().includes(friendSearch.toLowerCase())
     );
   }, [friends, friendSearch]);
-
-  const activeFriend = friends.find((f) => f.id === activeFriendId);
 
   // Community handlers
   const handleJoin = (id, e) => {
@@ -197,7 +287,25 @@ export default function Communities() {
     e.preventDefault();
     if (!messageInput.trim() || !activeFriendId) return;
 
-    const updatedMessages = sendChatMessage(activeFriendId, messageInput, "me");
+    const text = messageInput.trim();
+    const currentFriend = friends.find((f) => f.id === activeFriendId);
+    const senderEmail = currentUser?.email || getUser()?.email || "";
+
+    // 1. Dispatch live over WebSocket to recipient
+    if (currentFriend?.email) {
+      console.log(`[Communities] Sending chat message to ${currentFriend.email} from ${senderEmail}: ${text}`);
+      send({
+        type: "chat.message",
+        payload: {
+          recipientEmail: currentFriend.email,
+          senderEmail: senderEmail,
+          text: text,
+        },
+      });
+    }
+
+    // 2. Save locally for sender
+    const updatedMessages = sendChatMessage(activeFriendId, text, "me");
     setChatMessages(updatedMessages);
     setMessageInput("");
     setFriends(getStoredFriends());
@@ -490,8 +598,18 @@ export default function Communities() {
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-xs font-bold text-white">
+                          <div className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-xs font-bold text-white">
                             {f.name[0]?.toUpperCase() || "F"}
+                            {f.email && (
+                              <span
+                                className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#1E1E1E] ${
+                                  onlineEmails.has(f.email.trim().toLowerCase())
+                                    ? "bg-emerald-400"
+                                    : "bg-neutral-600"
+                                }`}
+                                title={onlineEmails.has(f.email.trim().toLowerCase()) ? "Online" : "Offline"}
+                              />
+                            )}
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-semibold text-white">
@@ -522,15 +640,36 @@ export default function Communities() {
                   {/* Chat Header */}
                   <div className="flex items-center justify-between border-b border-[#2A2A2A] bg-[#181818] p-4">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#444444] bg-[#282828] text-sm font-bold text-white">
+                      <div className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#444444] bg-[#282828] text-sm font-bold text-white">
                         {activeFriend.name[0]?.toUpperCase()}
+                        {activeFriend.email && (
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#181818] ${
+                              onlineEmails.has(activeFriend.email.trim().toLowerCase())
+                                ? "bg-emerald-400"
+                                : "bg-neutral-600"
+                            }`}
+                          />
+                        )}
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-white">
                           {activeFriend.name}
                         </h3>
-                        <p className="text-[11px] text-[#A3A3A3]">
-                          Accountability Partner • Online
+                        <p className="text-[11px] text-[#A3A3A3] flex items-center gap-1.5">
+                          <span>{activeFriend.email || "Accountability Partner"}</span>
+                          <span>•</span>
+                          {(() => {
+                            const isFriendOnline = Boolean(
+                              activeFriend.email && onlineEmails.has(activeFriend.email.trim().toLowerCase())
+                            );
+                            return (
+                              <span className={`flex items-center gap-1 font-medium ${isFriendOnline ? "text-emerald-400" : "text-neutral-400"}`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${isFriendOnline ? "bg-emerald-400 animate-pulse" : "bg-neutral-500"}`} />
+                                {isFriendOnline ? "Online" : "Offline"}
+                              </span>
+                            );
+                          })()}
                         </p>
                       </div>
                     </div>
