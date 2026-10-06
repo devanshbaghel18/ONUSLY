@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -25,12 +26,14 @@ const (
 
 // Client represents a single active WebSocket connection for an authenticated user.
 type Client struct {
-	hub    *Hub
-	conn   *websocket.Conn
-	userID string
-	email  string
-	handle string
-	send   chan []byte
+	hub              *Hub
+	conn             *websocket.Conn
+	userID           string
+	email            string
+	handle           string
+	deliveredOffline bool
+	mu               sync.Mutex
+	send             chan []byte
 }
 
 // NewClient initializes a new Client with authenticated userID, email, and handle.
@@ -47,6 +50,10 @@ func NewClient(hub *Hub, conn *websocket.Conn, userID string, email string, hand
 
 // SendEvent serializes and sends an Event directly to this client.
 func (c *Client) SendEvent(event Event) {
+	defer func() {
+		// Prevent runtime panic if sending on closed channel during disconnect
+		_ = recover()
+	}()
 	data, err := json.Marshal(event)
 	if err != nil {
 		return

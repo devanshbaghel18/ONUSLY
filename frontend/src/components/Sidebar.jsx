@@ -36,11 +36,6 @@ export default function Sidebar({ isOpen, onClose }) {
       path: "/community-friends",
       icon: Users,
     },
-    {
-      name: "Submit Proof",
-      path: "/submit-proof",
-      icon: UploadCloud,
-    },
   ];
 
   return (

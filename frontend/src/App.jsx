@@ -5,7 +5,6 @@ import Dashboard from './pages/Dashboard';
 import Goals from './pages/Goals';
 import GoalDetail from './pages/GoalDetail';
 import Communities from './pages/Communities';
-import SubmitProof from './pages/SubmitProof';
 import ProtectedRoute from './components/ProtectedRoute';
 import GlobalChatNotifier from './components/GlobalChatNotifier';
 import { GoogleOAuthProvider } from '@react-oauth/google';
@@ -81,11 +80,7 @@ function App() {
           />
           <Route
             path="/submit-proof"
-            element={
-              <ProtectedRoute>
-                <SubmitProof />
-              </ProtectedRoute>
-            }
+            element={<Navigate to="/community-friends" replace />}
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

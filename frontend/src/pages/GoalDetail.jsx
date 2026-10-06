@@ -568,7 +568,7 @@ export default function GoalDetail() {
                       Current:{" "}
                       <strong className="text-white">
                         {goal.approvalType === "community"
-                          ? "Community Quorum"
+                          ? "Community"
                           : `Friend: ${goal.approverEmail ? (goal.approverEmail.startsWith("@") ? goal.approverEmail : `@${goal.approverEmail}`) : "Assigned Partner"}`}
                       </strong>
                     </span>
@@ -620,11 +620,11 @@ export default function GoalDetail() {
                         Approval via Community
                       </h3>
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-[#A3A3A3]">
-                        Decentralized Peer Review
+                        Community Member Review
                       </span>
 
                       <p className="mt-2.5 text-xs leading-relaxed text-[#A3A3A3]">
-                        Submit your proof to your community quorum. Verified fellow members review your evidence and reach a collective verdict.
+                        Submit your proof to your community. Verified fellow members review your evidence and reach a collective verdict.
                       </p>
                     </div>
                   </div>
@@ -797,7 +797,7 @@ export default function GoalDetail() {
                       Once progress is made, submit evidence to release constraints. Verification is assigned to{" "}
                       <strong className="text-white">
                         {goal.approvalType === "community"
-                          ? "Community Quorum"
+                          ? "Community"
                           : goal.approvalType === "friend"
                           ? `Friend Partner (${goal.approverEmail || "Partner"})`
                           : "Honor System"}
@@ -805,11 +805,11 @@ export default function GoalDetail() {
                     </p>
                     {goal.status === "active" && (
                       <Link
-                        to="/submit-proof"
+                        to="/community-friends"
                         className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-[#292929] hover:bg-[#B5B5B5] transition"
                       >
                         <Send size={13} />
-                        Submit Verification Evidence
+                        Share Proof in Community / Friend Chat
                       </Link>
                     )}
                   </div>

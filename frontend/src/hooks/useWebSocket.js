@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { wsManager } from "../lib/websocket";
 
 /**
@@ -34,12 +34,16 @@ export function useWebSocket(onEvent) {
     };
   }, []);
 
+  const send = useCallback((data) => wsManager.send(data), []);
+  const connect = useCallback(() => wsManager.connect(), []);
+  const disconnect = useCallback(() => wsManager.disconnect(), []);
+
   return {
     isConnected,
     lastEvent,
-    send: (data) => wsManager.send(data),
-    connect: () => wsManager.connect(),
-    disconnect: () => wsManager.disconnect(),
+    send,
+    connect,
+    disconnect,
   };
 }
 
