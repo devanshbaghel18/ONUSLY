@@ -17,15 +17,22 @@ var (
 
 // StoredMessage represents a chat message persisted in storage.
 type StoredMessage struct {
-	ID              string `json:"id" dynamodbav:"ID"`
-	SenderEmail     string `json:"senderEmail" dynamodbav:"SenderEmail"`
-	SenderHandle    string `json:"senderHandle,omitempty" dynamodbav:"SenderHandle,omitempty"`
-	SenderID        string `json:"senderId" dynamodbav:"SenderID"`
-	RecipientEmail  string `json:"recipientEmail" dynamodbav:"RecipientEmail"`
-	RecipientHandle string `json:"recipientHandle,omitempty" dynamodbav:"RecipientHandle,omitempty"`
-	Text            string `json:"text" dynamodbav:"Text"`
-	Time            string `json:"time" dynamodbav:"Time"`
-	Delivered       bool   `json:"delivered" dynamodbav:"Delivered"`
+	ID              string   `json:"id" dynamodbav:"ID"`
+	SenderEmail     string   `json:"senderEmail" dynamodbav:"SenderEmail"`
+	SenderHandle    string   `json:"senderHandle,omitempty" dynamodbav:"SenderHandle,omitempty"`
+	SenderID        string   `json:"senderId" dynamodbav:"SenderID"`
+	RecipientEmail  string   `json:"recipientEmail" dynamodbav:"RecipientEmail"`
+	RecipientHandle string   `json:"recipientHandle,omitempty" dynamodbav:"RecipientHandle,omitempty"`
+	Text            string   `json:"text" dynamodbav:"Text"`
+	IsProof         bool     `json:"isProof,omitempty" dynamodbav:"IsProof,omitempty"`
+	GoalID          string   `json:"goalId,omitempty" dynamodbav:"GoalID,omitempty"`
+	GoalTitle       string   `json:"goalTitle,omitempty" dynamodbav:"GoalTitle,omitempty"`
+	OwnerID         string   `json:"ownerId,omitempty" dynamodbav:"OwnerID,omitempty"`
+	Images          []string `json:"images,omitempty" dynamodbav:"Images,omitempty"`
+	ExternalLink    string   `json:"externalLink,omitempty" dynamodbav:"ExternalLink,omitempty"`
+	Approved        bool     `json:"approved,omitempty" dynamodbav:"Approved,omitempty"`
+	Time            string   `json:"time" dynamodbav:"Time"`
+	Delivered       bool     `json:"delivered" dynamodbav:"Delivered"`
 }
 
 // MessageStore is an optional persistent storage layer for chat messages.
@@ -462,6 +469,13 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 									"recipientEmail":  m.RecipientEmail,
 									"recipientHandle": m.RecipientHandle,
 									"text":            m.Text,
+									"isProof":         m.IsProof,
+									"goalId":          m.GoalID,
+									"goalTitle":       m.GoalTitle,
+									"ownerId":         m.OwnerID,
+									"images":          m.Images,
+									"externalLink":    m.ExternalLink,
+									"approved":        m.Approved,
 									"time":            m.Time,
 									"isOffline":       true,
 								},
@@ -517,6 +531,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 
 	case "chat.message":
 		var req struct {
+			ID              string   `json:"id"`
 			RecipientEmail  string   `json:"recipientEmail"`
 			RecipientHandle string   `json:"recipientHandle"`
 			SenderEmail     string   `json:"senderEmail"`
@@ -526,6 +541,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			IsProof         bool     `json:"isProof"`
 			GoalID          string   `json:"goalId"`
 			GoalTitle       string   `json:"goalTitle"`
+			OwnerID         string   `json:"ownerId"`
 			Images          []string `json:"images"`
 			ExternalLink    string   `json:"externalLink"`
 		}
@@ -583,7 +599,10 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		log.Printf("[WebSocket] Chat from (%s/@%s/%s) to (%s/@%s): %q (proof=%v)", senderEmail, senderHandle, senderName, req.RecipientEmail, req.RecipientHandle, req.Text, req.IsProof)
 
 		now := time.Now().UTC().Format(time.RFC3339)
-		msgID := fmt.Sprintf("msg-%d", time.Now().UnixNano())
+		msgID := strings.TrimSpace(req.ID)
+		if msgID == "" {
+			msgID = fmt.Sprintf("msg-%d", time.Now().UnixNano())
+		}
 
 		outEvent := Event{
 			Type: "chat.message",
@@ -599,6 +618,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 				"isProof":         req.IsProof,
 				"goalId":          req.GoalID,
 				"goalTitle":       req.GoalTitle,
+				"ownerId":         req.OwnerID,
 				"images":          req.Images,
 				"externalLink":    req.ExternalLink,
 				"time":            now,
@@ -634,6 +654,12 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 				RecipientEmail:  req.RecipientEmail,
 				RecipientHandle: req.RecipientHandle,
 				Text:            req.Text,
+				IsProof:         req.IsProof,
+				GoalID:          req.GoalID,
+				GoalTitle:       req.GoalTitle,
+				OwnerID:         req.OwnerID,
+				Images:          req.Images,
+				ExternalLink:    req.ExternalLink,
 				Time:            now,
 				Delivered:       delivered,
 			}
@@ -685,6 +711,26 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 				}(req.ID, store)
 			}
 			log.Printf("[WebSocket] Chat message deleted: id=%s (notified recipient @%s / %s)", req.ID, req.RecipientHandle, req.RecipientEmail)
+		}
+
+	case "chat.message.approved":
+		var req struct {
+			MessageID    string `json:"messageId"`
+			GoalID       string `json:"goalId"`
+			GoalTitle    string `json:"goalTitle"`
+			ApproverName string `json:"approverName"`
+		}
+		if err := json.Unmarshal(base.Payload, &req); err == nil {
+			approveEvent := Event{
+				Type: "chat.message.approved",
+				Payload: map[string]interface{}{
+					"messageId":    req.MessageID,
+					"goalId":       req.GoalID,
+					"goalTitle":    req.GoalTitle,
+					"approverName": req.ApproverName,
+				},
+			}
+			h.Broadcast(approveEvent)
 		}
 
 	case "community.register":

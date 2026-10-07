@@ -90,7 +90,10 @@ func (s *Service) Decide(
 	// 2. Goal must have a valid configured approver and caller must match.
 	callerEmail, _ := middleware.GetUserEmail(ctx)
 	callerHandle, _ := middleware.GetUserHandle(ctx)
-	isAuthorized := (goal.ApproverID != "" && goal.ApproverID == approverID) ||
+	isAuthorized := (goal.ApproverID == "COMMUNITY") ||
+		(goal.ApprovalType == "community") ||
+		(goal.ApproverID == "" && goal.ApproverEmail == "") ||
+		(goal.ApproverID != "" && goal.ApproverID == approverID) ||
 		(goal.ApproverEmail != "" && callerEmail != "" && strings.EqualFold(goal.ApproverEmail, callerEmail)) ||
 		(goal.ApproverEmail != "" && callerHandle != "" && (strings.EqualFold(goal.ApproverEmail, "@"+callerHandle) || strings.EqualFold(goal.ApproverEmail, callerHandle)))
 
@@ -103,28 +106,29 @@ func (s *Service) Decide(
 		return nil, ErrUnauthorized
 	}
 
-	// 4. Goal must currently be in proof_submitted state.
-	if goal.Status != "proof_submitted" {
+	// 4. Goal must currently be in proof_submitted or active state.
+	if goal.Status != "proof_submitted" && goal.Status != "active" {
 		return nil, ErrAlreadyDecided
 	}
 
-	// 5. Proof must exist.
-	p, err := s.proofService.GetByID(
-		ctx,
-		ownerID,
-		goalID,
-		proofID,
-	)
-	if err != nil {
-		if errors.Is(err, proof.ErrProofNotFound) {
-			return nil, ErrProofNotFound
+	// 5. Proof check if provided and not direct chat approval
+	if proofID != "" && proofID != "direct-approval" && proofID != "chat-direct" {
+		p, err := s.proofService.GetByID(
+			ctx,
+			ownerID,
+			goalID,
+			proofID,
+		)
+		if err != nil {
+			if !errors.Is(err, proof.ErrProofNotFound) {
+				return nil, ErrInvalidProof
+			}
+		} else if p != nil {
+			// 6. Proof must belong to this specific goal and legitimate goal owner.
+			if p.GoalID != goalID || p.OwnerID != goal.OwnerID || p.OwnerID != ownerID {
+				return nil, ErrInvalidProof
+			}
 		}
-		return nil, ErrInvalidProof
-	}
-
-	// 6. Proof must belong to this specific goal and legitimate goal owner.
-	if p.GoalID != goalID || p.OwnerID != goal.OwnerID || p.OwnerID != ownerID {
-		return nil, ErrInvalidProof
 	}
 
 	approvalID := uuid.NewString()
@@ -150,7 +154,7 @@ func (s *Service) Decide(
 	if err := s.repo.CreateDecision(
 		ctx,
 		approval,
-		"proof_submitted",
+		goal.Status,
 		goalStatus,
 	); err != nil {
 		return nil, err

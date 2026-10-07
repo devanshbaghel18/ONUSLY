@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import AppLayout from "../components/AppLayout";
 import {
   Users,
@@ -21,6 +21,11 @@ import {
   Lock,
   Target,
   CheckCheck,
+  Image as ImageIcon,
+  LinkIcon,
+  ThumbsUp,
+  FileText,
+  CheckCircle2,
 } from "lucide-react";
 import {
   getStoredCommunities,
@@ -34,6 +39,7 @@ import {
   sendCommunityMessage,
   receiveCommunityMessage,
   deleteCommunityMessage,
+  markCommunityMessageApproved,
 } from "../lib/communities";
 import {
   getStoredFriends,
@@ -45,8 +51,9 @@ import {
   deleteChatMessage,
   deleteChatMessageGlobally,
   mergeChatHistory,
+  markChatMessageApproved,
 } from "../lib/friendsChat";
-import { getChatHistory, lookupUser, getGoals, submitProof } from "../lib/api";
+import { getChatHistory, lookupUser, getGoals, submitProof, decideApproval } from "../lib/api";
 import { getUser } from "../lib/auth";
 import { useWebSocket } from "../hooks/useWebSocket";
 
@@ -202,22 +209,45 @@ export default function Communities() {
   const [lightboxImage, setLightboxImage] = useState(null);
 
   // ==========================================
-  // WHATSAPP "+" PROOF SUBMISSION MODAL STATE
+  // WHATSAPP-STYLE ATTACHMENT STATE (simplified - no mandatory goal)
   // ==========================================
-  const [showProofModal, setShowProofModal] = useState(false);
-  const [proofTargetType, setProofTargetType] = useState("friend"); // 'friend' | 'community'
-  const [userGoals, setUserGoals] = useState([]);
-  const [selectedGoalId, setSelectedGoalId] = useState("");
-  const [proofExplanation, setProofExplanation] = useState("");
-  const [proofExternalLink, setProofExternalLink] = useState("");
-  const [proofFiles, setProofFiles] = useState([]); // Array of { file, previewUrl, name }
-  const [submittingProof, setSubmittingProof] = useState(false);
-  const [proofError, setProofError] = useState("");
-  const [proofSuccess, setProofSuccess] = useState("");
+  const [showAttachModal, setShowAttachModal] = useState(false);
+  const [attachTargetType, setAttachTargetType] = useState("friend"); // 'friend' | 'community'
+  const [attachFiles, setAttachFiles] = useState([]); // Array of { file, previewUrl, name }
+  const [attachCaption, setAttachCaption] = useState("");
+  const [attachLink, setAttachLink] = useState("");
+  const [attachSending, setAttachSending] = useState(false);
+
+  // Approval in-chat state
+  const [approvingMsgId, setApprovingMsgId] = useState(null);
+
+  // Navigation state handler (e.g. redirected from "Share for Verification")
+  const location = useLocation();
+  useEffect(() => {
+    if (location.state?.view) {
+      setMainView(location.state.view);
+    }
+    if (location.state?.view === "friends" && location.state?.targetId) {
+      setActiveFriendId(location.state.targetId);
+      setChatMessages(getChatMessages(location.state.targetId));
+    }
+    if (location.state?.view === "communities" && location.state?.targetId) {
+      const allComms = getStoredCommunities();
+      const targetComm = allComms.find((c) => c.id === location.state.targetId);
+      if (targetComm) {
+        setSelectedCommunity(targetComm);
+        setCommChatMessages(getCommunityMessages(targetComm.id));
+      }
+    }
+  }, [location.state]);
 
   // Refs for auto-scroll
   const chatEndRef = useRef(null);
   const commChatEndRef = useRef(null);
+
+  // File input ref for WhatsApp-style paperclip
+  const friendFileInputRef = useRef(null);
+  const commFileInputRef = useRef(null);
 
   // ==========================================
   // WEBSOCKET REALTIME CONNECTION
@@ -262,7 +292,10 @@ export default function Communities() {
         isProof: p.isProof,
         goalId: p.goalId,
         goalTitle: p.goalTitle,
+        ownerId: p.ownerId,
+        approved: p.approved,
         images: p.images,
+        files: p.files,
         externalLink: p.externalLink,
       });
 
@@ -290,6 +323,29 @@ export default function Communities() {
         deleteChatMessageGlobally(delId);
         setChatMessages((prev) => prev.filter((m) => m.id !== delId));
         setFriends(getStoredFriends());
+      }
+    }
+
+    // Real-time approval sync across chats
+    if (event?.type === "chat.message.approved" || event?.type === "goal.unlocked") {
+      const { messageId, goalId } = event.payload || {};
+      if (messageId || goalId) {
+        setChatMessages((prev) =>
+          prev.map((m) =>
+            (messageId && m.id === messageId) || (goalId && m.goalId === goalId)
+              ? { ...m, approved: true }
+              : m
+          )
+        );
+        setCommChatMessages((prev) =>
+          prev.map((m) =>
+            (messageId && m.id === messageId) || (goalId && m.goalId === goalId)
+              ? { ...m, approved: true }
+              : m
+          )
+        );
+        markChatMessageApproved(goalId, messageId);
+        markCommunityMessageApproved(goalId, messageId);
       }
     }
 
@@ -327,7 +383,10 @@ export default function Communities() {
           isProof: p.isProof,
           goalId: p.goalId,
           goalTitle: p.goalTitle,
+          ownerId: p.ownerId,
+          approved: p.approved,
           images: p.images,
+          files: p.files,
           externalLink: p.externalLink,
           time: p.time,
         });
@@ -443,101 +502,66 @@ export default function Communities() {
     commChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [commChatMessages]);
 
-  // Load goals when proof modal is opened
-  const openProofModal = (targetType) => {
-    setProofTargetType(targetType);
-    setProofError("");
-    setProofSuccess("");
-    setProofFiles([]);
-    setProofExplanation("");
-    setProofExternalLink("");
-    setShowProofModal(true);
-
-    getGoals()
-      .then((data) => {
-        const active = (data || []).filter(
-          (g) => g.status === "active" || g.status === "proof_submitted"
-        );
-        setUserGoals(active);
-        if (active.length > 0) {
-          setSelectedGoalId(active[0].id);
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to load goals for proof:", err);
-      });
+  // ==========================================
+  // ATTACHMENT MODAL HANDLERS (WhatsApp-style)
+  // ==========================================
+  const openAttachModal = (targetType) => {
+    setAttachTargetType(targetType);
+    setAttachFiles([]);
+    setAttachCaption("");
+    setAttachLink("");
+    setShowAttachModal(true);
   };
 
-  const handleSelectFiles = (e) => {
+  const handleSelectAttachFiles = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-
     files.forEach((file) => {
+      const isImg = file.type.startsWith("image/");
       const reader = new FileReader();
       reader.onload = () => {
-        setProofFiles((prev) => [
+        setAttachFiles((prev) => [
           ...prev,
           {
             file,
             name: file.name,
+            type: file.type,
+            isImage: isImg,
             previewUrl: reader.result,
           },
         ]);
       };
       reader.readAsDataURL(file);
     });
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
   };
 
-  const removeProofFile = (index) => {
-    setProofFiles((prev) => prev.filter((_, idx) => idx !== index));
+  const removeAttachFile = (index) => {
+    setAttachFiles((prev) => prev.filter((_, idx) => idx !== index));
   };
 
-  // Submit proof via API and share into chat
-  const handleShareProofSubmit = async (e) => {
+  // Send attachment (images/docs/links) as a chat message - NO goal selection required
+  const handleSendAttachment = async (e) => {
     e.preventDefault();
-    setProofError("");
-    setProofSuccess("");
+    if (attachFiles.length === 0 && !attachCaption.trim() && !attachLink.trim()) return;
 
-    if (!selectedGoalId) {
-      setProofError("Please select a goal to submit proof for.");
-      return;
-    }
+    setAttachSending(true);
+    const imageUrls = attachFiles
+      .filter((f) => f.isImage || f.type?.startsWith("image/"))
+      .map((f) => f.previewUrl);
+    const docFiles = attachFiles
+      .filter((f) => !f.isImage && !f.type?.startsWith("image/"))
+      .map((f) => ({ name: f.name, url: f.previewUrl, type: f.type }));
 
-    if (proofFiles.length === 0 && !proofExplanation.trim() && !proofExternalLink.trim()) {
-      setProofError("Please add photos, an explanation, or a verification link.");
-      return;
-    }
+    const senderEmail = currentUser?.email || "";
+    const senderHandle = currentUser?.handle || "";
+    const senderName = currentUser?.name || (senderHandle ? `@${senderHandle}` : "You");
+    const text = attachCaption.trim();
+    const externalLink = attachLink.trim();
 
-    const currentGoal = userGoals.find((g) => g.id === selectedGoalId);
-    const goalTitle = currentGoal?.title || "Accountability Goal";
-
-    setSubmittingProof(true);
     try {
-      // 1. Submit proof to backend API
-      const summaryText = [
-        proofExplanation.trim(),
-        proofFiles.length > 0 ? `[Photos Attached: ${proofFiles.map((f) => f.name).join(", ")}]` : "",
-      ]
-        .filter(Boolean)
-        .join(" | ");
-
-      const effectiveProofType = proofFiles.length > 0 ? "photo" : (proofExternalLink.trim() ? "link" : "text");
-      const effectivePhotoUrl = proofFiles.length > 0 ? (proofFiles[0]?.name || "screenshot.png") : "";
-
-      await submitProof(selectedGoalId, {
-        proofType: effectiveProofType,
-        textExplanation: summaryText || "Goal evidence submitted.",
-        externalLink: proofExternalLink.trim(),
-        photoUrl: effectivePhotoUrl,
-      });
-
-      const imageUrls = proofFiles.map((f) => f.previewUrl);
-      const senderEmail = currentUser?.email || "";
-      const senderHandle = currentUser?.handle || "";
-      const senderName = currentUser?.name || (senderHandle ? `@${senderHandle}` : "You");
-
-      if (proofTargetType === "friend" && activeFriendId && activeFriend) {
-        // Share in 1-on-1 friend chat
+      if (attachTargetType === "friend" && activeFriendId && activeFriend) {
         send({
           type: "chat.message",
           payload: {
@@ -545,76 +569,155 @@ export default function Communities() {
             recipientHandle: activeFriend.handle || "",
             senderEmail,
             senderHandle,
-            text: proofExplanation.trim(),
-            isProof: true,
-            goalId: selectedGoalId,
-            goalTitle,
+            senderName,
+            text,
             images: imageUrls,
-            externalLink: proofExternalLink.trim(),
+            files: docFiles,
+            externalLink,
           },
         });
 
         const updated = sendChatMessage(
           activeFriendId,
           {
-            text: proofExplanation.trim(),
-            isProof: true,
-            goalId: selectedGoalId,
-            goalTitle,
+            text,
             images: imageUrls,
-            externalLink: proofExternalLink.trim(),
+            files: docFiles,
+            externalLink,
           },
           "me"
         );
         setChatMessages(updated);
         setFriends(getStoredFriends());
-      } else if (proofTargetType === "community" && selectedCommunity) {
-        // Share in Community group chat
-        const commMsgId = `comm-msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-
+      } else if (attachTargetType === "community" && selectedCommunity) {
+        const msgId = `comm-msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
         send({
           type: "community.message",
           payload: {
-            id: commMsgId,
+            id: msgId,
             communityId: selectedCommunity.id,
             communityName: selectedCommunity.name || "Community",
             communityCode: selectedCommunity.code || "",
             senderName,
             senderEmail,
             senderHandle,
-            text: proofExplanation.trim(),
-            isProof: true,
-            goalId: selectedGoalId,
-            goalTitle,
+            text,
             images: imageUrls,
-            externalLink: proofExternalLink.trim(),
+            files: docFiles,
+            externalLink,
           },
         });
 
         const updated = sendCommunityMessage(selectedCommunity.id, {
-          id: commMsgId,
+          id: msgId,
           senderName: "You",
           senderHandle,
-          text: proofExplanation.trim(),
-          isProof: true,
-          goalId: selectedGoalId,
-          goalTitle,
+          text,
           images: imageUrls,
-          externalLink: proofExternalLink.trim(),
+          files: docFiles,
+          externalLink,
         });
         setCommChatMessages(updated);
         setCommunities(getStoredCommunities());
       }
-
-      setProofSuccess("Proof submitted and shared in chat successfully!");
-      setTimeout(() => {
-        setShowProofModal(false);
-      }, 1000);
     } catch (err) {
-      console.error("Failed to submit proof:", err);
-      setProofError(err.message || "Failed to submit verification proof");
+      console.error("Failed to send attachment:", err);
     } finally {
-      setSubmittingProof(false);
+      setAttachSending(false);
+      setShowAttachModal(false);
+    }
+  };
+
+  // ==========================================
+  // IN-CHAT APPROVE HANDLER
+  // ==========================================
+  const handleApproveChatProof = async (msg) => {
+    setApprovingMsgId(msg.id);
+    try {
+      const { getProofs, getGoal, getGoals, decideApproval } = await import("../lib/api");
+      let resolvedGoalId = msg.goalId;
+      let ownerId = msg.ownerId || "";
+
+      // If goalId is missing, attempt to resolve it by matching goalTitle against active goals
+      if (!resolvedGoalId) {
+        try {
+          const allGoals = await getGoals().catch(() => []);
+          const targetTitle = (msg.goalTitle || "").toLowerCase().trim();
+          const matched = allGoals.find((g) => {
+            return targetTitle && g.title && g.title.toLowerCase().trim() === targetTitle;
+          }) || allGoals.find((g) => g.status === "active" || g.status === "proof_submitted");
+
+          if (matched) {
+            resolvedGoalId = matched.id;
+            ownerId = matched.ownerId || ownerId;
+          }
+        } catch (findErr) {
+          console.warn("Could not find matching goal by title:", findErr);
+        }
+      }
+
+      if (resolvedGoalId) {
+        const goal = await getGoal(resolvedGoalId, ownerId).catch(() => null);
+        if (goal && !ownerId) {
+          ownerId = goal.ownerId || "";
+        }
+
+        let proofs = await getProofs(resolvedGoalId, ownerId).catch(() => []);
+        let targetProofId = proofs.find((p) => p.status === "pending" || p.status === "proof_submitted")?.id || proofs[0]?.id || "direct-approval";
+
+        await decideApproval(resolvedGoalId, targetProofId, {
+          ownerId: ownerId,
+          status: "approved",
+          comment: "Approved from chat",
+        }).catch((decideErr) => {
+          console.warn("decideApproval returned:", decideErr.message);
+        });
+      }
+
+      // Mark locally as approved
+      setChatMessages((prev) =>
+        prev.map((m) => (m.id === msg.id || m.goalId === msg.goalId ? { ...m, approved: true } : m))
+      );
+      setCommChatMessages((prev) =>
+        prev.map((m) => (m.id === msg.id || m.goalId === msg.goalId ? { ...m, approved: true } : m))
+      );
+      markChatMessageApproved(msg.goalId, msg.id);
+      markCommunityMessageApproved(msg.goalId, msg.id);
+
+      // Broadcast over WebSocket so owner instantly gets goal.unlocked / approved
+      send({
+        type: "chat.message.approved",
+        payload: {
+          messageId: msg.id,
+          goalId: msg.goalId,
+          goalTitle: msg.goalTitle,
+          approverName: currentUser?.name || (currentUser?.handle ? `@${currentUser.handle}` : "Partner"),
+        },
+      });
+
+      // Also send a celebration message into chat
+      if (activeFriendId && activeFriend) {
+        const confirmMsg = sendChatMessage(
+          activeFriendId,
+          {
+            text: `🎉 Verified and approved "${msg.goalTitle || "Goal"}"! Distraction locks are now lifted.`,
+          },
+          "me"
+        );
+        setChatMessages(confirmMsg);
+      } else if (selectedCommunity) {
+        const confirmMsg = sendCommunityMessage(selectedCommunity.id, {
+          id: `comm-msg-${Date.now()}`,
+          senderName: currentUser?.name || "Partner",
+          senderHandle: currentUser?.handle,
+          text: `🎉 Verified and approved "${msg.goalTitle || "Goal"}"! Distraction locks are now lifted.`,
+        });
+        setCommChatMessages(confirmMsg);
+      }
+    } catch (err) {
+      console.error("Failed to approve in chat:", err);
+    } finally {
+      setApprovingMsgId(null);
     }
   };
 
@@ -972,6 +1075,239 @@ export default function Communities() {
     setCommunities(getStoredCommunities());
   };
 
+  // ==========================================
+  // CHAT MESSAGE BUBBLE COMPONENT
+  // ==========================================
+  const ChatBubble = ({ msg, isMe, onDelete, onImageClick, showSenderBadge = false }) => {
+    const textStr = (msg.text || "").trim();
+    const textMatch = textStr.match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
+    const isVerification = Boolean(
+      msg.isProof ||
+      textMatch ||
+      textStr.toLowerCase().includes("verify my goal") ||
+      textStr.toLowerCase().includes("please verify")
+    );
+    const displayGoalTitle = msg.goalTitle || (textMatch ? textMatch[1].trim() : "");
+
+    return (
+      <div className={`group flex ${isMe ? "justify-end" : "justify-start"}`}>
+        <div
+          className={`relative max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 text-xs ${
+            isMe
+              ? "bg-white text-black font-medium"
+              : "border border-[#333333] bg-[#1E1E1E] text-white"
+          }`}
+        >
+          {/* Sender badge for peers */}
+          {showSenderBadge && !isMe && (
+            <div className="mb-1 flex items-center gap-1.5 font-bold text-[11px] text-emerald-400">
+              <span>{msg.senderName || "Member"}</span>
+              {msg.senderHandle && (
+                <span className="font-mono text-[10px] text-[#A3A3A3]">
+                  @{msg.senderHandle.replace(/^@/, "")}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Goal Verification Card */}
+          {isVerification && (
+            <div
+              className={`mb-2 rounded-xl p-3 ${
+                isMe
+                  ? "border border-black/15 bg-black/5"
+                  : "border border-white/15 bg-white/5"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-current/15 pb-2 mb-2">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                  <ShieldCheck size={14} />
+                  <span>Goal Verification</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {msg.approved ? (
+                    <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-400">
+                      <CheckCircle2 size={13} />
+                      <span>Approved</span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-amber-400 font-semibold bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/20">
+                      Pending
+                    </span>
+                  )}
+                  {msg.goalId && (
+                    <Link
+                      to={`/goals/${msg.goalId}${msg.ownerId ? `?ownerId=${msg.ownerId}` : ""}`}
+                      className={`flex items-center gap-1 text-[11px] font-bold underline hover:opacity-80 ${
+                        isMe ? "text-black" : "text-white"
+                      }`}
+                    >
+                      <span>Details</span>
+                      <ExternalLink size={11} />
+                    </Link>
+                  )}
+                </div>
+              </div>
+              {displayGoalTitle && (
+                <h4
+                  className={`text-xs font-bold mb-1 ${
+                    isMe ? "text-black" : "text-white"
+                  }`}
+                >
+                  🎯 {displayGoalTitle}
+                </h4>
+              )}
+              {msg.text && (
+                <p
+                  className={`text-xs leading-relaxed mb-2 ${
+                    isMe ? "text-neutral-800" : "text-neutral-200"
+                  }`}
+                >
+                  {msg.text}
+                </p>
+              )}
+              {msg.externalLink && (
+                <a
+                  href={msg.externalLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:underline mb-2"
+                >
+                  <ExternalLink size={12} />
+                  <span className="truncate max-w-[200px]">{msg.externalLink}</span>
+                </a>
+              )}
+              {msg.images && msg.images.length > 0 && (
+                <WhatsAppImageGrid images={msg.images} onImageClick={onImageClick} />
+              )}
+              {msg.files && msg.files.length > 0 && (
+                <div className="mt-2 space-y-1.5">
+                  {msg.files.map((f, i) => (
+                    <a
+                      key={i}
+                      href={f.url}
+                      download={f.name || `file-${i}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs transition max-w-sm ${
+                        isMe
+                          ? "border border-black/15 bg-black/5 hover:bg-black/10 text-neutral-900"
+                          : "border border-white/10 bg-white/5 hover:bg-white/10 text-white"
+                      }`}
+                    >
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 shrink-0">
+                        <FileText size={16} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold truncate text-[11px]">{f.name || "Attached File"}</p>
+                        <span className="text-[10px] opacity-70">Click to view / download</span>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              {/* If approved, show banner. If not approved and not me, show Approve button */}
+              {msg.approved ? (
+                <div className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-[11px] font-bold text-emerald-400">
+                  <CheckCircle2 size={14} />
+                  <span>Verified & Unlocked! Apps are released.</span>
+                </div>
+              ) : !isMe ? (
+                <button
+                  type="button"
+                  disabled={approvingMsgId === msg.id}
+                  onClick={() => handleApproveChatProof({ ...msg, goalTitle: displayGoalTitle })}
+                  className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black px-3.5 py-1.5 text-[11px] font-bold transition disabled:opacity-50 shadow-sm"
+                >
+                  {approvingMsgId === msg.id ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <ThumbsUp size={13} />
+                  )}
+                  <span>Approve & Unlock Goal</span>
+                </button>
+              ) : (
+                <div className="mt-2 flex items-center gap-1.5 text-[10px] text-neutral-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span>Awaiting partner review & verification</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Images attached (non-verification messages) */}
+          {!isVerification && msg.images && msg.images.length > 0 && (
+            <WhatsAppImageGrid images={msg.images} onImageClick={onImageClick} />
+          )}
+
+          {/* Files attached (non-verification messages) */}
+          {!isVerification && msg.files && msg.files.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              {msg.files.map((f, i) => (
+                <a
+                  key={i}
+                  href={f.url}
+                  download={f.name || `file-${i}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs transition max-w-sm ${
+                    isMe
+                      ? "border border-black/15 bg-black/5 hover:bg-black/10 text-neutral-900"
+                      : "border border-white/10 bg-white/5 hover:bg-white/10 text-white"
+                  }`}
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 shrink-0">
+                    <FileText size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold truncate text-[11px]">{f.name || "Attached File"}</p>
+                    <span className="text-[10px] opacity-70">Click to view / download</span>
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* External link (non-verification) */}
+          {!isVerification && msg.externalLink && (
+            <a
+              href={msg.externalLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:underline mb-1"
+            >
+              <ExternalLink size={12} />
+              <span className="truncate max-w-[200px]">{msg.externalLink}</span>
+            </a>
+          )}
+
+          {/* Normal text (non-verification) */}
+          {!isVerification && msg.text && (
+            <p className="leading-relaxed">{msg.text}</p>
+          )}
+
+          <div className="mt-1 flex items-center justify-end gap-2 text-[9px]">
+            <span className={isMe ? "text-neutral-500" : "text-[#737373]"}>
+              {msg.time}
+            </span>
+            {isMe && <CheckCheck size={12} className="text-neutral-500" />}
+
+            {/* Delete message icon */}
+            <button
+              type="button"
+              onClick={() => onDelete(msg.id)}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-neutral-400 hover:text-red-500"
+              title="Delete message"
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <AppLayout>
       <div className="mx-auto max-w-7xl space-y-6">
@@ -982,7 +1318,7 @@ export default function Communities() {
               Community & Friends
             </h1>
             <p className="mt-1 text-sm text-[#A3A3A3]">
-              Communities and 1-on-1 friend chat with instant goal proof sharing.
+              Chat, share files, and verify goals with your accountability partners.
             </p>
           </div>
 
@@ -1010,7 +1346,7 @@ export default function Communities() {
               }`}
             >
               <MessageSquare size={15} />
-              Friends Chat ({friends.length})
+              Friends ({friends.length})
             </button>
           </div>
         </div>
@@ -1044,7 +1380,7 @@ export default function Communities() {
                         </span>
                       </div>
                       <p className="text-xs text-[#A3A3A3] mt-0.5">
-                        {selectedCommunity.membersCount} Members • {selectedCommunity.requiredApprovals} Member Approvals Required
+                        {selectedCommunity.membersCount} Members • {selectedCommunity.requiredApprovals} Approvals Required
                       </p>
                     </div>
                   </div>
@@ -1067,7 +1403,7 @@ export default function Communities() {
                           onClick={() => setCommToLeave(selectedCommunity)}
                           className="rounded-xl border border-[#444444] bg-transparent px-3 py-1.5 text-xs font-semibold text-neutral-300 hover:text-white hover:border-white transition"
                         >
-                          Leave Community
+                          Leave
                         </button>
                         <button
                           type="button"
@@ -1093,7 +1429,7 @@ export default function Communities() {
 
                 {/* If joined, show full Community Group Chat */}
                 {selectedCommunity.joined ? (
-                  <div className="flex flex-col rounded-2xl border border-[#2B2B2B] bg-[#121212] overflow-hidden min-h-[560px]">
+                  <div className="flex flex-col rounded-2xl border border-[#2B2B2B] bg-[#121212] overflow-hidden" style={{ height: "calc(100vh - 320px)", minHeight: "480px" }}>
                     {/* Community Description Banner */}
                     <div className="border-b border-[#222222] bg-[#161616] px-5 py-2.5 flex items-center justify-between text-xs text-[#A3A3A3]">
                       <span className="truncate max-w-xl">
@@ -1105,7 +1441,7 @@ export default function Communities() {
                     </div>
 
                     {/* Community Chat Stream */}
-                    <div className="flex-1 space-y-3 overflow-y-auto p-4 max-h-[460px]">
+                    <div className="flex-1 space-y-3 overflow-y-auto p-4">
                       {commChatMessages.length === 0 ? (
                         <div className="flex h-full flex-col items-center justify-center py-16 text-center">
                           <Users size={36} className="text-[#444444] mb-2" />
@@ -1113,150 +1449,41 @@ export default function Communities() {
                             Community Chat Active
                           </p>
                           <p className="mt-1 text-xs text-[#737373] max-w-sm">
-                            Coordinate with members here, or click the <strong className="text-white">+</strong> icon below to submit and share your goal proof!
+                            Share messages, photos, or files with your community using the 📎 icon.
                           </p>
                         </div>
                       ) : (
-                        commChatMessages.map((msg) => {
-                          const isMe = msg.sender === "me";
-                          return (
-                            <div
-                              key={msg.id}
-                              className={`group flex ${isMe ? "justify-end" : "justify-start"}`}
-                            >
-                              <div
-                                className={`relative max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 text-xs ${
-                                  isMe
-                                    ? "bg-white text-black font-medium"
-                                    : "border border-[#333333] bg-[#1E1E1E] text-white"
-                                }`}
-                              >
-                                {/* Sender badge for peers */}
-                                {!isMe && (
-                                  <div className="mb-1 flex items-center gap-1.5 font-bold text-[11px] text-emerald-400">
-                                    <span>{msg.senderName || "Member"}</span>
-                                    {msg.senderHandle && (
-                                      <span className="font-mono text-[10px] text-[#A3A3A3]">
-                                        @{msg.senderHandle.replace(/^@/, "")}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Proof Evidence Card */}
-                                {msg.isProof && (
-                                  <div
-                                    className={`mb-2 rounded-xl p-3 ${
-                                      isMe
-                                        ? "border border-black/15 bg-black/5"
-                                        : "border border-white/15 bg-white/5"
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2 border-b border-current/15 pb-2 mb-2">
-                                      <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-                                        <ShieldCheck size={14} />
-                                        <span>Goal Proof Evidence</span>
-                                      </div>
-                                      {msg.goalId && (
-                                        <Link
-                                          to={`/goals/${msg.goalId}`}
-                                          className={`flex items-center gap-1 text-[11px] font-bold underline hover:opacity-80 ${
-                                            isMe ? "text-black" : "text-white"
-                                          }`}
-                                        >
-                                          <span>Review Goal</span>
-                                          <ExternalLink size={11} />
-                                        </Link>
-                                      )}
-                                    </div>
-                                    {msg.goalTitle && (
-                                      <h4
-                                        className={`text-xs font-bold mb-1 ${
-                                          isMe ? "text-black" : "text-white"
-                                        }`}
-                                      >
-                                        🎯 {msg.goalTitle}
-                                      </h4>
-                                    )}
-                                    {msg.text && (
-                                      <p
-                                        className={`text-xs leading-relaxed mb-2 ${
-                                          isMe ? "text-neutral-800" : "text-neutral-200"
-                                        }`}
-                                      >
-                                        {msg.text}
-                                      </p>
-                                    )}
-                                    {msg.externalLink && (
-                                      <a
-                                        href={msg.externalLink}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:underline mb-2"
-                                      >
-                                        <ExternalLink size={12} />
-                                        <span className="truncate max-w-[200px]">
-                                          {msg.externalLink}
-                                        </span>
-                                      </a>
-                                    )}
-                                    {msg.images && msg.images.length > 0 && (
-                                      <WhatsAppImageGrid
-                                        images={msg.images}
-                                        onImageClick={setLightboxImage}
-                                      />
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Normal text */}
-                                {!msg.isProof && (
-                                  <p className="leading-relaxed">{msg.text}</p>
-                                )}
-
-                                <div className="mt-1 flex items-center justify-end gap-2 text-[9px]">
-                                  <span
-                                    className={isMe ? "text-neutral-500" : "text-[#737373]"}
-                                  >
-                                    {msg.time}
-                                  </span>
-                                  {isMe && <CheckCheck size={12} className="text-neutral-500" />}
-
-                                  {/* Delete message icon */}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteCommMessage(msg.id)}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-neutral-400 hover:text-red-500"
-                                    title="Delete message"
-                                  >
-                                    <Trash2 size={11} />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
+                        commChatMessages.map((msg) => (
+                          <ChatBubble
+                            key={msg.id}
+                            msg={msg}
+                            isMe={msg.sender === "me"}
+                            onDelete={handleDeleteCommMessage}
+                            onImageClick={setLightboxImage}
+                            showSenderBadge={true}
+                          />
+                        ))
                       )}
                       <div ref={commChatEndRef} />
                     </div>
 
-                    {/* Community Chat Input with WhatsApp "+" Proof Icon */}
+                    {/* Community Chat Input - WhatsApp style */}
                     <form
                       onSubmit={handleSendCommMessage}
                       className="flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
                     >
                       <button
                         type="button"
-                        onClick={() => openProofModal("community")}
-                        title="Upload & Share Goal Proof"
-                        className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-white hover:border-white hover:bg-[#2C2C2C] transition"
+                        onClick={() => openAttachModal("community")}
+                        title="Attach photos, files or links"
+                        className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-[#A3A3A3] hover:border-white hover:text-white hover:bg-[#2C2C2C] transition"
                       >
-                        <Plus size={18} />
+                        <Paperclip size={18} />
                       </button>
 
                       <input
                         type="text"
-                        placeholder="Type a message or click + to share goal proof..."
+                        placeholder="Type a message..."
                         value={commMessageInput}
                         onChange={(e) => setCommMessageInput(e.target.value)}
                         className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-4 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
@@ -1399,12 +1626,12 @@ export default function Communities() {
             VIEW 2: WHATSAPP-STYLE FRIENDS & CHAT SECTION
         ============================================================ */}
         {mainView === "friends" && (
-          <div className="grid grid-cols-1 overflow-hidden rounded-2xl border border-[#2B2B2B] bg-[#181818] shadow-2xl md:grid-cols-12 min-h-[580px]">
+          <div className="grid grid-cols-1 overflow-hidden rounded-2xl border border-[#2B2B2B] bg-[#181818] shadow-2xl md:grid-cols-12" style={{ height: "calc(100vh - 220px)", minHeight: "520px" }}>
             {/* Left Column: Friends List */}
-            <div className="border-b border-[#2A2A2A] bg-[#141414] p-4 md:col-span-4 md:border-b-0 md:border-r">
+            <div className="border-b border-[#2A2A2A] bg-[#141414] p-4 md:col-span-4 md:border-b-0 md:border-r md:overflow-y-auto">
               <div className="flex items-center justify-between pb-3">
                 <span className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3]">
-                  Friends List ({friends.length})
+                  Friends ({friends.length})
                 </span>
                 <button
                   type="button"
@@ -1412,7 +1639,7 @@ export default function Communities() {
                   className="flex items-center gap-1.5 rounded-lg border border-[#444444] bg-[#222222] px-2.5 py-1.5 text-xs font-semibold text-white hover:border-white transition"
                 >
                   <UserPlus size={14} />
-                  Add Friend
+                  Add
                 </button>
               </div>
 
@@ -1432,7 +1659,7 @@ export default function Communities() {
               </div>
 
               {/* Friends List items */}
-              <div className="mt-4 space-y-1 max-h-[460px] overflow-y-auto">
+              <div className="mt-4 space-y-1">
                 {filteredFriends.length === 0 ? (
                   <div className="py-12 text-center">
                     <p className="text-xs text-[#737373]">No friends added yet.</p>
@@ -1605,139 +1832,45 @@ export default function Communities() {
                   </div>
 
                   {/* Message Stream */}
-                  <div className="flex-1 space-y-3 overflow-y-auto p-4 max-h-[420px]">
+                  <div className="flex-1 space-y-3 overflow-y-auto p-4">
                     {chatMessages.length === 0 ? (
                       <div className="flex h-full flex-col items-center justify-center py-16 text-center">
                         <MessageSquare size={32} className="text-[#444444] mb-2" />
                         <p className="text-xs font-medium text-[#A3A3A3]">
-                          No messages yet. Send a message or click <strong className="text-white">+</strong> to share goal evidence!
+                          No messages yet. Send a message or click 📎 to share files!
                         </p>
                       </div>
                     ) : (
-                      chatMessages.map((msg) => {
-                        const isMe = msg.sender === "me";
-                        return (
-                          <div
-                            key={msg.id}
-                            className={`group flex ${isMe ? "justify-end" : "justify-start"}`}
-                          >
-                            <div
-                              className={`relative max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 text-xs ${
-                                isMe
-                                  ? "bg-white text-black font-medium"
-                                  : "border border-[#333333] bg-[#222222] text-white"
-                              }`}
-                            >
-                              {/* Proof Card */}
-                              {msg.isProof && (
-                                <div
-                                  className={`mb-2 rounded-xl p-3 ${
-                                    isMe
-                                      ? "border border-black/15 bg-black/5"
-                                      : "border border-white/15 bg-white/5"
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between gap-2 border-b border-current/15 pb-2 mb-2">
-                                    <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-                                      <ShieldCheck size={14} />
-                                      <span>Goal Proof Evidence</span>
-                                    </div>
-                                    {msg.goalId && (
-                                      <Link
-                                        to={`/goals/${msg.goalId}`}
-                                        className={`flex items-center gap-1 text-[11px] font-bold underline hover:opacity-80 ${
-                                          isMe ? "text-black" : "text-white"
-                                        }`}
-                                      >
-                                        <span>Review Goal</span>
-                                        <ExternalLink size={11} />
-                                      </Link>
-                                    )}
-                                  </div>
-                                  {msg.goalTitle && (
-                                    <h4
-                                      className={`text-xs font-bold mb-1 ${
-                                        isMe ? "text-black" : "text-white"
-                                      }`}
-                                    >
-                                      🎯 {msg.goalTitle}
-                                    </h4>
-                                  )}
-                                  {msg.text && (
-                                    <p
-                                      className={`text-xs leading-relaxed mb-2 ${
-                                        isMe ? "text-neutral-800" : "text-neutral-200"
-                                      }`}
-                                    >
-                                      {msg.text}
-                                    </p>
-                                  )}
-                                  {msg.externalLink && (
-                                    <a
-                                      href={msg.externalLink}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:underline mb-2"
-                                    >
-                                      <ExternalLink size={12} />
-                                      <span className="truncate max-w-[200px]">
-                                        {msg.externalLink}
-                                      </span>
-                                    </a>
-                                  )}
-                                  {msg.images && msg.images.length > 0 && (
-                                    <WhatsAppImageGrid
-                                      images={msg.images}
-                                      onImageClick={setLightboxImage}
-                                    />
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Normal message */}
-                              {!msg.isProof && <p className="leading-relaxed">{msg.text}</p>}
-
-                              <div className="mt-1 flex items-center justify-end gap-2 text-[9px]">
-                                <span className={isMe ? "text-neutral-500" : "text-[#737373]"}>
-                                  {msg.time}
-                                </span>
-                                {isMe && <CheckCheck size={12} className="text-neutral-500" />}
-
-                                {/* Delete message button */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteChatMessage(msg.id)}
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-neutral-400 hover:text-red-500"
-                                  title="Delete message"
-                                >
-                                  <Trash2 size={11} />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })
+                      chatMessages.map((msg) => (
+                        <ChatBubble
+                          key={msg.id}
+                          msg={msg}
+                          isMe={msg.sender === "me"}
+                          onDelete={handleDeleteChatMessage}
+                          onImageClick={setLightboxImage}
+                        />
+                      ))
                     )}
                     <div ref={chatEndRef} />
                   </div>
 
-                  {/* Chat Input with WhatsApp "+" Proof Icon */}
+                  {/* Chat Input - WhatsApp style with paperclip */}
                   <form
                     onSubmit={handleSendMessage}
                     className="flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
                   >
                     <button
                       type="button"
-                      onClick={() => openProofModal("friend")}
-                      title="Upload & Share Goal Proof"
-                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-white hover:border-white hover:bg-[#2C2C2C] transition"
+                      onClick={() => openAttachModal("friend")}
+                      title="Attach photos, files or links"
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-[#A3A3A3] hover:border-white hover:text-white hover:bg-[#2C2C2C] transition"
                     >
-                      <Plus size={18} />
+                      <Paperclip size={18} />
                     </button>
 
                     <input
                       type="text"
-                      placeholder="Type a message or click + to share goal proof..."
+                      placeholder="Type a message..."
                       value={messageInput}
                       onChange={(e) => setMessageInput(e.target.value)}
                       className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-4 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
@@ -1757,7 +1890,7 @@ export default function Communities() {
                   <Users size={40} className="text-[#444444] mb-3" />
                   <h3 className="text-sm font-bold text-white">No Friend Selected</h3>
                   <p className="mt-1 text-xs text-[#737373]">
-                    Select a friend on the left or add a new friend to start your accountability chat.
+                    Select a friend on the left or add a new friend to start chatting.
                   </p>
                 </div>
               )}
@@ -1766,120 +1899,89 @@ export default function Communities() {
         )}
 
         {/* ============================================================
-            WHATSAPP "+" PROOF SUBMISSION MODAL
+            WHATSAPP-STYLE ATTACHMENT MODAL (No goal required)
         ============================================================ */}
-        {showProofModal && (
+        {showAttachModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-lg rounded-2xl border border-[#333333] bg-[#1A1A1A] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
+            <div className="w-full max-w-md rounded-2xl border border-[#333333] bg-[#1A1A1A] p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-3">
                 <div className="flex items-center gap-2">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-black">
-                    <ShieldCheck size={18} />
+                    <Paperclip size={16} />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-white">
-                      Share Goal Proof
-                    </h3>
+                    <h3 className="text-sm font-bold text-white">Send Attachment</h3>
                     <p className="text-[11px] text-[#A3A3A3]">
-                      {proofTargetType === "friend"
-                        ? `Sharing directly with ${activeFriend?.name || "Friend"}`
-                        : `Sharing with ${selectedCommunity?.name || "Community"}`}
+                      {attachTargetType === "friend"
+                        ? `To ${activeFriend?.name || "Friend"}`
+                        : `To ${selectedCommunity?.name || "Community"}`}
                     </p>
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowProofModal(false)}
-                  className="rounded-lg p-1 text-[#737373] hover:text-white"
+                  onClick={() => setShowAttachModal(false)}
+                  className="rounded-lg p-1 text-[#737373] hover:text-white transition"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              {proofError && (
-                <div className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">
-                  {proofError}
-                </div>
-              )}
-              {proofSuccess && (
-                <div className="mt-4 rounded-xl border border-emerald-900 bg-emerald-950/40 p-3 text-xs font-semibold text-emerald-300">
-                  {proofSuccess}
-                </div>
-              )}
-
-              <form onSubmit={handleShareProofSubmit} className="mt-4 space-y-4">
-                {/* 1. Goal Selector */}
-                <div>
-                  <label className="block text-xs font-bold text-white mb-1.5">
-                    1. Select Active Goal
-                  </label>
-                  {userGoals.length === 0 ? (
-                    <div className="rounded-xl border border-[#333333] bg-[#141414] p-3 text-xs text-[#A3A3A3]">
-                      No active goals found. Please{" "}
-                      <Link to="/goals" className="text-white underline font-semibold">
-                        create a goal
-                      </Link>{" "}
-                      first.
-                    </div>
-                  ) : (
-                    <select
-                      value={selectedGoalId}
-                      onChange={(e) => setSelectedGoalId(e.target.value)}
-                      className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white focus:border-white focus:outline-none"
-                    >
-                      {userGoals.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.title} ({g.status === "proof_submitted" ? "Proof Pending" : "Active"})
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-
-                {/* 2. Photo / Document Evidence */}
+              <form onSubmit={handleSendAttachment} className="mt-4 space-y-4">
+                {/* Photo / File Picker */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-white">
-                      2. Attach Photos / Screenshots
+                    <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <ImageIcon size={14} className="text-[#A3A3A3]" />
+                      Photos & Files
                     </label>
                     <span className="text-[11px] text-[#737373]">
-                      {proofFiles.length} photo{proofFiles.length !== 1 ? "s" : ""} selected
+                      {attachFiles.length} selected
                     </span>
                   </div>
 
                   <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#3A3A3A] bg-[#141414] p-4 text-center hover:border-white transition">
                     <Paperclip size={20} className="text-[#A3A3A3] mb-1" />
                     <span className="text-xs font-semibold text-white">
-                      Click to choose multiple photos
+                      Tap to choose photos or files
                     </span>
                     <span className="text-[10px] text-[#737373] mt-0.5">
-                      PNG, JPG, screenshots supported
+                      PNG, JPG, PDF, screenshots
                     </span>
                     <input
                       type="file"
                       multiple
-                      accept="image/*"
-                      onChange={handleSelectFiles}
+                      accept="image/*,.pdf,.doc,.docx,.txt"
+                      onChange={handleSelectAttachFiles}
                       className="hidden"
                     />
                   </label>
 
                   {/* Thumbnail Strip */}
-                  {proofFiles.length > 0 && (
+                  {attachFiles.length > 0 && (
                     <div className="mt-3 grid grid-cols-4 gap-2">
-                      {proofFiles.map((item, idx) => (
+                      {attachFiles.map((item, idx) => (
                         <div
                           key={idx}
-                          className="relative aspect-square overflow-hidden rounded-lg border border-[#333333] bg-[#111111]"
+                          className="relative aspect-square overflow-hidden rounded-lg border border-[#333333] bg-[#111111] flex items-center justify-center p-1"
                         >
-                          <img
-                            src={item.previewUrl}
-                            alt="Preview"
-                            className="h-full w-full object-cover"
-                          />
+                          {item.isImage ? (
+                            <img
+                              src={item.previewUrl}
+                              alt="Preview"
+                              className="h-full w-full object-cover rounded"
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-center p-1">
+                              <FileText size={20} className="text-red-400 mb-1" />
+                              <span className="text-[9px] text-neutral-300 truncate max-w-full">
+                                {item.name}
+                              </span>
+                            </div>
+                          )}
                           <button
                             type="button"
-                            onClick={() => removeProofFile(idx)}
+                            onClick={() => removeAttachFile(idx)}
                             className="absolute top-1 right-1 rounded-full bg-black/80 p-1 text-white hover:bg-black"
                           >
                             <X size={10} />
@@ -1890,54 +1992,53 @@ export default function Communities() {
                   )}
                 </div>
 
-                {/* 3. External Link */}
+                {/* Link */}
                 <div>
-                  <label className="block text-xs font-bold text-white mb-1.5">
-                    3. Verification Link (Optional)
+                  <label className="text-xs font-bold text-white mb-1.5 flex items-center gap-1.5">
+                    <LinkIcon size={14} className="text-[#A3A3A3]" />
+                    Link (Optional)
                   </label>
                   <input
                     type="url"
-                    placeholder="https://github.com/pull/... or Loom URL"
-                    value={proofExternalLink}
-                    onChange={(e) => setProofExternalLink(e.target.value)}
+                    placeholder="https://..."
+                    value={attachLink}
+                    onChange={(e) => setAttachLink(e.target.value)}
                     className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
                   />
                 </div>
 
-                {/* 4. Verification Note */}
+                {/* Caption */}
                 <div>
-                  <label className="block text-xs font-bold text-white mb-1.5">
-                    4. Verification Note / Milestone Summary
+                  <label className="text-xs font-bold text-white mb-1.5 block">
+                    Caption (Optional)
                   </label>
                   <textarea
-                    rows={3}
-                    placeholder="Describe what you completed, milestone achievements, notes for review..."
-                    value={proofExplanation}
-                    onChange={(e) => setProofExplanation(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                    rows={2}
+                    placeholder="Add a caption..."
+                    value={attachCaption}
+                    onChange={(e) => setAttachCaption(e.target.value)}
+                    className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none resize-none"
                   />
                 </div>
 
-                {/* Submit Action */}
-                <div className="pt-2">
-                  <button
-                    type="submit"
-                    disabled={submittingProof || userGoals.length === 0}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold text-black hover:bg-neutral-200 disabled:opacity-40 transition"
-                  >
-                    {submittingProof ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Submitting Proof & Sharing in Chat...
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheck size={15} />
-                        Submit Proof & Drop in Chat
-                      </>
-                    )}
-                  </button>
-                </div>
+                {/* Send */}
+                <button
+                  type="submit"
+                  disabled={attachSending || (attachFiles.length === 0 && !attachCaption.trim() && !attachLink.trim())}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold text-black hover:bg-neutral-200 disabled:opacity-40 transition"
+                >
+                  {attachSending ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send size={14} />
+                      Send
+                    </>
+                  )}
+                </button>
               </form>
             </div>
           </div>
