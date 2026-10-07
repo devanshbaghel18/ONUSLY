@@ -5,14 +5,19 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/approval"
 	"github.com/devanshbaghel18/ONUSLY/internal/auth"
 	"github.com/devanshbaghel18/ONUSLY/internal/chat"
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
+	"github.com/devanshbaghel18/ONUSLY/internal/events"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
+	"github.com/devanshbaghel18/ONUSLY/internal/notifications"
 	"github.com/devanshbaghel18/ONUSLY/internal/proof"
+	"github.com/devanshbaghel18/ONUSLY/internal/queue"
 	"github.com/devanshbaghel18/ONUSLY/internal/realtime"
 	"github.com/devanshbaghel18/ONUSLY/internal/shared"
 )
@@ -87,25 +92,47 @@ func main() {
 		proofService,
 	)
 
-	// Real-time unlock delivery: notify owner via WebSocket when an approval is committed
-	approvalService.AddDecisionListener(approval.DecisionListenerFunc(func(ctx context.Context, app *approval.Approval, goal *goals.Goal) {
-		if app.Status == "approved" {
-			log.Printf("[Realtime] Dispatching goal.unlocked event to owner %s for goal %s", app.OwnerID, app.GoalID)
-			unlockEvent := realtime.Event{
-				Type: "goal.unlocked",
-				Payload: map[string]interface{}{
-					"goalId":     app.GoalID,
-					"ownerId":    app.OwnerID,
-					"approverId": app.ApproverID,
-					"status":     "completed",
-					"title":      goal.Title,
-					"unlockedAt": app.DecidedAt,
-				},
-			}
-			_ = wsHub.SendToUser(app.OwnerID, unlockEvent)
-			wsHub.Broadcast(unlockEvent)
+	// Queue configuration
+	proofQueueURL := os.Getenv("PROOF_EVENTS_QUEUE_URL")
+	approvalQueueURL := os.Getenv("APPROVAL_EVENTS_QUEUE_URL")
+	proofQueueName := "proof-events"
+	approvalQueueName := "approval-events"
+
+	var eventQueue queue.Queue
+	if proofQueueURL != "" && approvalQueueURL != "" {
+		sqsClient := shared.NewSQSClient()
+		if sqsClient != nil {
+			log.Println("[Queue] Using AWS SQS queue adapter with configured queue URLs")
+			eventQueue = queue.NewSQSQueue(sqsClient, map[string]string{
+				proofQueueName:    proofQueueURL,
+				approvalQueueName: approvalQueueURL,
+			})
 		}
-	}))
+	}
+	if eventQueue == nil {
+		log.Println("[Queue] Using in-memory queue adapter (set PROOF_EVENTS_QUEUE_URL and APPROVAL_EVENTS_QUEUE_URL to use AWS SQS)")
+		eventQueue = queue.NewMemoryQueue()
+	}
+
+	// Shared Publisher abstraction (Slice A WebSocket + Slice B Queue)
+	wsPublisher := realtime.NewWebSocketPublisher(wsHub)
+	queuePublisher := events.NewQueuePublisher(eventQueue, proofQueueName, approvalQueueName)
+	domainPublisher := events.NewCompositePublisher(wsPublisher, queuePublisher)
+
+	proofService.SetPublisher(domainPublisher)
+	approvalService.SetPublisher(domainPublisher)
+
+	// Notifications
+	notifRepo := notifications.NewRepository(db, "Onusly")
+	notifService := notifications.NewService(notifRepo)
+	notifHandler := notifications.NewHandler(notifService)
+
+	// Background Notification Worker
+	notifWorker := notifications.NewWorker(eventQueue, notifService, proofQueueName, approvalQueueName, 250*time.Millisecond)
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	notifWorker.Start(workerCtx)
+	log.Println("[Worker] Notification worker started")
 
 	approvalHandler := approval.NewHandler(approvalService)
 
@@ -116,6 +143,20 @@ func main() {
 
 	// Protected routes
 	goalRoutes := http.NewServeMux()
+
+	// Notifications
+	goalRoutes.HandleFunc(
+		"GET /notifications",
+		notifHandler.List,
+	)
+	goalRoutes.HandleFunc(
+		"PATCH /notifications/{id}/read",
+		notifHandler.MarkAsRead,
+	)
+	goalRoutes.HandleFunc(
+		"POST /notifications/read-all",
+		notifHandler.MarkAllAsRead,
+	)
 
 	// Chat
 	goalRoutes.HandleFunc(
@@ -206,6 +247,8 @@ func main() {
 	mux.Handle("/chat/", protectedRoutes)
 	mux.Handle("/users", protectedRoutes)
 	mux.Handle("/users/", protectedRoutes)
+	mux.Handle("/notifications", protectedRoutes)
+	mux.Handle("/notifications/", protectedRoutes)
 
 	log.Println("Server running on :8080")
 

@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
 
+	"github.com/devanshbaghel18/ONUSLY/internal/events"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/proof"
@@ -404,5 +405,78 @@ func TestProofHandler_HTTPStatusCodes(t *testing.T) {
 	proofHandler.Submit(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404 Not Found for non-existent goal, got %d", rec.Code)
+	}
+}
+
+type testProofPublisher struct {
+	events []events.ProofSubmittedEvent
+}
+
+func (p *testProofPublisher) PublishProofSubmitted(ctx context.Context, event events.ProofSubmittedEvent) error {
+	p.events = append(p.events, event)
+	return nil
+}
+
+func (p *testProofPublisher) PublishApprovalDecided(ctx context.Context, event events.ApprovalDecidedEvent) error {
+	return nil
+}
+
+func TestProof_PublisherEventEmission(t *testing.T) {
+	db, tableName := getTestDynamoClient(t)
+	ownerID, approverID, goalID := setupTestGoal(t, db, tableName, "active")
+
+	goalRepo := goals.NewRepository(db, tableName)
+	goalService := goals.NewService(goalRepo, nil)
+	proofRepo := proof.NewRepository(db, tableName)
+	proofService := proof.NewService(proofRepo, goalService)
+
+	mockPub := &testProofPublisher{}
+	proofService.SetPublisher(mockPub)
+
+	// 1. Successful proof submission -> exactly one event emitted
+	p, err := proofService.Submit(
+		context.Background(),
+		ownerID,
+		goalID,
+		"text",
+		"Completed reading chapter 4",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error submitting proof: %v", err)
+	}
+
+	if len(mockPub.events) != 1 {
+		t.Fatalf("expected exactly 1 event emitted, got %d", len(mockPub.events))
+	}
+
+	ev := mockPub.events[0]
+	if ev.EventID != "proof-"+p.ID {
+		t.Errorf("expected stable event ID 'proof-%s', got %q", p.ID, ev.EventID)
+	}
+	if ev.GoalID != goalID {
+		t.Errorf("expected goalID %q, got %q", goalID, ev.GoalID)
+	}
+	if ev.ApproverID != approverID {
+		t.Errorf("expected approverID %q, got %q", approverID, ev.ApproverID)
+	}
+
+	// 2. Failed proof submission (duplicate) -> zero new events emitted
+	_, err = proofService.Submit(
+		context.Background(),
+		ownerID,
+		goalID,
+		"text",
+		"Duplicate attempt",
+		"",
+		"",
+	)
+	if err == nil {
+		t.Fatalf("expected duplicate submission to fail")
+	}
+
+	if len(mockPub.events) != 1 {
+		t.Errorf("expected event count to remain 1 after failure, got %d", len(mockPub.events))
 	}
 }

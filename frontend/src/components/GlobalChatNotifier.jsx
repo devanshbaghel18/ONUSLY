@@ -2,14 +2,14 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { MessageSquare, X, ArrowRight } from "lucide-react";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { receiveChatMessage, getStoredFriends } from "../lib/friendsChat";
+import { receiveChatMessage } from "../lib/friendsChat";
 
 export default function GlobalChatNotifier() {
   const navigate = useNavigate();
   const location = useLocation();
   const [activeToast, setActiveToast] = useState(null);
 
-  const { isConnected } = useWebSocket((event) => {
+  useWebSocket((event) => {
     if (event?.type === "chat.message") {
       const payload = event.payload || {};
       const timeFormatted = payload.time

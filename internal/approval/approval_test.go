@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/approval"
+	"github.com/devanshbaghel18/ONUSLY/internal/events"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/proof"
@@ -841,5 +842,148 @@ func TestApprovalHandler_HTTPStatusCodes(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "proof has already been decided") {
 		t.Errorf("expected body to contain 'proof has already been decided', got %s", rec.Body.String())
+	}
+}
+
+// TestApproval_DecisionListenerNotification verifies that DecisionListeners
+// are invoked only when TransactWriteItems succeeds and never on failure.
+func TestApproval_DecisionListenerNotification(t *testing.T) {
+	db, tableName := getTestDynamoClient(t)
+	ownerID, approverID, goalID, proofID := setupTestGoalAndProof(t, db, tableName)
+
+	goalRepo := goals.NewRepository(db, tableName)
+	goalService := goals.NewService(goalRepo, nil)
+	proofRepo := proof.NewRepository(db, tableName)
+	proofService := proof.NewService(proofRepo, goalService)
+	approvalRepo := approval.NewRepository(db, tableName)
+	approvalService := approval.NewService(approvalRepo, goalService, proofService)
+
+	var listenerCalls int
+	var receivedApp *approval.Approval
+	var receivedGoal *goals.Goal
+
+	approvalService.AddDecisionListener(approval.DecisionListenerFunc(func(ctx context.Context, app *approval.Approval, goal *goals.Goal) {
+		listenerCalls++
+		receivedApp = app
+		receivedGoal = goal
+	}))
+
+	// 1. Valid decision -> listener must be called once with correct payload
+	app, err := approvalService.Decide(
+		context.Background(),
+		approverID,
+		ownerID,
+		goalID,
+		proofID,
+		"approved",
+		"Listener test approval",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error on decide: %v", err)
+	}
+
+	if listenerCalls != 1 {
+		t.Fatalf("expected listener to be called 1 time, got %d", listenerCalls)
+	}
+	if receivedApp == nil || receivedApp.ID != app.ID {
+		t.Errorf("expected listener to receive created approval, got %+v", receivedApp)
+	}
+	if receivedGoal == nil || receivedGoal.ID != goalID {
+		t.Errorf("expected listener to receive target goal, got %+v", receivedGoal)
+	}
+
+	// 2. Duplicate decision -> should fail with ErrAlreadyDecided and NOT call listener again
+	_, err = approvalService.Decide(
+		context.Background(),
+		approverID,
+		ownerID,
+		goalID,
+		proofID,
+		"rejected",
+		"Duplicate attempt",
+	)
+	if err == nil {
+		t.Fatalf("expected duplicate decision to fail")
+	}
+	if listenerCalls != 1 {
+		t.Errorf("expected listener calls to remain 1 after failure, got %d", listenerCalls)
+	}
+}
+
+type testApprovalPublisher struct {
+	events []events.ApprovalDecidedEvent
+}
+
+func (p *testApprovalPublisher) PublishProofSubmitted(ctx context.Context, event events.ProofSubmittedEvent) error {
+	return nil
+}
+
+func (p *testApprovalPublisher) PublishApprovalDecided(ctx context.Context, event events.ApprovalDecidedEvent) error {
+	p.events = append(p.events, event)
+	return nil
+}
+
+func TestApproval_PublisherEventEmission(t *testing.T) {
+	db, tableName := getTestDynamoClient(t)
+	ownerID, approverID, goalID, proofID := setupTestGoalAndProof(t, db, tableName)
+
+	goalRepo := goals.NewRepository(db, tableName)
+	goalService := goals.NewService(goalRepo, nil)
+	proofRepo := proof.NewRepository(db, tableName)
+	proofService := proof.NewService(proofRepo, goalService)
+	approvalRepo := approval.NewRepository(db, tableName)
+	approvalService := approval.NewService(approvalRepo, goalService, proofService)
+
+	mockPub := &testApprovalPublisher{}
+	approvalService.SetPublisher(mockPub)
+
+	// 1. Successful decision -> exactly one event emitted
+	app, err := approvalService.Decide(
+		context.Background(),
+		approverID,
+		ownerID,
+		goalID,
+		proofID,
+		"approved",
+		"Publisher test approval",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error on decide: %v", err)
+	}
+
+	if len(mockPub.events) != 1 {
+		t.Fatalf("expected exactly 1 event emitted, got %d", len(mockPub.events))
+	}
+
+	ev := mockPub.events[0]
+	if ev.EventID != "approval-"+app.ID {
+		t.Errorf("expected stable event ID 'approval-%s', got %q", app.ID, ev.EventID)
+	}
+	if ev.GoalID != goalID {
+		t.Errorf("expected goalID %q, got %q", goalID, ev.GoalID)
+	}
+	if ev.OwnerID != ownerID {
+		t.Errorf("expected ownerID %q, got %q", ownerID, ev.OwnerID)
+	}
+	if ev.Status != "approved" {
+		t.Errorf("expected status 'approved', got %q", ev.Status)
+	}
+
+	// 2. Duplicate decision attempt -> fails and emits 0 new events
+	_, err = approvalService.Decide(
+		context.Background(),
+		approverID,
+		ownerID,
+		goalID,
+		proofID,
+		"rejected",
+		"Duplicate attempt",
+	)
+	if err == nil {
+		t.Fatalf("expected duplicate decision to fail")
+	}
+
+	if len(mockPub.events) != 1 {
+		t.Errorf("expected event count to remain 1 after duplicate failure, got %d", len(mockPub.events))
 	}
 }

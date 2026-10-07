@@ -18,8 +18,6 @@ import {
   Paperclip,
   Trash2,
   ExternalLink,
-  Lock,
-  Target,
   CheckCheck,
   Image as ImageIcon,
   LinkIcon,
@@ -48,14 +46,18 @@ import {
   getChatMessages,
   sendChatMessage,
   receiveChatMessage,
-  deleteChatMessage,
   deleteChatMessageGlobally,
   mergeChatHistory,
   markChatMessageApproved,
 } from "../lib/friendsChat";
-import { getChatHistory, lookupUser, getGoals, submitProof, decideApproval } from "../lib/api";
+import { getChatHistory, lookupUser } from "../lib/api";
 import { getUser } from "../lib/auth";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { wsManager } from "../lib/websocket";
+
+function generateMsgId(prefix = "msg") {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+}
 
 // ==========================================
 // WHATSAPP-STYLE IMAGE COLLAGE GRID
@@ -224,30 +226,30 @@ export default function Communities() {
   // Navigation state handler (e.g. redirected from "Share for Verification")
   const location = useLocation();
   useEffect(() => {
-    if (location.state?.view) {
-      setMainView(location.state.view);
-    }
-    if (location.state?.view === "friends" && location.state?.targetId) {
-      setActiveFriendId(location.state.targetId);
-      setChatMessages(getChatMessages(location.state.targetId));
-    }
-    if (location.state?.view === "communities" && location.state?.targetId) {
-      const allComms = getStoredCommunities();
-      const targetComm = allComms.find((c) => c.id === location.state.targetId);
-      if (targetComm) {
-        setSelectedCommunity(targetComm);
-        setCommChatMessages(getCommunityMessages(targetComm.id));
+    if (!location.state) return;
+    const timer = setTimeout(() => {
+      if (location.state?.view) {
+        setMainView(location.state.view);
       }
-    }
+      if (location.state?.view === "friends" && location.state?.targetId) {
+        setActiveFriendId(location.state.targetId);
+        setChatMessages(getChatMessages(location.state.targetId));
+      }
+      if (location.state?.view === "communities" && location.state?.targetId) {
+        const allComms = getStoredCommunities();
+        const targetComm = allComms.find((c) => c.id === location.state.targetId);
+        if (targetComm) {
+          setSelectedCommunity(targetComm);
+          setCommChatMessages(getCommunityMessages(targetComm.id));
+        }
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [location.state]);
 
   // Refs for auto-scroll
   const chatEndRef = useRef(null);
   const commChatEndRef = useRef(null);
-
-  // File input ref for WhatsApp-style paperclip
-  const friendFileInputRef = useRef(null);
-  const commFileInputRef = useRef(null);
 
   // ==========================================
   // WEBSOCKET REALTIME CONNECTION
@@ -419,7 +421,7 @@ export default function Communities() {
         setPrivateCode("");
         setCodeNotice({ error: "", success: `Joined "${commData.name}" successfully!` });
         setTimeout(() => setCodeNotice({ error: "", success: "" }), 3000);
-        send({
+        wsManager.send({
           type: "community.join_room",
           payload: { communityId: commData.id },
         });
@@ -439,7 +441,7 @@ export default function Communities() {
         const updated = addOrUpdateCommunity({ ...commData, joined: true });
         setCommunities(updated);
         // Automatically join room so messages stream live
-        send({
+        wsManager.send({
           type: "community.join_room",
           payload: { communityId: commData.id },
         });
@@ -482,15 +484,18 @@ export default function Communities() {
       type: "community.join_room",
       payload: { communityId: selectedCommunity.id },
     });
-    setCommChatMessages(getCommunityMessages(selectedCommunity.id));
+    const timer = setTimeout(() => {
+      setCommChatMessages(getCommunityMessages(selectedCommunity.id));
+    }, 0);
 
     return () => {
+      clearTimeout(timer);
       send({
         type: "community.leave_room",
         payload: { communityId: selectedCommunity.id },
       });
     };
-  }, [selectedCommunity?.id, selectedCommunity?.joined, isConnected, send]);
+  }, [selectedCommunity, isConnected, send]);
 
   // Auto-scroll 1-on-1 chat
   useEffect(() => {
@@ -590,7 +595,7 @@ export default function Communities() {
         setChatMessages(updated);
         setFriends(getStoredFriends());
       } else if (attachTargetType === "community" && selectedCommunity) {
-        const msgId = `comm-msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+        const msgId = generateMsgId("comm-msg");
         send({
           type: "community.message",
           payload: {

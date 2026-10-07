@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   Target,
   Users,
-  UserCheck,
   Edit3,
   Check,
   AlertCircle,
@@ -14,18 +13,14 @@ import {
   Trash2,
   Loader2,
   ShieldCheck,
-  Mail,
   Send,
-  HelpCircle,
   ExternalLink,
   ThumbsUp,
   ThumbsDown,
   FileText,
   Share2,
-  AtSign,
   Lock,
   MessageSquare,
-  ChevronRight,
   X,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
@@ -35,6 +30,10 @@ import { getStoredCommunities, sendCommunityMessage } from "../lib/communities";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 import AppLayout from "../components/AppLayout";
+
+function generateMsgId(prefix = "msg") {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+}
 
 const GOAL_BLOCKED_APPS_KEY = "onusly_goal_blocked_apps";
 
@@ -60,6 +59,14 @@ export default function GoalDetail() {
   const [error, setError] = useState("");
   const [successNotice, setSuccessNotice] = useState("");
   const [unlockBanner, setUnlockBanner] = useState(null);
+
+  // Proofs & Decision State
+  const [proofs, setProofs] = useState([]);
+  const [loadingProofs, setLoadingProofs] = useState(true);
+  const [decidingProofId, setDecidingProofId] = useState(null);
+  const [decisionComment, setDecisionComment] = useState("");
+  const [decisionError, setDecisionError] = useState("");
+  const [decisionSuccess, setDecisionSuccess] = useState("");
 
   // Subscribe to real-time WebSocket events for instant unlock sync
   const { isConnected, send } = useWebSocket((event) => {
@@ -164,7 +171,7 @@ export default function GoalDetail() {
         const friend = friends.find((f) => f.id === selectedFriendId);
         if (!friend) throw new Error("Friend not found");
 
-        const msgId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+        const msgId = generateMsgId("msg");
 
         send({
           type: "chat.message",
@@ -201,7 +208,7 @@ export default function GoalDetail() {
         const comm = communities.find((c) => c.id === selectedCommunityId);
         if (!comm) throw new Error("Community not found");
 
-        const msgId = `comm-msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+        const msgId = generateMsgId("comm-msg");
 
         send({
           type: "community.message",
@@ -261,14 +268,6 @@ export default function GoalDetail() {
   const [goalFormError, setGoalFormError] = useState("");
 
   const [copiedReviewLink, setCopiedReviewLink] = useState(false);
-
-  // Proofs & Decision State
-  const [proofs, setProofs] = useState([]);
-  const [loadingProofs, setLoadingProofs] = useState(true);
-  const [decidingProofId, setDecidingProofId] = useState(null);
-  const [decisionComment, setDecisionComment] = useState("");
-  const [decisionError, setDecisionError] = useState("");
-  const [decisionSuccess, setDecisionSuccess] = useState("");
 
   // Load Goal & Proofs
   useEffect(() => {

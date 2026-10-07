@@ -71,10 +71,7 @@ func (s *Service) GetByID(
 	}
 
 	if ownerID != "" {
-		goal, err := s.repo.GetByID(ctx, ownerID, goalID)
-		if err == nil && goal != nil {
-			return goal, nil
-		}
+		return s.repo.GetByID(ctx, ownerID, goalID)
 	}
 
 	return s.repo.FindByID(ctx, goalID)

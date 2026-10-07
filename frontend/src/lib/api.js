@@ -169,4 +169,24 @@ export async function getMyProfile() {
   });
 }
 
+export async function getNotifications() {
+  const data = await request("/notifications", {
+    method: "GET",
+  });
+  return data || { notifications: [], unreadCount: 0 };
+}
+
+export async function markNotificationRead(id) {
+  if (!id) return;
+  return request(`/notifications/${encodeURIComponent(id)}/read`, {
+    method: "PATCH",
+  });
+}
+
+export async function markAllNotificationsRead() {
+  return request("/notifications/read-all", {
+    method: "POST",
+  });
+}
+
 

@@ -16,19 +16,20 @@ import {
   Users,
   X,
   Send,
-  ExternalLink,
 } from "lucide-react";
 import { getGoals, deleteGoal, submitProof } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { getStoredFriends } from "../lib/friendsChat";
 import { getStoredCommunities } from "../lib/communities";
-import CreateGoalModal, {
-  APPS_TO_BLOCK,
-  getGoalBlockedApps,
-} from "../components/CreateGoalModal";
+import CreateGoalModal from "../components/CreateGoalModal";
+import { APPS_TO_BLOCK, getGoalBlockedApps } from "../lib/blockedApps";
 import { getUser } from "../lib/auth";
 import { sendChatMessage } from "../lib/friendsChat";
 import { sendCommunityMessage } from "../lib/communities";
+
+function generateMsgId(prefix = "msg") {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+}
 
 export default function Goals() {
   const navigate = useNavigate();
@@ -168,7 +169,7 @@ export default function Goals() {
         const friend = friends.find((f) => f.id === selectedFriendId);
         if (!friend) throw new Error("Friend not found");
 
-        const msgId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+        const msgId = generateMsgId("msg");
 
         // Send via WebSocket
         send({
@@ -207,7 +208,7 @@ export default function Goals() {
         const comm = communities.find((c) => c.id === selectedCommunityId);
         if (!comm) throw new Error("Community not found");
 
-        const msgId = `comm-msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+        const msgId = generateMsgId("comm-msg");
 
         send({
           type: "community.message",

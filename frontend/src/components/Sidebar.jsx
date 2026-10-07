@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   Target,
   Users,
-  UploadCloud,
   LogOut,
   X,
   Lock,

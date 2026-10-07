@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Lock, LogOut, AtSign, Check, Copy, Edit2, X } from "lucide-react";
+import { Lock, LogOut, AtSign, Check, Copy, X } from "lucide-react";
 import { getUser, clearAuth, updateUserHandle } from "../lib/auth";
 import { updateHandle, getMyProfile } from "../lib/api";
 import { wsManager } from "../lib/websocket";
+import NotificationFeed from "./NotificationFeed";
 
 export default function AppLayout({ children }) {
   const [user, setUser] = useState(() => getUser());
@@ -189,6 +190,9 @@ export default function AppLayout({ children }) {
                 <AtSign size={13} className="text-white" />
                 <span className="font-mono">{displayHandle}</span>
               </button>
+
+              {/* In-App Notifications Feed */}
+              <NotificationFeed />
 
               <div
                 onClick={openHandleModal}

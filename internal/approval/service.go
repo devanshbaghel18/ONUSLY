@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devanshbaghel18/ONUSLY/internal/events"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/proof"
@@ -27,6 +28,7 @@ type Service struct {
 	goalService  *goals.Service
 	proofService *proof.Service
 	listeners    []DecisionListener
+	publisher    events.Publisher
 }
 
 func NewService(
@@ -38,6 +40,14 @@ func NewService(
 		repo:         repo,
 		goalService:  goalService,
 		proofService: proofService,
+		publisher:    &events.NoopPublisher{},
+	}
+}
+
+// SetPublisher assigns an events.Publisher for post-commit event dispatch.
+func (s *Service) SetPublisher(p events.Publisher) {
+	if p != nil {
+		s.publisher = p
 	}
 }
 
@@ -106,29 +116,28 @@ func (s *Service) Decide(
 		return nil, ErrUnauthorized
 	}
 
-	// 4. Goal must currently be in proof_submitted or active state.
-	if goal.Status != "proof_submitted" && goal.Status != "active" {
+	// 4. Goal must currently be in proof_submitted state.
+	if goal.Status != "proof_submitted" {
 		return nil, ErrAlreadyDecided
 	}
 
-	// 5. Proof check if provided and not direct chat approval
-	if proofID != "" && proofID != "direct-approval" && proofID != "chat-direct" {
-		p, err := s.proofService.GetByID(
-			ctx,
-			ownerID,
-			goalID,
-			proofID,
-		)
-		if err != nil {
-			if !errors.Is(err, proof.ErrProofNotFound) {
-				return nil, ErrInvalidProof
-			}
-		} else if p != nil {
-			// 6. Proof must belong to this specific goal and legitimate goal owner.
-			if p.GoalID != goalID || p.OwnerID != goal.OwnerID || p.OwnerID != ownerID {
-				return nil, ErrInvalidProof
-			}
+	// 5. Proof must exist.
+	p, err := s.proofService.GetByID(
+		ctx,
+		ownerID,
+		goalID,
+		proofID,
+	)
+	if err != nil {
+		if errors.Is(err, proof.ErrProofNotFound) {
+			return nil, ErrProofNotFound
 		}
+		return nil, ErrInvalidProof
+	}
+
+	// 6. Proof must belong to this specific goal and legitimate goal owner.
+	if p.GoalID != goalID || p.OwnerID != goal.OwnerID || p.OwnerID != ownerID {
+		return nil, ErrInvalidProof
 	}
 
 	approvalID := uuid.NewString()
@@ -154,7 +163,7 @@ func (s *Service) Decide(
 	if err := s.repo.CreateDecision(
 		ctx,
 		approval,
-		goal.Status,
+		"proof_submitted",
 		goalStatus,
 	); err != nil {
 		return nil, err
@@ -162,6 +171,24 @@ func (s *Service) Decide(
 
 	for _, listener := range s.listeners {
 		listener.OnDecision(ctx, &approval, goal)
+	}
+
+	if s.publisher != nil {
+		decidedTime, _ := time.Parse(time.RFC3339, approval.DecidedAt)
+		if decidedTime.IsZero() {
+			decidedTime = time.Now().UTC()
+		}
+		event := events.ApprovalDecidedEvent{
+			EventID:    "approval-" + approval.ID,
+			GoalID:     approval.GoalID,
+			ProofID:    approval.ProofID,
+			OwnerID:    approval.OwnerID,
+			ApproverID: approval.ApproverID,
+			Status:     approval.Status,
+			Title:      goal.Title,
+			DecidedAt:  decidedTime,
+		}
+		_ = s.publisher.PublishApprovalDecided(ctx, event)
 	}
 
 	return &approval, nil

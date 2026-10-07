@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devanshbaghel18/ONUSLY/internal/events"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/google/uuid"
 )
@@ -22,12 +23,21 @@ var (
 type Service struct {
 	repo        *Repository
 	goalService *goals.Service
+	publisher   events.Publisher
 }
 
 func NewService(repo *Repository, goalService *goals.Service) *Service {
 	return &Service{
 		repo:        repo,
 		goalService: goalService,
+		publisher:   &events.NoopPublisher{},
+	}
+}
+
+// SetPublisher assigns an events.Publisher for post-commit event dispatch.
+func (s *Service) SetPublisher(p events.Publisher) {
+	if p != nil {
+		s.publisher = p
 	}
 }
 
@@ -109,6 +119,23 @@ func (s *Service) Submit(
 		"proof_submitted",
 	); err != nil {
 		return nil, err
+	}
+
+	if s.publisher != nil {
+		submittedTime, _ := time.Parse(time.RFC3339, now)
+		if submittedTime.IsZero() {
+			submittedTime = time.Now().UTC()
+		}
+		event := events.ProofSubmittedEvent{
+			EventID:     "proof-" + p.ID,
+			GoalID:      p.GoalID,
+			ProofID:     p.ID,
+			OwnerID:     p.OwnerID,
+			ApproverID:  goal.ApproverID,
+			Title:       goal.Title,
+			SubmittedAt: submittedTime,
+		}
+		_ = s.publisher.PublishProofSubmitted(ctx, event)
 	}
 
 	return &p, nil
