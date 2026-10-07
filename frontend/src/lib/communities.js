@@ -192,7 +192,10 @@ export function sendCommunityMessage(communityId, msg) {
       isProof: Boolean(msg.isProof),
       goalId: msg.goalId || "",
       goalTitle: msg.goalTitle || "",
+      ownerId: msg.ownerId || "",
+      approved: Boolean(msg.approved),
       images: Array.isArray(msg.images) ? msg.images : [],
+      files: Array.isArray(msg.files) ? msg.files : [],
       externalLink: msg.externalLink || "",
       time: msg.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
@@ -253,7 +256,10 @@ export function receiveCommunityMessage(communityId, msg) {
       isProof: Boolean(msg.isProof),
       goalId: msg.goalId || "",
       goalTitle: msg.goalTitle || "",
+      ownerId: msg.ownerId || "",
+      approved: Boolean(msg.approved),
       images: Array.isArray(msg.images) ? msg.images : [],
+      files: Array.isArray(msg.files) ? msg.files : [],
       externalLink: msg.externalLink || "",
       time: msg.time ? new Date(msg.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
@@ -294,5 +300,30 @@ export function deleteCommunityMessage(communityId, messageId) {
   } catch (err) {
     console.error("Failed to delete community message:", err);
     return [];
+  }
+}
+
+export function markCommunityMessageApproved(goalId, messageId) {
+  try {
+    const raw = localStorage.getItem(COMMUNITY_CHATS_KEY);
+    if (!raw) return;
+    const all = JSON.parse(raw);
+    let changed = false;
+    for (const commId in all) {
+      if (Array.isArray(all[commId])) {
+        all[commId] = all[commId].map((m) => {
+          if ((messageId && m.id === messageId) || (goalId && m.goalId === goalId)) {
+            changed = true;
+            return { ...m, approved: true };
+          }
+          return m;
+        });
+      }
+    }
+    if (changed) {
+      localStorage.setItem(COMMUNITY_CHATS_KEY, JSON.stringify(all));
+    }
+  } catch (err) {
+    console.error("Failed to mark community message approved:", err);
   }
 }

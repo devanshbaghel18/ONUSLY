@@ -78,7 +78,18 @@ export function getChatMessages(friendId) {
     const raw = localStorage.getItem(CHATS_KEY);
     if (!raw) return [];
     const allChats = JSON.parse(raw);
-    return allChats[friendId] || [];
+    const msgs = allChats[friendId] || [];
+    return msgs.map((m) => {
+      const textMatch = (m.text || "").match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
+      if (textMatch && !m.isProof) {
+        return {
+          ...m,
+          isProof: true,
+          goalTitle: m.goalTitle || textMatch[1].trim(),
+        };
+      }
+      return m;
+    });
   } catch {
     return [];
   }
@@ -100,7 +111,10 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
       isProof: isDataObj ? Boolean(messageData.isProof) : false,
       goalId: isDataObj ? (messageData.goalId || "") : "",
       goalTitle: isDataObj ? (messageData.goalTitle || "") : "",
+      ownerId: isDataObj ? (messageData.ownerId || "") : "",
+      approved: isDataObj ? Boolean(messageData.approved) : false,
       images: isDataObj && Array.isArray(messageData.images) ? messageData.images : [],
+      files: isDataObj && Array.isArray(messageData.files) ? messageData.files : [],
       externalLink: isDataObj ? (messageData.externalLink || "") : "",
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
@@ -129,7 +143,7 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
   }
 }
 
-export function receiveChatMessage({ friendEmail, friendHandle, friendName, text, time, sender = "friend", messageId, isProof, goalId, goalTitle, images, externalLink }) {
+export function receiveChatMessage({ friendEmail, friendHandle, friendName, text, time, sender = "friend", messageId, isProof, goalId, goalTitle, ownerId, approved, images, files, externalLink }) {
   try {
     const normalizedEmail = friendEmail ? friendEmail.trim().toLowerCase() : "";
     const cleanHandle = friendHandle ? friendHandle.replace(/[@\s]/g, "").toLowerCase() : "";
@@ -162,19 +176,51 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
     const allChats = raw ? JSON.parse(raw) : {};
     const friendMessages = allChats[friend.id] || [];
 
-    const finalId = messageId || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-    if (messageId && friendMessages.some((m) => m.id === messageId)) {
-      return { friend, messages: friendMessages };
+    const textStr = (text || "").trim();
+    const textMatch = textStr.match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
+    const finalIsProof = Boolean(isProof || textMatch);
+    const finalGoalTitle = goalTitle || (textMatch ? textMatch[1].trim() : "");
+
+    const existingIndex = messageId ? friendMessages.findIndex((m) => m.id === messageId) : -1;
+    if (existingIndex >= 0) {
+      const existing = friendMessages[existingIndex];
+      const shouldUpdate =
+        (!existing.isProof && finalIsProof) ||
+        (!existing.goalId && goalId) ||
+        (!existing.goalTitle && finalGoalTitle) ||
+        (!existing.approved && approved);
+
+      if (shouldUpdate) {
+        const updatedMsg = {
+          ...existing,
+          isProof: existing.isProof || finalIsProof,
+          goalId: existing.goalId || goalId || "",
+          goalTitle: existing.goalTitle || finalGoalTitle,
+          ownerId: existing.ownerId || ownerId || "",
+          approved: existing.approved || Boolean(approved),
+          images: (Array.isArray(images) && images.length > 0) ? images : existing.images,
+          files: (Array.isArray(files) && files.length > 0) ? files : existing.files,
+          externalLink: externalLink || existing.externalLink,
+        };
+        friendMessages[existingIndex] = updatedMsg;
+        allChats[friend.id] = friendMessages;
+        localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
+      }
+      return { friend, messages: allChats[friend.id] };
     }
 
+    const finalId = messageId || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
     const newMsg = {
       id: finalId,
-      text: (text || "").trim(),
+      text: textStr,
       sender,
-      isProof: Boolean(isProof),
+      isProof: finalIsProof,
       goalId: goalId || "",
-      goalTitle: goalTitle || "",
+      goalTitle: finalGoalTitle,
+      ownerId: ownerId || "",
+      approved: Boolean(approved),
       images: Array.isArray(images) ? images : [],
+      files: Array.isArray(files) ? files : [],
       externalLink: externalLink || "",
       time: time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
@@ -273,7 +319,13 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail, cur
     const map = new Map();
 
     local.forEach((m) => {
-      if (m.id) map.set(m.id, m);
+      if (m.id) {
+        const textMatch = (m.text || "").match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
+        const enriched = (textMatch && !m.isProof)
+          ? { ...m, isProof: true, goalTitle: m.goalTitle || textMatch[1].trim() }
+          : m;
+        map.set(m.id, enriched);
+      }
     });
 
     serverMessages.forEach((m) => {
@@ -281,11 +333,35 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail, cur
       const senderH = (m.senderHandle || "").toLowerCase().replace(/^@/, "");
       const isMe = (normCurrentEmail && senderE === normCurrentEmail) ||
                    (normCurrentHandle && senderH === normCurrentHandle);
+
+      const existing = map.get(m.id) || {};
+      const text = m.text || existing.text || "";
+      const textMatch = text.match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
+      const isProof = Boolean(m.isProof || existing.isProof || textMatch);
+      const goalTitle = m.goalTitle || existing.goalTitle || (textMatch ? textMatch[1].trim() : "");
+      const goalId = m.goalId || existing.goalId || "";
+      const ownerId = m.ownerId || existing.ownerId || "";
+      const approved = Boolean(m.approved || existing.approved);
+      const images = (Array.isArray(m.images) && m.images.length > 0) ? m.images : (existing.images || []);
+      const files = (Array.isArray(m.files) && m.files.length > 0) ? m.files : (existing.files || []);
+      const externalLink = m.externalLink || existing.externalLink || "";
+
       const formatted = {
+        ...existing,
         id: m.id,
-        text: m.text,
+        text,
         sender: isMe ? "me" : "friend",
-        time: m.time ? new Date(m.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+        isProof,
+        goalId,
+        goalTitle,
+        ownerId,
+        approved,
+        images,
+        files,
+        externalLink,
+        time: m.time
+          ? (m.time.includes("T") ? new Date(m.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : m.time)
+          : (existing.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
       };
       map.set(m.id, formatted);
     });
@@ -297,5 +373,30 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail, cur
   } catch (err) {
     console.error("Failed to merge chat history:", err);
     return getChatMessages(friendId);
+  }
+}
+
+export function markChatMessageApproved(goalId, messageId) {
+  try {
+    const raw = localStorage.getItem(CHATS_KEY);
+    if (!raw) return;
+    const allChats = JSON.parse(raw);
+    let changed = false;
+    for (const friendId in allChats) {
+      if (Array.isArray(allChats[friendId])) {
+        allChats[friendId] = allChats[friendId].map((m) => {
+          if ((messageId && m.id === messageId) || (goalId && m.goalId === goalId)) {
+            changed = true;
+            return { ...m, approved: true };
+          }
+          return m;
+        });
+      }
+    }
+    if (changed) {
+      localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
+    }
+  } catch (err) {
+    console.error("Failed to mark chat message approved:", err);
   }
 }
