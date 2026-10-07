@@ -52,7 +52,7 @@ func (s *Service) Submit(
 	proofType = strings.TrimSpace(proofType)
 
 	switch proofType {
-	case "text", "link", "photo":
+	case "text", "link", "photo", "document":
 	default:
 		return nil, ErrInvalidProofType
 	}
@@ -66,8 +66,8 @@ func (s *Service) Submit(
 		if strings.TrimSpace(externalLink) == "" {
 			return nil, ErrInvalidProof
 		}
-	case "photo":
-		if strings.TrimSpace(photoURL) == "" {
+	case "photo", "document":
+		if strings.TrimSpace(photoURL) == "" && strings.TrimSpace(textExplanation) == "" {
 			return nil, ErrInvalidProof
 		}
 	}

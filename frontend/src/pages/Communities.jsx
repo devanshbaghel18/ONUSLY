@@ -521,11 +521,14 @@ export default function Communities() {
         .filter(Boolean)
         .join(" | ");
 
+      const effectiveProofType = proofFiles.length > 0 ? "photo" : (proofExternalLink.trim() ? "link" : "text");
+      const effectivePhotoUrl = proofFiles.length > 0 ? (proofFiles[0]?.name || "screenshot.png") : "";
+
       await submitProof(selectedGoalId, {
-        proofType: proofFiles.length > 0 ? "document" : "text",
+        proofType: effectiveProofType,
         textExplanation: summaryText || "Goal evidence submitted.",
         externalLink: proofExternalLink.trim(),
-        photoUrl: proofFiles[0]?.name || "",
+        photoUrl: effectivePhotoUrl,
       });
 
       const imageUrls = proofFiles.map((f) => f.previewUrl);

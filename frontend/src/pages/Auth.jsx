@@ -12,17 +12,18 @@ export default function Auth() {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    // If a valid token exists, redirect directly to /dashboard
-    if (isAuthenticated()) {
-      navigate("/dashboard", { replace: true });
-      return;
-    }
-
+    // 1. Check if token returned via redirect query params (?token=...)
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
     if (token) {
       setAuth(token, null);
       window.history.replaceState({}, document.title, window.location.pathname);
+      navigate("/dashboard", { replace: true });
+      return;
+    }
+
+    // 2. If already logged in, redirect to dashboard
+    if (isAuthenticated()) {
       navigate("/dashboard", { replace: true });
     }
   }, [navigate]);
@@ -39,17 +40,31 @@ export default function Auth() {
       }
       setNotice("Signing in with Google...");
       const data = await loginWithGoogle(credentialResponse.credential);
-
       setAuth(data.token, data.user);
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      console.error(err);
+      console.error("Google sign-in failed:", err);
       setNotice(err.message || "Failed to sign in with Google");
     }
   };
 
   const handleGoogleError = () => {
     setNotice("Google Sign-In failed or was cancelled.");
+  };
+
+  const handleGoogleAuth = () => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    const redirectUri = `${import.meta.env.VITE_API_BASE_URL}/auth/google/callback`;
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "email profile",
+      access_type: "offline",
+    });
+
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
   };
 
   return (
@@ -74,7 +89,6 @@ export default function Auth() {
           MAIN PAGE
       ===================================================== */}
       <main className="relative z-10 flex min-h-screen flex-col items-center px-4 pb-8 pt-8">
-        
         {/* LOGO */}
         <div className="mb-5 flex justify-center">
           <OnuslyLogo />
@@ -92,7 +106,6 @@ export default function Auth() {
 
         {/* AUTH CARD */}
         <div className="w-full max-w-[560px] rounded-[28px] border border-[#777777] bg-[#3A3A3A] p-7 sm:p-9 shadow-[0_25px_70px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.06)]">
-          
           {/* SIGN IN / SIGN UP SWITCHER */}
           <div className="mb-7 flex rounded-xl border border-[#777777] bg-[#292929] p-1">
             <button
@@ -101,7 +114,9 @@ export default function Auth() {
                 setIsLogin(true);
                 setNotice("");
               }}
-              className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${isLogin ? "bg-[#616161] text-[#FFFFFF] shadow-md" : "text-[#B5B5B5] hover:text-[#FFFFFF]"}`}
+              className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
+                isLogin ? "bg-[#616161] text-[#FFFFFF] shadow-md" : "text-[#B5B5B5] hover:text-[#FFFFFF]"
+              }`}
             >
               Sign in
             </button>
@@ -111,7 +126,9 @@ export default function Auth() {
                 setIsLogin(false);
                 setNotice("");
               }}
-              className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${!isLogin ? "bg-[#616161] text-[#FFFFFF] shadow-md" : "text-[#B5B5B5] hover:text-[#FFFFFF]"}`}
+              className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
+                !isLogin ? "bg-[#616161] text-[#FFFFFF] shadow-md" : "text-[#B5B5B5] hover:text-[#FFFFFF]"
+              }`}
             >
               Sign up
             </button>
@@ -123,6 +140,7 @@ export default function Auth() {
               handleSubmit={handleSubmit}
               onGoogleSuccess={handleGoogleSuccess}
               onGoogleError={handleGoogleError}
+              handleGoogleAuth={handleGoogleAuth}
               notice={notice}
             />
           ) : (
@@ -130,17 +148,16 @@ export default function Auth() {
               handleSubmit={handleSubmit}
               onGoogleSuccess={handleGoogleSuccess}
               onGoogleError={handleGoogleError}
+              handleGoogleAuth={handleGoogleAuth}
               notice={notice}
             />
           )}
-
         </div>
 
         {/* Footer */}
         <p className="mt-8 text-center text-[10px] uppercase tracking-[0.25em] text-[#777777]">
           ONUSLY · FOCUS · CONSISTENCY · GROWTH
         </p>
-
       </main>
     </div>
   );
