@@ -23,12 +23,27 @@ import {
   FileText,
   Share2,
   AtSign,
+  Lock,
+  MessageSquare,
+  ChevronRight,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
 import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 import AppLayout from "../components/AppLayout";
+
+const GOAL_BLOCKED_APPS_KEY = "onusly_goal_blocked_apps";
+
+function getGoalBlockedApps(goalId) {
+  try {
+    const raw = localStorage.getItem(GOAL_BLOCKED_APPS_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    return map[goalId] || [];
+  } catch {
+    return [];
+  }
+}
 
 export default function GoalDetail() {
   const { id } = useParams();
@@ -89,13 +104,6 @@ export default function GoalDetail() {
   const [savingGoal, setSavingGoal] = useState(false);
   const [goalFormError, setGoalFormError] = useState("");
 
-  // Accountability Option State
-  // "community" | "friend" | "none"
-  const [selectedApprovalType, setSelectedApprovalType] = useState("none");
-  const [friendEmail, setFriendEmail] = useState("");
-  const [savingAccountability, setSavingAccountability] = useState(false);
-  const [accountabilityNotice, setAccountabilityNotice] = useState("");
-  const [accountabilityError, setAccountabilityError] = useState("");
   const [copiedReviewLink, setCopiedReviewLink] = useState(false);
 
   // Proofs & Decision State
@@ -116,8 +124,6 @@ export default function GoalDetail() {
           setGoal(data);
           setEditTitle(data.title || "");
           setEditDescription(data.description || "");
-          setSelectedApprovalType(data.approvalType || "none");
-          setFriendEmail(data.approverEmail || "");
         }
       })
       .catch((err) => {
@@ -218,50 +224,6 @@ export default function GoalDetail() {
     setIsEditingGoal(false);
   };
 
-  // Handle Save Accountability Method
-  const handleSaveAccountability = async () => {
-    setAccountabilityError("");
-    setAccountabilityNotice("");
-
-    if (selectedApprovalType === "friend") {
-      const trimmedVal = friendEmail.trim();
-      if (!trimmedVal) {
-        setAccountabilityError("Please enter your partner's ONUSLY handle (e.g. @robert_01)");
-        return;
-      }
-      const cleanHandle = trimmedVal.replace(/^@/, "").toLowerCase();
-      if (cleanHandle.length < 3) {
-        setAccountabilityError("Handle must be at least 3 characters");
-        return;
-      }
-      if (
-        (user?.handle && cleanHandle === user.handle.toLowerCase().replace(/^@/, "")) ||
-        (user?.email && trimmedVal.toLowerCase() === user.email.toLowerCase())
-      ) {
-        setAccountabilityError("You cannot assign yourself as your accountability partner");
-        return;
-      }
-    }
-
-    setSavingAccountability(true);
-    try {
-      const updated = await updateGoal(id, {
-        approvalType: selectedApprovalType,
-        approverEmail: selectedApprovalType === "friend" ? friendEmail : "",
-      });
-
-      setGoal(updated);
-      setSelectedApprovalType(updated.approvalType || "none");
-      setFriendEmail(updated.approverEmail || "");
-      setAccountabilityNotice("Accountability setting saved successfully!");
-      setTimeout(() => setAccountabilityNotice(""), 4000);
-    } catch (err) {
-      console.error("Failed to update accountability:", err);
-      setAccountabilityError(err.message || "Failed to update accountability setting");
-    } finally {
-      setSavingAccountability(false);
-    }
-  };
 
   // Handle Delete Goal
   const handleDelete = async () => {
@@ -545,184 +507,74 @@ export default function GoalDetail() {
               </div>
 
               {/* =====================================================
-                  2. ACCOUNTABILITY & VERIFICATION STRATEGY
+                  2. DISTRACTION APPS & IN-CHAT VERIFICATION STRATEGY
               ===================================================== */}
-              <div className="rounded-[28px] border border-[#777777]/70 bg-[#3A3A3A] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.4)] sm:p-8">
+              <div className="rounded-[28px] border border-[#777777]/50 bg-[#262626] p-6 shadow-xl sm:p-8">
                 <div className="mb-6 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
                   <div>
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                        <ShieldCheck size={18} />
+                        <Lock size={18} />
                       </div>
                       <h2 className="text-xl font-bold tracking-tight text-white">
-                        Accountability & Approval Method
+                        Distraction Shield & App Blockers
                       </h2>
                     </div>
                     <p className="mt-1 text-xs text-[#B5B5B5]">
-                      Choose who must verify your proof submissions before this goal is marked complete.
+                      Apps locked while this goal constraint is active.
                     </p>
                   </div>
 
-                  {goal.approvalType && (
-                    <span className="self-start sm:self-auto rounded-full border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300">
-                      Current:{" "}
-                      <strong className="text-white">
-                        {goal.approvalType === "community"
-                          ? "Community"
-                          : `Friend: ${goal.approverEmail ? (goal.approverEmail.startsWith("@") ? goal.approverEmail : `@${goal.approverEmail}`) : "Assigned Partner"}`}
-                      </strong>
-                    </span>
+                  <span className="self-start sm:self-auto rounded-full border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300">
+                    Status: <strong className="text-white">{goal.status === "completed" ? "Unlocked" : "Active Lock"}</strong>
+                  </span>
+                </div>
+
+                {/* Blocked Apps Display */}
+                <div className="rounded-2xl border border-[#333333] bg-[#1A1A1A] p-5">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3] mb-3">
+                    Target Apps Blocked For This Goal
+                  </h4>
+                  {getGoalBlockedApps(id).length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {getGoalBlockedApps(id).map((appId) => (
+                        <span
+                          key={appId}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-red-900/40 bg-red-950/20 px-3 py-1.5 text-xs font-semibold text-red-300"
+                        >
+                          <Lock size={12} className="text-red-400" />
+                          <span className="capitalize">{appId}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[#737373] italic">
+                      Standard Distraction Lock Active (Focus mode enabled).
+                    </p>
                   )}
                 </div>
 
-                {accountabilityNotice && (
-                  <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-950/30 px-4 py-3 text-xs text-emerald-300">
-                    <CheckCircle2 size={16} className="shrink-0" />
-                    <span>{accountabilityNotice}</span>
-                  </div>
-                )}
-
-                {accountabilityError && (
-                  <div className="mb-6 flex items-center gap-3 rounded-xl border border-rose-500/40 bg-rose-950/30 px-4 py-3 text-xs text-rose-300">
-                    <AlertCircle size={16} className="shrink-0" />
-                    <span>{accountabilityError}</span>
-                  </div>
-                )}
-
-                {/* Option Cards Grid */}
-                <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                  {/* OPTION 1: COMMUNITY */}
-                  <div
-                    onClick={() => setSelectedApprovalType("community")}
-                    className={`group relative flex cursor-pointer flex-col justify-between rounded-2xl border p-6 transition-all duration-200 ${
-                      selectedApprovalType === "community"
-                        ? "border-white bg-[#262626] shadow-sm ring-1 ring-white/30"
-                        : "border-[#333333] bg-[#1A1A1A] hover:border-[#555555]"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#444444] bg-[#222222] text-white">
-                          <Users size={22} className="text-white" />
-                        </div>
-                        <div
-                          className={`flex h-6 w-6 items-center justify-center rounded-full border transition-all ${
-                            selectedApprovalType === "community"
-                              ? "border-white bg-white text-black"
-                              : "border-[#444444] bg-transparent"
-                          }`}
-                        >
-                          {selectedApprovalType === "community" && <Check size={14} className="stroke-[3]" />}
-                        </div>
-                      </div>
-
-                      <h3 className="mt-4 text-base font-bold text-white">
-                        Approval via Community
-                      </h3>
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#A3A3A3]">
-                        Community Member Review
-                      </span>
-
-                      <p className="mt-2.5 text-xs leading-relaxed text-[#A3A3A3]">
-                        Submit your proof to your community. Verified fellow members review your evidence and reach a collective verdict.
-                      </p>
+                {/* How to Unlock via Chat Card */}
+                <div className="mt-5 rounded-2xl border border-emerald-900/40 bg-gradient-to-r from-emerald-950/30 to-[#1e2e26]/30 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare size={16} className="text-emerald-400" />
+                      <h4 className="text-sm font-bold text-white">
+                        Verify & Unlock via Chat
+                      </h4>
                     </div>
-                  </div>
-
-                  {/* OPTION 2: FRIEND / MENTOR */}
-                  <div
-                    onClick={() => setSelectedApprovalType("friend")}
-                    className={`group relative flex cursor-pointer flex-col justify-between rounded-2xl border p-6 transition-all duration-200 ${
-                      selectedApprovalType === "friend"
-                        ? "border-white bg-[#262626] shadow-sm ring-1 ring-white/30"
-                        : "border-[#333333] bg-[#1A1A1A] hover:border-[#555555]"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#444444] bg-[#222222] text-white">
-                          <UserCheck size={22} className="text-white" />
-                        </div>
-                        <div
-                          className={`flex h-6 w-6 items-center justify-center rounded-full border transition-all ${
-                            selectedApprovalType === "friend"
-                              ? "border-white bg-white text-black"
-                              : "border-[#444444] bg-transparent"
-                          }`}
-                        >
-                          {selectedApprovalType === "friend" && <Check size={14} className="stroke-[3]" />}
-                        </div>
-                      </div>
-
-                      <h3 className="mt-4 text-base font-bold text-white">
-                        Approval via Friend
-                      </h3>
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#A3A3A3]">
-                        Direct 1-on-1 Accountability Partner
-                      </span>
-
-                      <p className="mt-2.5 text-xs leading-relaxed text-[#A3A3A3]">
-                        Assign a trusted friend or partner. They have the authority to inspect your proof submissions and decide the outcome.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Friend Handle / Tag Input (Animated display when "friend" is selected) */}
-                {selectedApprovalType === "friend" && (
-                  <div className="mt-6 rounded-2xl border border-[#333333] bg-[#1A1A1A] p-5">
-                    <label className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-white">
-                      <span className="flex items-center gap-1.5">
-                        <AtSign size={14} className="text-white" />
-                        Partner's ONUSLY Tag / Handle <span className="text-neutral-400">*</span>
-                      </span>
-                      <span className="text-[11px] font-normal lowercase text-[#A3A3A3]">
-                        Enter @handle (100% Privacy Shield)
-                      </span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-3 font-mono text-sm text-[#737373]">
-                        @
-                      </span>
-                      <input
-                        type="text"
-                        value={friendEmail.replace(/^@/, "")}
-                        onChange={(e) => setFriendEmail(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                        placeholder="e.g. robert_01"
-                        className="w-full rounded-xl border border-[#333333] bg-[#121212] pl-8 pr-4 py-3 font-mono text-sm text-white placeholder-[#737373] outline-none transition focus:border-white focus:ring-1 focus:ring-white/20"
-                      />
-                    </div>
-                    <p className="mt-2 text-[11px] text-[#A3A3A3]">
-                      Enter your partner's public handle. Your personal Google email and their email stay 100% private.
+                    <p className="text-xs text-[#A3A3A3] leading-relaxed max-w-lg">
+                      Submit proof directly in Community or Friend chat using the <strong className="text-white">+</strong> button. Once verified, this goal unlocks automatically in real time.
                     </p>
                   </div>
-                )}
 
-                {/* Save Accountability Button */}
-                <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-[#777777]/30 pt-5">
-                  <div className="flex items-center gap-2 text-xs text-[#B5B5B5]">
-                    <HelpCircle size={14} />
-                    <span>You can switch between Community and Friend accountability at any time.</span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleSaveAccountability}
-                    disabled={savingAccountability}
-                    className="flex items-center gap-2 rounded-xl bg-white px-6 py-3 text-xs font-bold text-[#292929] shadow-md transition hover:bg-[#B5B5B5] active:translate-y-0.5 disabled:opacity-50"
+                  <Link
+                    to="/community-friends"
+                    className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shrink-0"
                   >
-                    {savingAccountability ? (
-                      <>
-                        <Loader2 size={15} className="animate-spin" />
-                        Saving Accountability...
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheck size={15} />
-                        Save Accountability Setting
-                      </>
-                    )}
-                  </button>
+                    <span>Open Chat to Submit Proof</span>
+                    <ExternalLink size={13} />
+                  </Link>
                 </div>
               </div>
 
