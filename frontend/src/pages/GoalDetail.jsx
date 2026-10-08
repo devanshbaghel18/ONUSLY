@@ -30,6 +30,7 @@ import { getStoredCommunities, sendCommunityMessage } from "../lib/communities";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 import AppLayout from "../components/AppLayout";
+import { getFriendlyTargetName } from "../lib/blockedApps";
 
 function generateMsgId(prefix = "msg") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
@@ -696,20 +697,24 @@ export default function GoalDetail() {
                   </span>
                 </div>
 
-                {/* Blocked Apps Display */}
+                {/* Blocked Apps & Domains Display */}
                 <div className="rounded-2xl border border-[#333333] bg-[#1A1A1A] p-5">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3] mb-3">
-                    Target Apps Blocked For This Goal
+                    Target Apps & Domains Blocked For This Goal
                   </h4>
-                  {getGoalBlockedApps(id).length > 0 ? (
+                  {((goal?.blockedApps?.length > 0 || goal?.blockedDomains?.length > 0) || getGoalBlockedApps(id).length > 0) ? (
                     <div className="flex flex-wrap gap-2">
-                      {getGoalBlockedApps(id).map((appId) => (
+                      {[
+                        ...(goal?.blockedApps || []),
+                        ...(goal?.blockedDomains || []),
+                        ...(goal?.blockedApps?.length || goal?.blockedDomains?.length ? [] : getGoalBlockedApps(id)),
+                      ].map((target) => (
                         <span
-                          key={appId}
+                          key={target}
                           className="inline-flex items-center gap-1.5 rounded-xl border border-red-900/40 bg-red-950/20 px-3 py-1.5 text-xs font-semibold text-red-300"
                         >
                           <Lock size={12} className="text-red-400" />
-                          <span className="capitalize">{appId}</span>
+                          <span>{getFriendlyTargetName(target)}</span>
                         </span>
                       ))}
                     </div>

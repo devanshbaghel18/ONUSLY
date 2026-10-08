@@ -22,7 +22,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import { getStoredFriends } from "../lib/friendsChat";
 import { getStoredCommunities } from "../lib/communities";
 import CreateGoalModal from "../components/CreateGoalModal";
-import { APPS_TO_BLOCK, getGoalBlockedApps } from "../lib/blockedApps";
+import { getGoalBlockedApps, getFriendlyTargetName } from "../lib/blockedApps";
 import { getUser } from "../lib/auth";
 import { sendChatMessage } from "../lib/friendsChat";
 import { sendCommunityMessage } from "../lib/communities";
@@ -339,7 +339,11 @@ export default function Goals() {
               {goals.map((g) => {
                 const isCompleted = g.status === "completed";
                 const isProofSubmitted = g.status === "proof_submitted";
-                const blockedAppIds = getGoalBlockedApps(g.id);
+                const targets = [
+                  ...(g.blockedApps || []),
+                  ...(g.blockedDomains || []),
+                ];
+                const displayTargets = targets.length > 0 ? targets : getGoalBlockedApps(g.id);
 
                 return (
                   <div
@@ -395,21 +399,18 @@ export default function Goals() {
                         </p>
                       )}
 
-                      {/* Blocked Apps list */}
+                      {/* Blocked Apps & Domains list */}
                       <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
-                        {blockedAppIds.length > 0 ? (
-                          blockedAppIds.map((appId) => {
-                            const appInfo = APPS_TO_BLOCK.find((a) => a.id === appId);
-                            return (
-                              <span
-                                key={appId}
-                                className="inline-flex items-center gap-1 rounded-md border border-[#333333] bg-[#141414] px-2 py-0.5 text-[10px] font-medium text-neutral-300"
-                              >
-                                <Lock size={9} className="text-red-400" />
-                                {appInfo ? appInfo.label : appId}
-                              </span>
-                            );
-                          })
+                        {displayTargets.length > 0 ? (
+                          displayTargets.map((target) => (
+                            <span
+                              key={target}
+                              className="inline-flex items-center gap-1 rounded-md border border-[#333333] bg-[#141414] px-2 py-0.5 text-[10px] font-medium text-neutral-300"
+                            >
+                              <Lock size={9} className="text-red-400" />
+                              {getFriendlyTargetName(target)}
+                            </span>
+                          ))
                         ) : (
                           <span className="text-[10px] text-[#737373] italic">
                             Full Focus Shield Active

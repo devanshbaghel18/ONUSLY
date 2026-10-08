@@ -1,14 +1,72 @@
-export const APPS_TO_BLOCK = [
-  { id: "youtube", label: "YouTube" },
-  { id: "twitter", label: "Twitter / X" },
-  { id: "instagram", label: "Instagram" },
-  { id: "reddit", label: "Reddit" },
-  { id: "tiktok", label: "TikTok" },
-  { id: "netflix", label: "Netflix" },
-  { id: "linkedin", label: "LinkedIn" },
-  { id: "discord", label: "Discord" },
-  { id: "twitch", label: "Twitch" },
+export const APP_CATALOG = [
+  {
+    id: "youtube",
+    name: "YouTube",
+    packageName: "com.google.android.youtube",
+    domains: ["youtube.com", "youtu.be"],
+  },
+  {
+    id: "instagram",
+    name: "Instagram",
+    packageName: "com.instagram.android",
+    domains: ["instagram.com"],
+  },
+  {
+    id: "twitter",
+    name: "X / Twitter",
+    packageName: "com.twitter.android",
+    domains: ["x.com", "twitter.com"],
+  },
+  {
+    id: "tiktok",
+    name: "TikTok",
+    packageName: "com.zhiliaoapp.musically",
+    domains: ["tiktok.com"],
+  },
+  {
+    id: "reddit",
+    name: "Reddit",
+    packageName: "com.reddit.frontpage",
+    domains: ["reddit.com"],
+  },
+  {
+    id: "netflix",
+    name: "Netflix",
+    packageName: "com.netflix.mediaclient",
+    domains: ["netflix.com"],
+  },
+  {
+    id: "discord",
+    name: "Discord",
+    packageName: "com.discord",
+    domains: ["discord.com"],
+  },
+  {
+    id: "twitch",
+    name: "Twitch",
+    packageName: "tv.twitch.android.app",
+    domains: ["twitch.tv"],
+  },
 ];
+
+// Backward-compatibility alias
+export const APPS_TO_BLOCK = APP_CATALOG.map((item) => ({
+  id: item.id,
+  label: item.name,
+  packageName: item.packageName,
+  domains: item.domains,
+}));
+
+export function getFriendlyTargetName(target) {
+  if (!target) return "";
+  const found = APP_CATALOG.find(
+    (item) =>
+      item.packageName === target ||
+      item.domains.includes(target) ||
+      item.id === target
+  );
+  return found ? found.name : target;
+}
 
 export const GOAL_BLOCKED_APPS_KEY = "onusly_goal_blocked_apps";
 

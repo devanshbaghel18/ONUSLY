@@ -76,13 +76,17 @@ export async function getGoal(goalId, ownerId = "") {
   });
 }
 
-export async function createGoal({ title, description = "" }) {
+export async function createGoal({ title, description = "", blockedApps = [], blockedDomains = [] }) {
+  const payload = {
+    title: title.trim(),
+    description: description.trim(),
+  };
+  if (blockedApps && blockedApps.length > 0) payload.blockedApps = blockedApps;
+  if (blockedDomains && blockedDomains.length > 0) payload.blockedDomains = blockedDomains;
+
   return request("/goals", {
     method: "POST",
-    body: JSON.stringify({
-      title: title.trim(),
-      description: description.trim(),
-    }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -94,17 +98,25 @@ export async function deleteGoal(goalId) {
 
 export async function updateGoal(
   goalId,
-  { title, description, approvalType, approverEmail } = {}
+  { title, description, approvalType, approverEmail, blockedApps, blockedDomains } = {}
 ) {
   const payload = {};
   if (title !== undefined) payload.title = title.trim();
   if (description !== undefined) payload.description = description.trim();
   if (approvalType !== undefined) payload.approvalType = approvalType;
   if (approverEmail !== undefined) payload.approverEmail = approverEmail.trim();
+  if (blockedApps !== undefined) payload.blockedApps = blockedApps;
+  if (blockedDomains !== undefined) payload.blockedDomains = blockedDomains;
 
   return request(`/goals/${encodeURIComponent(goalId)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function getBlocklist() {
+  return request("/enforcement/blocklist", {
+    method: "GET",
   });
 }
 
