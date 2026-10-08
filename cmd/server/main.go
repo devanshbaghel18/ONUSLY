@@ -12,6 +12,7 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/internal/auth"
 	"github.com/devanshbaghel18/ONUSLY/internal/chat"
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
+	"github.com/devanshbaghel18/ONUSLY/internal/enforcement"
 	"github.com/devanshbaghel18/ONUSLY/internal/events"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
@@ -78,6 +79,10 @@ func main() {
 	goalRepo := goals.NewRepository(db, "Onusly")
 	goalService := goals.NewService(goalRepo, authRepo)
 	goalHandler := goals.NewHandler(goalService)
+
+	// Enforcement
+	enforcementService := enforcement.NewService(goalService)
+	enforcementHandler := enforcement.NewHandler(enforcementService)
 
 	// Proof
 	proofRepo := proof.NewRepository(db, "Onusly")
@@ -238,6 +243,12 @@ func main() {
 		authHandler.GetMe,
 	)
 
+	// Enforcement Blocklist
+	goalRoutes.HandleFunc(
+		"GET /enforcement/blocklist",
+		enforcementHandler.GetBlocklist,
+	)
+
 	// JWT authentication for all protected routes
 	protectedRoutes := middleware.Auth(cfg.JWTSecret)(goalRoutes)
 
@@ -249,6 +260,8 @@ func main() {
 	mux.Handle("/users/", protectedRoutes)
 	mux.Handle("/notifications", protectedRoutes)
 	mux.Handle("/notifications/", protectedRoutes)
+	mux.Handle("/enforcement", protectedRoutes)
+	mux.Handle("/enforcement/", protectedRoutes)
 
 	log.Println("Server running on :8080")
 

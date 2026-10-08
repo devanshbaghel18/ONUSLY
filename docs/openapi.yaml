@@ -78,6 +78,16 @@ paths:
                 description:
                   type: string
                   example: Read and solve exercises
+                blockedApps:
+                  type: array
+                  items:
+                    type: string
+                  example: ["com.instagram.android", "com.twitter.android"]
+                blockedDomains:
+                  type: array
+                  items:
+                    type: string
+                  example: ["instagram.com", "x.com"]
       responses:
         '201':
           description: Goal created.
@@ -86,7 +96,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Goal'
         '400':
-          description: Title is required or request body is invalid.
+          description: Title is required, invalid package name or domain, or exceeding 20 items.
         '401':
           description: Missing or invalid JWT.
 
@@ -132,13 +142,13 @@ paths:
           description: Goal not found or belongs to another user.
 
     patch:
-      summary: Update goal details or accountability
+      summary: Update goal details, accountability, or targets
       security:
         - BearerAuth: []
       description: |
-        Updates goal title, description, or accountability settings.
-        Protected fields (status, ownerId, approverId) cannot be directly manipulated.
-        Accountability settings can only be altered when the goal is active.
+        Updates goal title, description, accountability settings, or targets.
+        Targets are add-only: removing existing targets is prohibited.
+        Changing accountability to none while targets are locked is prohibited.
       parameters:
         - name: id
           in: path
@@ -161,6 +171,14 @@ paths:
                   enum: [community, friend, none]
                 approverEmail:
                   type: string
+                blockedApps:
+                  type: array
+                  items:
+                    type: string
+                blockedDomains:
+                  type: array
+                  items:
+                    type: string
       responses:
         '200':
           description: Goal updated.
@@ -169,17 +187,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Goal'
         '400':
-          description: Validation error (e.g. self-assigned partner, invalid approval type, or goal not active).
+          description: Validation error or goal not active.
         '401':
           description: Missing or invalid JWT.
         '404':
           description: Goal not found.
+        '409':
+          description: Target locking conflict (targets_locked, goal_locked, or changing accountability to none rejected).
 
     delete:
       summary: Delete goal
       security:
         - BearerAuth: []
-      description: Deletes a goal owned by the authenticated caller.
+      description: Deletes a goal owned by the authenticated caller. Goals with targets cannot be deleted unless completed.
       parameters:
         - name: id
           in: path
@@ -191,6 +211,8 @@ paths:
           description: Goal deleted.
         '401':
           description: Missing or invalid JWT.
+        '409':
+          description: Goal locked (goal_locked) - active goal with targets cannot be deleted.
 
   /goals/{id}/proofs:
     post:
@@ -402,6 +424,50 @@ paths:
         '404':
           description: Approval not found.
 
+  /enforcement/blocklist:
+    get:
+      summary: Get active platform enforcement blocklist
+      security:
+        - BearerAuth: []
+      description: |
+        Returns the combined active targets (Android package names and web domains) for the authenticated user.
+        Includes only goals where status is 'active' or 'proof_submitted' and at least one target exists.
+        Supports HTTP conditional requests using the ETag / If-None-Match header.
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Previous version ETag string (e.g. v1-3fa85f647c9842a1)
+      responses:
+        '200':
+          description: Blocklist retrieved.
+          headers:
+            ETag:
+              schema:
+                type: string
+              example: '"v1-4f53cda18c2baa0c"'
+            Cache-Control:
+              schema:
+                type: string
+              example: 'private, no-cache'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlocklistResponse'
+        '304':
+          description: Not Modified. The client already has the latest target version. No response body.
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+        '401':
+          description: Missing or invalid JWT.
+
 components:
   securitySchemes:
     BearerAuth:
@@ -448,6 +514,14 @@ components:
           type: string
         updatedAt:
           type: string
+        blockedApps:
+          type: array
+          items:
+            type: string
+        blockedDomains:
+          type: array
+          items:
+            type: string
 
     Proof:
       type: object
@@ -490,3 +564,37 @@ components:
           type: string
         decidedAt:
           type: string
+
+    TargetItem:
+      type: object
+      properties:
+        goalId:
+          type: string
+        goalTitle:
+          type: string
+        status:
+          type: string
+          enum: [active, proof_submitted]
+        apps:
+          type: array
+          items:
+            type: string
+        domains:
+          type: array
+          items:
+            type: string
+
+    BlocklistResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+        version:
+          type: string
+          example: v1-4f53cda18c2baa0c
+        generatedAt:
+          type: string
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TargetItem'

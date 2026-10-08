@@ -2,6 +2,7 @@ package goals
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -133,9 +134,30 @@ func (r *Repository) Delete(ctx context.Context, ownerID, goalID string) error {
 			"PK": &types.AttributeValueMemberS{Value: "USER#" + ownerID},
 			"SK": &types.AttributeValueMemberS{Value: "GOAL#" + goalID},
 		},
+		ConditionExpression: aws.String(
+			"attribute_not_exists(PK) OR #status = :completedStatus OR " +
+				"((attribute_not_exists(#blockedApps) OR size(#blockedApps) = :zero) AND " +
+				"(attribute_not_exists(#blockedDomains) OR size(#blockedDomains) = :zero))",
+		),
+		ExpressionAttributeNames: map[string]string{
+			"#status":         "Status",
+			"#blockedApps":    "BlockedApps",
+			"#blockedDomains": "BlockedDomains",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":completedStatus": &types.AttributeValueMemberS{Value: "completed"},
+			":zero":            &types.AttributeValueMemberN{Value: "0"},
+		},
 	})
+	if err != nil {
+		var condFailed *types.ConditionalCheckFailedException
+		if errors.As(err, &condFailed) || strings.Contains(err.Error(), "ConditionalCheckFailed") {
+			return ErrGoalLocked
+		}
+		return err
+	}
 
-	return err
+	return nil
 }
 
 func (r *Repository) Update(
@@ -187,7 +209,69 @@ func (r *Repository) Update(
 		values[":approverId"] = &types.AttributeValueMemberS{Value: *input.ApproverID}
 	}
 
+	if input.BlockedApps != nil {
+		setParts = append(setParts, "#blockedApps = :blockedApps")
+		names["#blockedApps"] = "BlockedApps"
+		avApps, err := attributevalue.Marshal(*input.BlockedApps)
+		if err != nil {
+			return nil, err
+		}
+		values[":blockedApps"] = avApps
+	}
+
+	if input.BlockedDomains != nil {
+		setParts = append(setParts, "#blockedDomains = :blockedDomains")
+		names["#blockedDomains"] = "BlockedDomains"
+		avDomains, err := attributevalue.Marshal(*input.BlockedDomains)
+		if err != nil {
+			return nil, err
+		}
+		values[":blockedDomains"] = avDomains
+	}
+
+	conditionParts := []string{"attribute_exists(PK)"}
+
+	if input.DisallowNoneIfLocked {
+		conditionParts = append(conditionParts, "(#status = :completedStatus OR ((attribute_not_exists(#blockedApps) OR size(#blockedApps) = :zero) AND (attribute_not_exists(#blockedDomains) OR size(#blockedDomains) = :zero)))")
+		names["#status"] = "Status"
+		names["#blockedApps"] = "BlockedApps"
+		names["#blockedDomains"] = "BlockedDomains"
+		values[":completedStatus"] = &types.AttributeValueMemberS{Value: "completed"}
+		values[":zero"] = &types.AttributeValueMemberN{Value: "0"}
+	}
+
+	if input.CheckTargetsUnchanged {
+		if len(input.ExpectedBlockedApps) > 0 {
+			conditionParts = append(conditionParts, "#blockedApps = :expectedBlockedApps")
+			names["#blockedApps"] = "BlockedApps"
+			expApps, err := attributevalue.Marshal(input.ExpectedBlockedApps)
+			if err != nil {
+				return nil, err
+			}
+			values[":expectedBlockedApps"] = expApps
+		} else {
+			conditionParts = append(conditionParts, "(attribute_not_exists(#blockedApps) OR size(#blockedApps) = :zero)")
+			names["#blockedApps"] = "BlockedApps"
+			values[":zero"] = &types.AttributeValueMemberN{Value: "0"}
+		}
+
+		if len(input.ExpectedBlockedDomains) > 0 {
+			conditionParts = append(conditionParts, "#blockedDomains = :expectedBlockedDomains")
+			names["#blockedDomains"] = "BlockedDomains"
+			expDomains, err := attributevalue.Marshal(input.ExpectedBlockedDomains)
+			if err != nil {
+				return nil, err
+			}
+			values[":expectedBlockedDomains"] = expDomains
+		} else {
+			conditionParts = append(conditionParts, "(attribute_not_exists(#blockedDomains) OR size(#blockedDomains) = :zero)")
+			names["#blockedDomains"] = "BlockedDomains"
+			values[":zero"] = &types.AttributeValueMemberN{Value: "0"}
+		}
+	}
+
 	updateExpression := "SET " + strings.Join(setParts, ", ")
+	conditionExpression := strings.Join(conditionParts, " AND ")
 
 	result, err := r.db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(r.tableName),
@@ -200,13 +284,23 @@ func (r *Repository) Update(
 			},
 		},
 		UpdateExpression:          aws.String(updateExpression),
-		ConditionExpression:       aws.String("attribute_exists(PK)"),
+		ConditionExpression:       aws.String(conditionExpression),
 		ExpressionAttributeNames:  names,
 		ExpressionAttributeValues: values,
 		ReturnValues:              types.ReturnValueAllNew,
 	})
 
 	if err != nil {
+		var condFailed *types.ConditionalCheckFailedException
+		if errors.As(err, &condFailed) || strings.Contains(err.Error(), "ConditionalCheckFailed") {
+			if input.DisallowNoneIfLocked {
+				return nil, ErrAccountabilityLocked
+			}
+			if input.CheckTargetsUnchanged {
+				return nil, ErrTargetsLocked
+			}
+			return nil, ErrGoalLocked
+		}
 		return nil, err
 	}
 

@@ -2,6 +2,7 @@ package goals
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -19,8 +20,10 @@ func NewHandler(service *Service) *Handler {
 }
 
 type createGoalRequest struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	Title          string   `json:"title"`
+	Description    string   `json:"description"`
+	BlockedApps    []string `json:"blockedApps"`
+	BlockedDomains []string `json:"blockedDomains"`
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -42,6 +45,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		userID,
 		req.Title,
 		req.Description,
+		req.BlockedApps,
+		req.BlockedDomains,
 	)
 
 	if err != nil {
@@ -137,6 +142,10 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		userID,
 		goalID,
 	); err != nil {
+		if errors.Is(err, ErrGoalLocked) || strings.Contains(err.Error(), "goal_locked") {
+			http.Error(w, "goal_locked", http.StatusConflict)
+			return
+		}
 		http.Error(w, "failed to delete goal", http.StatusInternalServerError)
 		return
 	}
@@ -157,10 +166,12 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Title         *string `json:"title"`
-		Description   *string `json:"description"`
-		ApprovalType  *string `json:"approvalType"`
-		ApproverEmail *string `json:"approverEmail"`
+		Title          *string   `json:"title"`
+		Description    *string   `json:"description"`
+		ApprovalType   *string   `json:"approvalType"`
+		ApproverEmail  *string   `json:"approverEmail"`
+		BlockedApps    *[]string `json:"blockedApps"`
+		BlockedDomains *[]string `json:"blockedDomains"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -169,10 +180,12 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := UpdateGoalInput{
-		Title:         req.Title,
-		Description:   req.Description,
+		Title:          req.Title,
+		Description:    req.Description,
 		ApprovalType:  req.ApprovalType,
 		ApproverEmail: req.ApproverEmail,
+		BlockedApps:    req.BlockedApps,
+		BlockedDomains: req.BlockedDomains,
 	}
 
 	goal, err := h.service.Update(
@@ -183,6 +196,18 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		if errors.Is(err, ErrTargetsLocked) || strings.Contains(err.Error(), "targets_locked") {
+			http.Error(w, "targets_locked", http.StatusConflict)
+			return
+		}
+		if errors.Is(err, ErrGoalLocked) || strings.Contains(err.Error(), "goal_locked") {
+			http.Error(w, "goal_locked", http.StatusConflict)
+			return
+		}
+		if errors.Is(err, ErrAccountabilityLocked) || strings.Contains(err.Error(), "cannot change accountability") {
+			http.Error(w, "cannot change accountability to none while targets are locked", http.StatusConflict)
+			return
+		}
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return

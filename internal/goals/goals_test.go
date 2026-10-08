@@ -64,7 +64,7 @@ func TestGoal_CRUD_OwnerIsolation(t *testing.T) {
 	user2ID := "test-user2-" + uuid.NewString()
 
 	// User 1 creates Goal
-	g1, err := service.Create(context.Background(), user1ID, "User 1 Goal", "Only User 1 can see")
+	g1, err := service.Create(context.Background(), user1ID, "User 1 Goal", "Only User 1 can see", nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create goal: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestGoal_StatusBypassAttemptBlocked(t *testing.T) {
 	handler := goals.NewHandler(service)
 
 	ownerID := "test-owner-" + uuid.NewString()
-	g, err := service.Create(context.Background(), ownerID, "Status Test Goal", "Testing status bypass")
+	g, err := service.Create(context.Background(), ownerID, "Status Test Goal", "Testing status bypass", nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create goal: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestGoal_AccountabilityModificationRules(t *testing.T) {
 	service := goals.NewService(repo, nil)
 
 	ownerID := "test-owner-" + uuid.NewString()
-	g, err := service.Create(context.Background(), ownerID, "Accountability Goal", "Testing rules")
+	g, err := service.Create(context.Background(), ownerID, "Accountability Goal", "Testing rules", nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create goal: %v", err)
 	}

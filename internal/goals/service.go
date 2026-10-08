@@ -27,6 +27,8 @@ func (s *Service) Create(
 	ownerID string,
 	title string,
 	description string,
+	rawApps []string,
+	rawDomains []string,
 ) (*Goal, error) {
 
 	title = strings.TrimSpace(title)
@@ -40,18 +42,42 @@ func (s *Service) Create(
 		return nil, errors.New("title is required")
 	}
 
+	var apps []string
+	var domains []string
+	var err error
+
+	if len(rawApps) > 0 {
+		apps, err = NormalizeAndValidateApps(rawApps)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		apps = []string{}
+	}
+
+	if len(rawDomains) > 0 {
+		domains, err = NormalizeAndValidateDomains(rawDomains)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		domains = []string{}
+	}
+
 	goalID := uuid.NewString()
 
 	goal := Goal{
-		PK:          "USER#" + ownerID,
-		SK:          "GOAL#" + goalID,
-		ID:          goalID,
-		OwnerID:     ownerID,
-		ApproverID:  "",
-		Title:       title,
-		Description: description,
-		Status:      "active",
-		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		PK:             "USER#" + ownerID,
+		SK:             "GOAL#" + goalID,
+		ID:             goalID,
+		OwnerID:        ownerID,
+		ApproverID:     "",
+		Title:          title,
+		Description:    description,
+		Status:         "active",
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		BlockedApps:    apps,
+		BlockedDomains: domains,
 	}
 
 	if err := s.repo.Create(ctx, goal); err != nil {
@@ -125,6 +151,60 @@ func (s *Service) Update(
 	goal, err := s.repo.GetByID(ctx, ownerID, goalID)
 	if err != nil {
 		return nil, err
+	}
+
+	hasExistingTargets := len(goal.BlockedApps) > 0 || len(goal.BlockedDomains) > 0
+
+	if goal.Status == "completed" {
+		if input.BlockedApps != nil || input.BlockedDomains != nil {
+			return nil, errors.New("cannot modify targets on a completed goal")
+		}
+	}
+
+	if input.BlockedApps != nil {
+		normalizedApps, err := NormalizeAndValidateApps(*input.BlockedApps)
+		if err != nil {
+			return nil, err
+		}
+		if goal.Status != "completed" && hasExistingTargets {
+			if !CheckTargetsSubset(goal.BlockedApps, normalizedApps) {
+				return nil, ErrTargetsLocked
+			}
+		}
+		input.BlockedApps = &normalizedApps
+	}
+
+	if input.BlockedDomains != nil {
+		normalizedDomains, err := NormalizeAndValidateDomains(*input.BlockedDomains)
+		if err != nil {
+			return nil, err
+		}
+		if goal.Status != "completed" && hasExistingTargets {
+			if !CheckTargetsSubset(goal.BlockedDomains, normalizedDomains) {
+				return nil, ErrTargetsLocked
+			}
+		}
+		input.BlockedDomains = &normalizedDomains
+	}
+
+	if hasExistingTargets && goal.Status != "completed" {
+		if input.ApprovalType != nil {
+			low := strings.ToLower(strings.TrimSpace(*input.ApprovalType))
+			if low == "none" || low == "" {
+				return nil, ErrAccountabilityLocked
+			}
+		}
+		if input.ApproverEmail != nil && strings.TrimSpace(*input.ApproverEmail) == "" && input.ApprovalType == nil && goal.ApprovalType != "community" {
+			return nil, ErrAccountabilityLocked
+		}
+	}
+
+	input.ExpectedBlockedApps = goal.BlockedApps
+	input.ExpectedBlockedDomains = goal.BlockedDomains
+	input.CheckTargetsUnchanged = (input.BlockedApps != nil || input.BlockedDomains != nil) && hasExistingTargets
+	if input.ApprovalType != nil {
+		low := strings.ToLower(strings.TrimSpace(*input.ApprovalType))
+		input.DisallowNoneIfLocked = (low == "none" || low == "")
 	}
 
 	if (input.ApprovalType != nil || input.ApproverEmail != nil) && goal.Status != "active" {
