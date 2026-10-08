@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">ONUSLY</string>
+    <string name="accessibility_service_description">Monitors app launches to enforce your active ONUSLY goal blocklists. Does not inspect screen content or read text.</string>
+    <string name="accessibility_disabled_title">Blocking is OFF</string>
+    <string name="accessibility_disabled_desc">Accessibility Service is required to detect and block restricted apps during active goals.</string>
+    <string name="accessibility_enable_button">Enable in Settings</string>
+    <string name="accessibility_enabled_title">Blocking is Active</string>
+    <string name="accessibility_enabled_desc">Accessibility Service is running and enforcing active blocklists.</string>
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="sync_now">Sync Now</string>
+    <string name="check_again">Check Again</string>
+    <string name="open_dashboard">Open ONUSLY Dashboard</string>
+    <string name="app_locked_title">App Blocked by ONUSLY</string>
+    <string name="active_goal_instruction">Complete your goal and submit proof.</string>
+    <string name="proof_submitted_instruction">Proof submitted. Waiting for review.</string>
+</resources>
