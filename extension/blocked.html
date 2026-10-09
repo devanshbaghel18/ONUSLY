@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Access Restricted — ONUSLY Lockdown</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      background-color: #0F172A;
+      color: #F8FAFC;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      background-color: #1E293B;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      max-width: 520px;
+      width: 100%;
+      padding: 32px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      text-align: center;
+    }
+    .icon-container {
+      width: 68px;
+      height: 68px;
+      border-radius: 18px;
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+    }
+    .icon-container svg {
+      width: 36px;
+      height: 36px;
+      fill: none;
+      stroke: #F59E0B;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #F8FAFC;
+      margin-bottom: 8px;
+    }
+    .domain-badge {
+      display: inline-block;
+      font-family: monospace;
+      font-size: 13px;
+      background: #0F172A;
+      color: #94A3B8;
+      padding: 4px 12px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      margin-bottom: 24px;
+    }
+    .status-card {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid #F59E0B;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: left;
+      margin-bottom: 20px;
+      transition: all 0.2s ease;
+    }
+    .status-card.proof-submitted {
+      background: rgba(99, 102, 241, 0.1);
+      border-color: #6366F1;
+    }
+    .status-card.shorts-blocked {
+      background: rgba(239, 68, 68, 0.1);
+      border-color: #EF4444;
+    }
+    .status-header {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #F59E0B;
+      margin-bottom: 4px;
+    }
+    .status-card.proof-submitted .status-header {
+      color: #818CF8;
+    }
+    .status-card.shorts-blocked .status-header {
+      color: #F87171;
+    }
+    .instruction-text {
+      font-size: 15px;
+      font-weight: 700;
+      color: #F8FAFC;
+    }
+    .goals-section {
+      background: #0F172A;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: left;
+      margin-bottom: 20px;
+      border: 1px solid #334155;
+    }
+    .goals-section h4 {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #64748B;
+      margin-bottom: 10px;
+    }
+    .goal-list {
+      list-style: none;
+    }
+    .goal-list li {
+      font-size: 14px;
+      color: #F1F5F9;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .goal-bullet {
+      color: #6366F1;
+      font-weight: bold;
+    }
+    .sync-info {
+      font-size: 11px;
+      color: #64748B;
+      margin-bottom: 24px;
+    }
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 12px 20px;
+      border-radius: 10px;
+      border: none;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-primary {
+      background-color: #6366F1;
+      color: #FFFFFF;
+    }
+    .btn-primary:hover {
+      background-color: #4F46E5;
+    }
+    .btn-secondary {
+      background-color: #334155;
+      color: #E2E8F0;
+    }
+    .btn-secondary:hover {
+      background-color: #475569;
+    }
+    .btn-link {
+      background: transparent;
+      color: #94A3B8;
+      padding: 8px;
+    }
+    .btn-link:hover {
+      color: #F8FAFC;
+    }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon-container" id="iconBox">
+      <svg viewBox="0 0 24 24">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+      </svg>
+    </div>
+
+    <h1 class="title">ONUSLY LOCKDOWN</h1>
+    <div class="domain-badge" id="domainText">Restricted Website</div>
+
+    <div class="status-card" id="statusCard">
+      <div class="status-header" id="statusHeader">GOAL IN PROGRESS</div>
+      <div class="instruction-text" id="instructionText">Complete your goal and submit proof.</div>
+    </div>
+
+    <div class="goals-section">
+      <h4>Enforcing Goals</h4>
+      <ul class="goal-list" id="goalList">
+        <li><span class="goal-bullet">•</span> <span>Active accountability commitment</span></li>
+      </ul>
+    </div>
+
+    <div class="sync-info" id="syncInfo">Checking status...</div>
+
+    <div class="actions">
+      <button class="btn-primary" id="btnYouTubeHome" style="display: none; background-color: #EF4444;">
+        <span>Return to Educational YouTube</span>
+      </button>
+      <button class="btn-primary" id="btnCheckAgain">
+        <span class="spinner" id="spinner"></span>
+        <span id="btnCheckText">Check Again</span>
+      </button>
+      <button class="btn-secondary" id="btnDashboard">Open ONUSLY Dashboard</button>
+      <button class="btn-link" id="btnCloseTab">Close Tab</button>
+    </div>
+  </div>
+
+  <script src="blocked.js" type="module"></script>
+</body>
+</html>
