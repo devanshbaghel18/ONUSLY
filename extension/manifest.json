@@ -39,5 +39,14 @@
       "http://localhost:8080/*",
       "https://*.onusly.com/*"
     ]
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": ["src/youtubeShortsContent.js"],
+      "run_at": "document_start"
+    }
+  ]
 }
