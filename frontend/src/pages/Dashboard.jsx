@@ -13,6 +13,8 @@ import { getUser } from "../lib/auth";
 import { getGoals } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import CreateGoalModal from "../components/CreateGoalModal";
+import ConnectExtension from "../components/ConnectExtension";
+import { notifyExtensionSync } from "../lib/extensionSync";
 
 export default function Dashboard() {
   const user = getUser();
@@ -42,7 +44,10 @@ export default function Dashboard() {
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
       });
 
-      // 3. Re-sync with backend in background
+      // 3. Immediately trigger extension sync to unblock websites
+      notifyExtensionSync();
+
+      // 4. Re-sync with backend in background
       getGoals()
         .then((data) => {
           setGoals(data);
@@ -218,6 +223,9 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        {/* Browser Extension Enforcement Status */}
+        <ConnectExtension />
 
         {/* ============================================================
             Your Active Lockouts (Monochrome)

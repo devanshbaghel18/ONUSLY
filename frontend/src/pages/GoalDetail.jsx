@@ -28,6 +28,7 @@ import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof
 import { getStoredFriends, sendChatMessage } from "../lib/friendsChat";
 import { getStoredCommunities, sendCommunityMessage } from "../lib/communities";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { notifyExtensionSync } from "../lib/extensionSync";
 
 import AppLayout from "../components/AppLayout";
 import { getFriendlyTargetName } from "../lib/blockedApps";
@@ -327,6 +328,9 @@ export default function GoalDetail() {
           ? "🎉 Proof approved successfully! The goal is unlocked and constraints released."
           : "Proof rejected. The goal has returned to active status."
       );
+
+      // Trigger extension blocklist update immediately
+      notifyExtensionSync();
 
       // Refresh goal and proofs to reflect new status
       const updatedGoal = await getGoal(id, ownerIdParam || goal.ownerId);

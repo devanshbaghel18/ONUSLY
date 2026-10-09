@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Lock, X, Loader2, Plus, Globe, Smartphone, Trash2 } from "lucide-react";
 import { createGoal } from "../lib/api";
 import { APP_CATALOG } from "../lib/blockedApps";
+import { notifyExtensionSync } from "../lib/extensionSync";
 
 export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
   const [taskDescription, setTaskDescription] = useState("");
@@ -123,6 +124,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
       if (onGoalCreated) {
         onGoalCreated(created);
       }
+      notifyExtensionSync();
       onClose();
     } catch (err) {
       console.error("Failed to create goal:", err);
