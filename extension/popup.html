@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ONUSLY</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      width: 340px;
+      background-color: #0F172A;
+      color: #F8FAFC;
+      padding: 16px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1E293B;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo-badge {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: #6366F1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 13px;
+      color: #fff;
+    }
+    .brand-title {
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+    }
+    .status-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .status-badge.connected {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10B981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .status-badge.disconnected {
+      background: rgba(245, 158, 11, 0.15);
+      color: #F59E0B;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .card {
+      background: #1E293B;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .user-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #F8FAFC;
+    }
+    .user-email {
+      font-size: 12px;
+      color: #94A3B8;
+      margin-top: 2px;
+    }
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .meta-label {
+      color: #64748B;
+    }
+    .meta-val {
+      color: #E2E8F0;
+      font-family: monospace;
+      font-weight: 600;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #64748B;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .count-badge {
+      background: #0F172A;
+      color: #F59E0B;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .domain-list {
+      max-height: 120px;
+      overflow-y: auto;
+      font-size: 12px;
+    }
+    .domain-item {
+      padding: 6px 8px;
+      background: #0F172A;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .domain-name {
+      font-family: monospace;
+      color: #F1F5F9;
+    }
+    .domain-status {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 5px;
+      border-radius: 3px;
+    }
+    .domain-status.active {
+      background: rgba(245, 158, 11, 0.2);
+      color: #F59E0B;
+    }
+    .domain-status.review {
+      background: rgba(99, 102, 241, 0.2);
+      color: #818CF8;
+    }
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: none;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn-primary {
+      background: #6366F1;
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: #4F46E5;
+    }
+    .btn-secondary {
+      background: #334155;
+      color: #E2E8F0;
+    }
+    .btn-secondary:hover {
+      background: #475569;
+    }
+    .btn-danger {
+      background: transparent;
+      color: #EF4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.1);
+    }
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .empty-state {
+      font-size: 12px;
+      color: #64748B;
+      text-align: center;
+      padding: 12px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <div class="logo-badge">O</div>
+      <div class="brand-title">ONUSLY</div>
+    </div>
+    <div class="status-badge disconnected" id="statusBadge">
+      <div class="dot"></div>
+      <span id="statusText">Disconnected</span>
+    </div>
+  </div>
+
+  <div id="contentConnected" style="display: none;">
+    <div class="card">
+      <div class="user-name" id="userName">User</div>
+      <div class="user-email" id="userEmail">user@example.com</div>
+    </div>
+
+    <div class="card">
+      <div class="meta-row">
+        <span class="meta-label">Version</span>
+        <span class="meta-val" id="valVersion">initial</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Last Synced</span>
+        <span class="meta-val" id="valLastSync">Never</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span>Blocked Websites</span>
+        <span class="count-badge" id="badgeCount">0</span>
+      </div>
+      <div class="domain-list" id="domainList">
+        <div class="empty-state">No websites currently blocked.</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-primary" id="btnSync">
+        <span class="spinner" id="syncSpinner"></span>
+        <span id="btnSyncText">Sync Now</span>
+      </button>
+      <button class="btn-secondary" id="btnOpenDashboard">Open Dashboard</button>
+      <button class="btn-danger" id="btnDisconnect">Disconnect</button>
+    </div>
+  </div>
+
+  <div id="contentDisconnected">
+    <div class="card">
+      <p style="font-size: 13px; color: #94A3B8; line-height: 1.5; margin-bottom: 12px;">
+        Connect the extension to your ONUSLY web dashboard to enforce your active accountability goal restrictions.
+      </p>
+      <p style="font-size: 11px; color: #64748B;">
+        Open the dashboard, go to the top-right header, and click <strong>"Connect Extension"</strong>.
+      </p>
+    </div>
+
+    <div class="actions">
+      <button class="btn-primary" id="btnGoDashboard">Open ONUSLY Dashboard</button>
+    </div>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

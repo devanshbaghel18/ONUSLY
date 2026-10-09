@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "ONUSLY — Accountability Website Blocker",
+  "version": "1.0.0",
+  "description": "Blocks distracting websites during active ONUSLY accountability goals.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuBGx0PeElf9Ud2VhkWB9UoQa3kcGiWD4nk9R6rRuhD0ACLM7qY1Fd8h+suW2b7+UJ1k3W5i/IhbH2HWlMW9ocT9a7G5PdWT71nACZT/wlvOHE15RS7nBK+rS2db8QmSNrwun/5nYFfpko4p1e+JyfwFKETcbcQ0PHEwVaq4ivc26xM7HVCnLQXja6Nod73hMgc/NTWQ/d2vB3qtv8UG7+iFxsfiz9jICuZl3nHr4EyN+zD+2D1Bf5jvbeNecrDu9fYF0AYPO5F/2cLWEiDC830zOPH0dey+71GXHf5L7j3X99CQB38cr11PEF+fczCHB1R3XcnH2qZng90tT7PwrgQIDAQAB",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    },
+    "default_title": "ONUSLY"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "alarms",
+    "webNavigation",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://localhost:8080/*",
+    "http://127.0.0.1:8080/*",
+    "https://*.onusly.com/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:5173/*",
+      "http://localhost:8080/*",
+      "https://*.onusly.com/*"
+    ]
+  }
+}
