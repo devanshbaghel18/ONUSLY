@@ -1,0 +1,11 @@
+{
+  "name": "onusly-browser-extension",
+  "version": "1.0.0",
+  "description": "Production website blocker for ONUSLY accountability goals",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/**/*.test.js"
+  },
+  "author": "ONUSLY",
+  "license": "ISC"
+}
