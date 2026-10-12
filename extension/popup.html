@@ -194,6 +194,10 @@
     .btn-danger:hover {
       background: rgba(239, 68, 68, 0.1);
     }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed !important;
+    }
     .spinner {
       width: 14px;
       height: 14px;
@@ -269,12 +273,25 @@
         Connect the extension to your ONUSLY web dashboard to enforce your active accountability goal restrictions.
       </p>
       <p style="font-size: 11px; color: #64748B;">
-        Open the dashboard, go to the top-right header, and click <strong>"Connect Extension"</strong>.
+        Click below to pair automatically from your open dashboard tab, or use the "Connect Extension" button on the dashboard.
       </p>
     </div>
 
     <div class="actions">
-      <button class="btn-primary" id="btnGoDashboard">Open ONUSLY Dashboard</button>
+      <button class="btn-primary" id="btnQuickPair">
+        <span class="spinner" id="pairSpinner"></span>
+        <span id="btnPairText">⚡ Quick Connect via Tab</span>
+      </button>
+      <button class="btn-secondary" id="btnGoDashboard">Open ONUSLY Dashboard</button>
+    </div>
+
+    <div style="margin-top: 14px; border-top: 1px solid #1E293B; padding-top: 12px;">
+      <div style="font-size: 11px; color: #64748B; margin-bottom: 6px;">Or paste Connection Token from Dashboard:</div>
+      <div style="display: flex; gap: 6px;">
+        <input type="text" id="tokenInput" placeholder="Paste token here..." style="flex: 1; background: #1E293B; border: 1px solid #334155; border-radius: 6px; padding: 7px 10px; color: #F8FAFC; font-size: 11px; font-family: monospace;" />
+        <button class="btn-secondary" id="btnConnectToken" style="padding: 7px 12px; font-size: 11px;">Connect</button>
+      </div>
+      <div id="tokenError" style="display: none; color: #F87171; font-size: 11px; margin-top: 4px;"></div>
     </div>
   </div>
 

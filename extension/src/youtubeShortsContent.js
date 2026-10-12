@@ -331,6 +331,26 @@ export function createShortsObserver(doc = globalThis.document) {
 
 // Auto-run in browser content script context
 if (typeof document !== "undefined" && typeof window !== "undefined") {
+  // If YouTube is entirely blocked for an active goal, immediately redirect to blocked page
+  if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+    try {
+      chrome.runtime.sendMessage(
+        { type: "EVALUATE_URL", url: window.location.href },
+        (res) => {
+          if (res?.isBlocked) {
+            const blockedPageUrl =
+              chrome.runtime.getURL("blocked.html") +
+              `?domain=${encodeURIComponent(res.hostname || "")}` +
+              `&url=${encodeURIComponent(window.location.href)}`;
+            window.location.replace(blockedPageUrl);
+          }
+        }
+      );
+    } catch {
+      // Fail gracefully
+    }
+  }
+
   injectShortsBlockingStyles(document);
 
   if (document.readyState === "loading") {

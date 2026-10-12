@@ -42,6 +42,12 @@ export function isDomainMatch(hostname, targetDomain) {
   // Subdomain match: 'www.youtube.com' ends with '.youtube.com'
   if (host.endsWith("." + target)) return true;
 
+  // Stripped www match: e.g. 'youtube.com' matches 'www.youtube.com' and vice versa
+  const cleanHost = host.replace(/^www\./, "");
+  const cleanTarget = target.replace(/^www\./, "");
+  if (cleanHost === cleanTarget) return true;
+  if (cleanHost.endsWith("." + cleanTarget)) return true;
+
   return false;
 }
 

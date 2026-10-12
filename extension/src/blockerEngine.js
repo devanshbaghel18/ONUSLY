@@ -4,6 +4,26 @@
 
 import { extractHostname, isDomainMatch, isProtectedUrl, isYouTubeShortsUrl } from "./domainMatcher.js";
 
+export const APP_DOMAINS_MAP = {
+  "com.google.android.youtube": ["youtube.com", "youtu.be"],
+  "youtube": ["youtube.com", "youtu.be"],
+  "com.instagram.android": ["instagram.com"],
+  "instagram": ["instagram.com"],
+  "com.twitter.android": ["x.com", "twitter.com"],
+  "twitter": ["x.com", "twitter.com"],
+  "x": ["x.com", "twitter.com"],
+  "com.zhiliaoapp.musically": ["tiktok.com"],
+  "tiktok": ["tiktok.com"],
+  "com.reddit.frontpage": ["reddit.com"],
+  "reddit": ["reddit.com"],
+  "com.netflix.mediaclient": ["netflix.com"],
+  "netflix": ["netflix.com"],
+  "com.discord": ["discord.com"],
+  "discord": ["discord.com"],
+  "tv.twitch.android.app": ["twitch.tv"],
+  "twitch": ["twitch.tv"],
+};
+
 /**
  * Evaluates whether a given URL should be blocked based on the current cached blocklist
  * and built-in distraction rules (e.g. Strict YouTube Shorts mode).
@@ -57,7 +77,14 @@ export function evaluateUrl(urlStr, cachedBlocklist) {
         continue;
       }
 
-      const domains = Array.isArray(target.domains) ? target.domains : [];
+      const domains = [...(Array.isArray(target.domains) ? target.domains : [])];
+      for (const app of target.apps || []) {
+        const mapped = APP_DOMAINS_MAP[app?.toLowerCase()?.trim()];
+        if (mapped) {
+          domains.push(...mapped);
+        }
+      }
+
       const matched = domains.some((domain) => isDomainMatch(hostname, domain));
 
       if (matched) {
@@ -128,10 +155,20 @@ export function getBlockedDomainsList(cachedBlocklist) {
       continue;
     }
 
-    if (Array.isArray(target.domains)) {
+    const hasDomains = Array.isArray(target.domains) && target.domains.length > 0;
+    if (hasDomains) {
       for (const d of target.domains) {
         if (d && typeof d === "string") {
           domainSet.add(d.trim().toLowerCase());
+        }
+      }
+    } else if (Array.isArray(target.apps)) {
+      for (const app of target.apps) {
+        const mapped = APP_DOMAINS_MAP[app?.toLowerCase()?.trim()];
+        if (mapped) {
+          for (const d of mapped) {
+            domainSet.add(d.trim().toLowerCase());
+          }
         }
       }
     }

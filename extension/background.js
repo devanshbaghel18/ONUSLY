@@ -6,13 +6,13 @@ import { createStorage } from "./src/storage.js";
 import { createSyncService } from "./src/syncService.js";
 import { evaluateUrl } from "./src/blockerEngine.js";
 
-const storage = createStorage();
-const syncService = createSyncService(storage);
+export const storage = createStorage();
+export const syncService = createSyncService(storage);
 
 const ALARM_NAME = "onusly_sync_alarm";
 const ALLOWED_ORIGIN_PATTERNS = [
-  /^http:\/\/localhost:(5173|8080|3000)$/,
-  /^http:\/\/127\.0\.0\.1:(5173|8080|3000)$/,
+  /^http:\/\/localhost:(5173|5174|5175|4173|8080|3000)$/,
+  /^http:\/\/127\.0\.0\.1:(5173|5174|5175|4173|8080|3000)$/,
   /^https:\/\/(.*\.)?onusly\.com$/,
 ];
 
@@ -148,6 +148,113 @@ if (globalThis.chrome?.tabs?.onActivated) {
 // --------------------------------------------------------------------------
 // Authentication Handoff via externally_connectable
 // --------------------------------------------------------------------------
+// Core Message Processing Handlers
+// --------------------------------------------------------------------------
+export async function processAuthHandoff(message) {
+  const { token, user, baseUrl } = message || {};
+  if (!token || typeof token !== "string") {
+    return { success: false, error: "Missing or invalid token" };
+  }
+
+  const payload = parseJwtPayload(token);
+  if (!payload || !payload.sub) {
+    return { success: false, error: "Invalid JWT token structure" };
+  }
+
+  if (baseUrl && typeof baseUrl === "string") {
+    await storage.saveSettings({ baseUrl: baseUrl.trim().replace(/\/+$/, "") });
+  }
+
+  const userId = payload.sub;
+  const currentSession = await storage.getSession();
+
+  // Safe account switching: if switching from User A to User B, clear old cache first
+  if (currentSession && currentSession.userId !== userId) {
+    await storage.clearAll();
+  }
+
+  const session = {
+    userId,
+    email: payload.email || user?.email || "",
+    name: payload.name || user?.name || "User",
+    token,
+    exp: payload.exp || null,
+  };
+
+  await storage.saveSession(session);
+
+  // Immediately trigger blocklist sync and enforce on open tabs
+  const syncResult = await syncService.sync();
+  if (syncResult.success) {
+    await enforceOnOpenTabs();
+  }
+
+  return {
+    success: true,
+    userId,
+    version: syncResult.version || null,
+    targetsCount: syncResult.targetsCount || 0,
+  };
+}
+
+export async function processPing() {
+  const session = await storage.getSession();
+  const cache = await storage.getBlocklistCache(session?.userId);
+  const hasActiveTargets =
+    cache?.targets &&
+    cache.targets.some((t) => {
+      const s = (t.status || "").toLowerCase().trim();
+      return s === "active" || s === "proof_submitted";
+    });
+
+  return {
+    status: "ok",
+    connected: !!session,
+    userId: session?.userId || null,
+    version: cache?.version || null,
+    targetsCount: cache?.targets?.length || 0,
+    locked: !!hasActiveTargets,
+  };
+}
+
+export async function processDisconnect() {
+  const session = await storage.getSession();
+  const cache = await storage.getBlocklistCache(session?.userId || null);
+  const hasActiveTargets =
+    cache?.targets &&
+    cache.targets.some((t) => {
+      const s = (t.status || "").toLowerCase().trim();
+      return s === "active" || s === "proof_submitted";
+    });
+
+  if (hasActiveTargets) {
+    return {
+      success: false,
+      error: "Cannot disconnect extension while goals are in progress.",
+    };
+  }
+
+  await storage.clearAll();
+  return { success: true, message: "Disconnected successfully" };
+}
+
+export async function processSync() {
+  const syncResult = await syncService.sync();
+  if (syncResult.success) {
+    await enforceOnOpenTabs();
+  }
+
+  return {
+    success: syncResult.success,
+    version: syncResult.version,
+    targetsCount: syncResult.targetsCount,
+    error: syncResult.error,
+  };
+}
+
+// --------------------------------------------------------------------------
+// Authentication Handoff via externally_connectable
+// --------------------------------------------------------------------------
 if (globalThis.chrome?.runtime?.onMessageExternal) {
   chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     (async () => {
@@ -163,87 +270,23 @@ if (globalThis.chrome?.runtime?.onMessageExternal) {
         return;
       }
 
-      // Handshake / Ping
       if (message.type === "ONUSLY_PING") {
-        const session = await storage.getSession();
-        const cache = await storage.getBlocklistCache(session?.userId);
-        sendResponse({
-          status: "ok",
-          connected: !!session,
-          userId: session?.userId || null,
-          version: cache?.version || null,
-          targetsCount: cache?.targets?.length || 0,
-        });
+        sendResponse(await processPing());
         return;
       }
 
-      // Authentication Handoff from Dashboard
       if (message.type === "ONUSLY_AUTH_HANDOFF") {
-        const { token, user } = message;
-        if (!token || typeof token !== "string") {
-          sendResponse({ success: false, error: "Missing or invalid token" });
-          return;
-        }
-
-        const payload = parseJwtPayload(token);
-        if (!payload || !payload.sub) {
-          sendResponse({ success: false, error: "Invalid JWT token structure" });
-          return;
-        }
-
-        const userId = payload.sub;
-        const currentSession = await storage.getSession();
-
-        // Safe account switching: if switching from User A to User B, clear old cache first
-        if (currentSession && currentSession.userId !== userId) {
-          await storage.clearAll();
-        }
-
-        const session = {
-          userId,
-          email: payload.email || user?.email || "",
-          name: payload.name || user?.name || "User",
-          token,
-          exp: payload.exp || null,
-        };
-
-        await storage.saveSession(session);
-
-        // Immediately trigger blocklist sync and enforce on open tabs
-        const syncResult = await syncService.sync();
-        if (syncResult.success) {
-          await enforceOnOpenTabs();
-        }
-
-        sendResponse({
-          success: true,
-          userId,
-          version: syncResult.version || null,
-          targetsCount: syncResult.targetsCount || 0,
-        });
+        sendResponse(await processAuthHandoff(message));
         return;
       }
 
-      // Disconnect
       if (message.type === "ONUSLY_DISCONNECT") {
-        await storage.clearAll();
-        sendResponse({ success: true, message: "Disconnected successfully" });
+        sendResponse(await processDisconnect());
         return;
       }
 
-      // External Sync Trigger from Dashboard (e.g. after goal approval/unlock/creation)
       if (message.type === "ONUSLY_SYNC") {
-        const syncResult = await syncService.sync();
-        if (syncResult.success) {
-          await enforceOnOpenTabs();
-        }
-
-        sendResponse({
-          success: syncResult.success,
-          version: syncResult.version,
-          targetsCount: syncResult.targetsCount,
-          error: syncResult.error,
-        });
+        sendResponse(await processSync());
         return;
       }
 
@@ -256,12 +299,33 @@ if (globalThis.chrome?.runtime?.onMessageExternal) {
 }
 
 // --------------------------------------------------------------------------
-// Internal Extension Messaging (Popup & Blocked Page)
+// Internal Extension Messaging (Bridge, Popup & Blocked Page)
 // --------------------------------------------------------------------------
 if (globalThis.chrome?.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       if (!message || typeof message !== "object") return;
+
+      // Handle bridge requests from ONUSLY dashboard content script
+      if (message.type === "ONUSLY_PING") {
+        sendResponse(await processPing());
+        return;
+      }
+
+      if (message.type === "ONUSLY_AUTH_HANDOFF") {
+        sendResponse(await processAuthHandoff(message));
+        return;
+      }
+
+      if (message.type === "ONUSLY_DISCONNECT") {
+        sendResponse(await processDisconnect());
+        return;
+      }
+
+      if (message.type === "ONUSLY_SYNC") {
+        sendResponse(await processSync());
+        return;
+      }
 
       if (message.type === "GET_STATUS") {
         const session = await storage.getSession();
@@ -291,8 +355,8 @@ if (globalThis.chrome?.runtime?.onMessage) {
       }
 
       if (message.type === "DISCONNECT") {
-        await storage.clearAll();
-        sendResponse({ success: true });
+        const result = await processDisconnect();
+        sendResponse(result);
         return;
       }
 

@@ -22,30 +22,75 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "extension@onusly.com",
+      "strict_min_version": "109.0"
+    }
+  },
   "permissions": [
     "storage",
     "alarms",
     "webNavigation",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
-    "http://localhost:8080/*",
-    "http://127.0.0.1:8080/*",
+    "<all_urls>",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
     "https://*.onusly.com/*"
   ],
   "externally_connectable": {
     "matches": [
+      "http://localhost/*",
+      "http://127.0.0.1/*",
       "http://localhost:5173/*",
+      "http://localhost:5174/*",
+      "http://localhost:5175/*",
+      "http://localhost:4173/*",
       "http://localhost:8080/*",
+      "http://localhost:3000/*",
+      "http://127.0.0.1:5173/*",
+      "http://127.0.0.1:5174/*",
+      "http://127.0.0.1:5175/*",
+      "http://127.0.0.1:4173/*",
+      "http://127.0.0.1:8080/*",
+      "http://127.0.0.1:3000/*",
       "https://*.onusly.com/*"
     ]
   },
   "content_scripts": [
     {
       "matches": [
+        "*://*.youtube.com/*",
+        "*://*.youtu.be/*",
+        "*://*.instagram.com/*",
+        "*://*.twitter.com/*",
+        "*://*.x.com/*",
+        "*://*.tiktok.com/*",
+        "*://*.reddit.com/*",
+        "*://*.netflix.com/*",
+        "*://*.discord.com/*",
+        "*://*.twitch.tv/*"
+      ],
+      "js": ["src/pageBlocker.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
         "*://*.youtube.com/*"
       ],
       "js": ["src/youtubeShortsContent.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.onusly.com/*"
+      ],
+      "js": ["src/dashboardBridge.js"],
       "run_at": "document_start"
     }
   ]

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isAuthorizedOrigin, parseJwtPayload } from "../background.js";
+import { isAuthorizedOrigin, parseJwtPayload, processDisconnect, processPing, storage as bgStorage } from "../background.js";
 import { createStorage } from "../src/storage.js";
 
 describe("Authentication Handoff Suite", () => {
@@ -97,6 +97,68 @@ describe("Authentication Handoff Suite", () => {
       const bobCache = await storage.getBlocklistCache("bob");
       assert.equal(bobCache.version, "v1-bob");
       assert.equal(bobCache.targets[0].domains[0], "x.com");
+    });
+  });
+
+  describe("Disconnect Lockdown during Goals in Progress", () => {
+    it("strictly blocks disconnecting when active goals exist", async () => {
+      await bgStorage.clearAll();
+      await bgStorage.saveSession({ userId: "user_locked", token: "tok_locked" });
+      await bgStorage.saveBlocklistCache(
+        {
+          userId: "user_locked",
+          version: "v1-active",
+          targets: [{ goalId: "g_active", domains: ["youtube.com"], status: "active" }],
+        },
+        "user_locked"
+      );
+
+      const res = await processDisconnect();
+      assert.equal(res.success, false);
+      assert.match(res.error, /goals are in progress/i);
+
+      // Session and cache MUST still be present (uncompromised)
+      const session = await bgStorage.getSession();
+      assert.equal(session?.userId, "user_locked");
+      const cache = await bgStorage.getBlocklistCache("user_locked");
+      assert.equal(cache?.targets?.length, 1);
+    });
+
+    it("strictly blocks disconnecting when proof_submitted goals exist", async () => {
+      await bgStorage.clearAll();
+      await bgStorage.saveSession({ userId: "user_review", token: "tok_review" });
+      await bgStorage.saveBlocklistCache(
+        {
+          userId: "user_review",
+          version: "v1-review",
+          targets: [{ goalId: "g_review", domains: ["instagram.com"], status: "proof_submitted" }],
+        },
+        "user_review"
+      );
+
+      const res = await processDisconnect();
+      assert.equal(res.success, false);
+      assert.match(res.error, /goals are in progress/i);
+
+      const session = await bgStorage.getSession();
+      assert.equal(session?.userId, "user_review");
+    });
+
+    it("allows disconnecting when only completed goals exist or cache is empty", async () => {
+      await bgStorage.clearAll();
+      await bgStorage.saveSession({ userId: "user_done", token: "tok_done" });
+      await bgStorage.saveBlocklistCache(
+        {
+          userId: "user_done",
+          version: "v1-done",
+          targets: [{ goalId: "g_done", domains: ["youtube.com"], status: "completed" }],
+        },
+        "user_done"
+      );
+
+      const res = await processDisconnect();
+      assert.equal(res.success, true);
+      assert.equal(await bgStorage.getSession(), null);
     });
   });
 });

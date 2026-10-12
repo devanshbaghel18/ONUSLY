@@ -56,9 +56,12 @@ export function updateUserHandle(newHandle) {
 export function setAuth(token, user) {
   if (token) {
     localStorage.setItem("token", token);
+    localStorage.setItem("onusly_auth_token", token);
   }
   if (user) {
-    localStorage.setItem("user", typeof user === "string" ? user : JSON.stringify(user));
+    const userStr = typeof user === "string" ? user : JSON.stringify(user);
+    localStorage.setItem("user", userStr);
+    localStorage.setItem("onusly_user", userStr);
   }
 }
 
@@ -72,7 +75,9 @@ export function registerAuthCleanup(handler) {
 
 export function clearAuth() {
   localStorage.removeItem("token");
+  localStorage.removeItem("onusly_auth_token");
   localStorage.removeItem("user");
+  localStorage.removeItem("onusly_user");
 
   authCleanupHandlers.forEach((handler) => {
     try {

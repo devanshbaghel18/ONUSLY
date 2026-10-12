@@ -15,25 +15,28 @@ export function createStorage(customAdapter = null) {
   // In-memory fallback if chrome.storage is not available
   const memoryStore = new Map();
 
-  const adapter = customAdapter || (globalThis.chrome?.storage?.local ? {
+  // Cross-browser storage adapter (Chrome, Edge, Brave, Opera, Firefox)
+  const localStorageApi = globalThis.chrome?.storage?.local || globalThis.browser?.storage?.local;
+
+  const adapter = customAdapter || (localStorageApi ? {
     async get(keys) {
       return new Promise((resolve) => {
-        globalThis.chrome.storage.local.get(keys, resolve);
+        localStorageApi.get(keys, resolve);
       });
     },
     async set(items) {
       return new Promise((resolve) => {
-        globalThis.chrome.storage.local.set(items, resolve);
+        localStorageApi.set(items, resolve);
       });
     },
     async remove(keys) {
       return new Promise((resolve) => {
-        globalThis.chrome.storage.local.remove(keys, resolve);
+        localStorageApi.remove(keys, resolve);
       });
     },
     async clear() {
       return new Promise((resolve) => {
-        globalThis.chrome.storage.local.clear(resolve);
+        localStorageApi.clear(resolve);
       });
     },
   } : {
