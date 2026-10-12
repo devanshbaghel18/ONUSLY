@@ -68,6 +68,38 @@ export function getFriendlyTargetName(target) {
   return found ? found.name : target;
 }
 
+/**
+ * Deduplicates blocked apps and domains into clean, human-readable display badges.
+ * Prevents multiple badges for the same service (e.g. Android package + web domain + secondary domain).
+ *
+ * @param {Array<string>} [apps]
+ * @param {Array<string>} [domains]
+ * @param {Array<string>} [fallback]
+ * @returns {Array<{ raw: string, label: string }>}
+ */
+export function getUniqueDisplayTargets(apps = [], domains = [], fallback = []) {
+  const primary = [...(apps || []), ...(domains || [])];
+  const items = primary.length > 0 ? primary : (fallback || []);
+  const seenLabels = new Set();
+  const results = [];
+
+  for (const item of items) {
+    if (!item) continue;
+    const label = getFriendlyTargetName(item);
+    if (!label) continue;
+    const key = label.toLowerCase().trim();
+    if (!seenLabels.has(key)) {
+      seenLabels.add(key);
+      results.push({
+        raw: item,
+        label,
+      });
+    }
+  }
+
+  return results;
+}
+
 export const GOAL_BLOCKED_APPS_KEY = "onusly_goal_blocked_apps";
 
 export function getGoalBlockedApps(goalId) {

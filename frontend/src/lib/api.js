@@ -1,6 +1,6 @@
 import { getToken, clearAuth } from "./auth";
 
-const API_BASE_URL =
+export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL !== undefined
     ? import.meta.env.VITE_API_BASE_URL
     : import.meta.env.DEV
@@ -199,6 +199,40 @@ export async function markAllNotificationsRead() {
   return request("/notifications/read-all", {
     method: "POST",
   });
+}
+
+/**
+ * Creates a new active cycle of an existing goal (retains title, description,
+ * blocked apps, blocked domains, and approver).
+ * @param {object} originalGoal
+ * @returns {Promise<object>}
+ */
+export async function repeatGoal(originalGoal) {
+  if (!originalGoal || !originalGoal.title) {
+    throw new Error("Cannot repeat an invalid goal");
+  }
+
+  const newGoal = await createGoal({
+    title: originalGoal.title,
+    description: originalGoal.description || "",
+    blockedApps: originalGoal.blockedApps || [],
+    blockedDomains: originalGoal.blockedDomains || [],
+  });
+
+  if (originalGoal.approverEmail || originalGoal.approvalType) {
+    try {
+      await updateGoal(newGoal.id, {
+        approverEmail: originalGoal.approverEmail,
+        approvalType: originalGoal.approvalType || "friend",
+      });
+      newGoal.approverEmail = originalGoal.approverEmail;
+      newGoal.approvalType = originalGoal.approvalType || "friend";
+    } catch (err) {
+      console.warn("Could not copy approver to repeated goal:", err);
+    }
+  }
+
+  return newGoal;
 }
 
 

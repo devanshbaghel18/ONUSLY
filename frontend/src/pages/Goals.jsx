@@ -16,16 +16,25 @@ import {
   Users,
   X,
   Send,
+  Pin,
+  RotateCcw,
 } from "lucide-react";
-import { getGoals, deleteGoal, submitProof } from "../lib/api";
+import { getGoals, deleteGoal, submitProof, updateGoal, repeatGoal } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { getStoredFriends } from "../lib/friendsChat";
 import { getStoredCommunities } from "../lib/communities";
 import CreateGoalModal from "../components/CreateGoalModal";
-import { getGoalBlockedApps, getFriendlyTargetName } from "../lib/blockedApps";
+import { getGoalBlockedApps, getUniqueDisplayTargets } from "../lib/blockedApps";
 import { getUser } from "../lib/auth";
 import { sendChatMessage } from "../lib/friendsChat";
 import { sendCommunityMessage } from "../lib/communities";
+import { notifyExtensionSync } from "../lib/extensionSync";
+import {
+  getPinnedGoalIds,
+  togglePinGoal,
+  transferPinGoal,
+  MAX_PINNED_GOALS,
+} from "../lib/pinnedGoals";
 
 function generateMsgId(prefix = "msg") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
@@ -38,6 +47,54 @@ export default function Goals() {
   const [error, setError] = useState("");
   const [successNotice, setSuccessNotice] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [pinnedIds, setPinnedIds] = useState(() => getPinnedGoalIds());
+  const [repeatingGoalId, setRepeatingGoalId] = useState(null);
+
+  const handleTogglePin = (goalId) => {
+    const res = togglePinGoal(goalId);
+    setPinnedIds(res.pinnedIds);
+    if (res.error) {
+      setError(res.error);
+      setTimeout(() => setError(""), 4500);
+    } else if (res.pinned) {
+      setSuccessNotice(`📌 Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
+      setTimeout(() => setSuccessNotice(""), 3000);
+    } else {
+      setSuccessNotice(`Goal unpinned from dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
+      setTimeout(() => setSuccessNotice(""), 2500);
+    }
+  };
+
+  const handleRepeatGoal = async (g) => {
+    if (!g) return;
+
+    if (g.status !== "completed") {
+      setError(`⚠️ "${g.title}" is currently active! Complete or unlock the current lock before repeating.`);
+      setTimeout(() => setError(""), 5000);
+      return;
+    }
+
+    setRepeatingGoalId(g.id);
+    try {
+      const newGoal = await repeatGoal(g);
+
+      if (pinnedIds.includes(g.id)) {
+        const updatedPinned = transferPinGoal(g.id, newGoal.id);
+        setPinnedIds(updatedPinned);
+      }
+
+      setGoals((prev) => [newGoal, ...prev]);
+      notifyExtensionSync();
+      setSuccessNotice(`🔁 Routine Repeated: New lock started for "${newGoal.title}"! Apps & sites are blocked.`);
+      setTimeout(() => setSuccessNotice(""), 6000);
+    } catch (err) {
+      console.error("Failed to repeat routine:", err);
+      setError(err.message || "Failed to repeat routine");
+      setTimeout(() => setError(""), 5000);
+    } finally {
+      setRepeatingGoalId(null);
+    }
+  };
 
   // Share for verification modal
   const [shareGoal, setShareGoal] = useState(null); // goal to share
@@ -132,25 +189,20 @@ export default function Goals() {
     const goalId = shareGoal.id;
 
     try {
-      // Try to submit proof to backend (soft fail if backend is offline)
+      // Update backend goal configuration while active so approver is recognized
       try {
-        await submitProof(goalId, {
-          proofType: "text",
-          textExplanation: `Verification request shared for: ${goalTitle}`,
-        });
-      } catch (proofErr) {
-        console.warn("Backend proof submission skipped:", proofErr.message);
+        if (shareGoal.status === "active") {
+          await updateGoal(goalId, {
+            approvalType: shareTarget === "community" ? "community" : "friend",
+            approverEmail: shareTarget === "friend" ? (friends.find((f) => f.id === selectedFriendId)?.email || friends.find((f) => f.id === selectedFriendId)?.handle) : undefined,
+          });
+        }
+      } catch (updErr) {
+        console.warn("Backend goal approver update skipped:", updErr.message);
       }
 
-      // Update backend goal configuration so approver is recognized
-      try {
-        const { updateGoal, submitProof } = await import("../lib/api");
-        await updateGoal(goalId, {
-          approvalType: shareTarget === "community" ? "community" : "friend",
-          approverEmail: shareTarget === "friend" ? (friends.find((f) => f.id === selectedFriendId)?.email || friends.find((f) => f.id === selectedFriendId)?.handle) : undefined,
-        });
-
-        // Submit proof on behalf of owner so goal transitions to proof_submitted and is ready for friend to approve
+      // Submit proof on behalf of owner so goal transitions to proof_submitted and is ready for friend to approve
+      if (shareGoal.status === "active") {
         try {
           await submitProof(goalId, {
             proofType: "text",
@@ -159,8 +211,6 @@ export default function Goals() {
         } catch (proofErr) {
           console.warn("Auto-submit proof on share:", proofErr.message);
         }
-      } catch (updErr) {
-        console.warn("Backend goal approver update skipped:", updErr.message);
       }
 
       const targetId = shareTarget === "community" ? selectedCommunityId : selectedFriendId;
@@ -339,19 +389,22 @@ export default function Goals() {
               {goals.map((g) => {
                 const isCompleted = g.status === "completed";
                 const isProofSubmitted = g.status === "proof_submitted";
-                const targets = [
-                  ...(g.blockedApps || []),
-                  ...(g.blockedDomains || []),
-                ];
-                const displayTargets = targets.length > 0 ? targets : getGoalBlockedApps(g.id);
+                const isPinned = pinnedIds.includes(g.id);
+                const displayTargets = getUniqueDisplayTargets(
+                  g.blockedApps,
+                  g.blockedDomains,
+                  getGoalBlockedApps(g.id)
+                );
 
                 return (
                   <div
                     key={g.id}
-                    className="group relative flex flex-col justify-between rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A] p-5 transition-all hover:border-[#444444] shadow-sm"
+                    className={`group relative flex flex-col justify-between rounded-2xl border p-5 transition-all hover:border-[#444444] shadow-sm ${
+                      isPinned ? "border-amber-500/40 bg-[#1A1814]" : "border-[#2B2B2B] bg-[#1A1A1A]"
+                    }`}
                   >
                     <div>
-                      {/* Top Row: Title + Status Badge */}
+                      {/* Top Row: Title + Status Badge + Pin */}
                       <div className="flex items-start justify-between gap-3">
                         <Link
                           to={`/goals/${g.id}`}
@@ -376,6 +429,29 @@ export default function Goals() {
                               Active
                             </span>
                           )}
+
+                          {/* Pin Toggle Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleTogglePin(g.id);
+                            }}
+                            className={`flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-semibold transition ${
+                              isPinned
+                                ? "border-amber-500/50 bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"
+                                : "border-[#333333] bg-[#222222] text-[#737373] hover:text-white hover:border-[#555555]"
+                            }`}
+                            title={
+                              isPinned
+                                ? "Unpin from dashboard"
+                                : `Pin to dashboard (${pinnedIds.length}/${MAX_PINNED_GOALS})`
+                            }
+                          >
+                            <Pin size={11} className={isPinned ? "fill-amber-400" : ""} />
+                            <span>{isPinned ? "Pinned" : "Pin"}</span>
+                          </button>
 
                           <button
                             type="button"
@@ -404,11 +480,11 @@ export default function Goals() {
                         {displayTargets.length > 0 ? (
                           displayTargets.map((target) => (
                             <span
-                              key={target}
+                              key={target.label}
                               className="inline-flex items-center gap-1 rounded-md border border-[#333333] bg-[#141414] px-2 py-0.5 text-[10px] font-medium text-neutral-300"
                             >
                               <Lock size={9} className="text-red-400" />
-                              {getFriendlyTargetName(target)}
+                              {target.label}
                             </span>
                           ))
                         ) : (
@@ -420,16 +496,46 @@ export default function Goals() {
                     </div>
 
                     {/* Card Footer Actions */}
-                    <div className="mt-5 flex items-center justify-between border-t border-[#2B2B2B] pt-3 text-[11px]">
-                      <button
-                        type="button"
-                        onClick={(e) => openShareModal(g, e)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-[#3A3A3A] bg-[#222222] px-2.5 py-1 font-semibold text-white hover:border-white transition"
-                        title="Share for verification with friend or community"
-                      >
-                        <Share2 size={12} className="text-emerald-400" />
-                        <span>Share for Verification</span>
-                      </button>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-[#2B2B2B] pt-3 text-[11px]">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => openShareModal(g, e)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#3A3A3A] bg-[#222222] px-2.5 py-1 font-semibold text-white hover:border-white transition"
+                          title="Share for verification with friend or community"
+                        >
+                          <Share2 size={12} className="text-emerald-400" />
+                          <span>Share</span>
+                        </button>
+
+                        {/* Recurring Goal Button */}
+                        <button
+                          type="button"
+                          disabled={repeatingGoalId === g.id || g.status !== "completed"}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleRepeatGoal(g);
+                          }}
+                          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-semibold transition ${
+                            g.status === "completed"
+                              ? "border-[#3A3A3A] bg-[#222222] text-neutral-200 hover:text-white hover:border-white"
+                              : "border-[#262626] bg-[#1A1A1A] text-[#666666] cursor-not-allowed opacity-60"
+                          }`}
+                          title={
+                            g.status === "completed"
+                              ? "Start another cycle of this lock"
+                              : "Routine is currently active"
+                          }
+                        >
+                          {repeatingGoalId === g.id ? (
+                            <Loader2 size={12} className="animate-spin text-white" />
+                          ) : (
+                            <RotateCcw size={12} className={g.status === "completed" ? "text-emerald-400" : "text-[#666666]"} />
+                          )}
+                          <span>Repeat Routine</span>
+                        </button>
+                      </div>
 
                       <Link
                         to={`/goals/${g.id}`}
