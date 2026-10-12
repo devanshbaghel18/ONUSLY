@@ -30,9 +30,10 @@ class WebSocketManager {
     this.statusListeners = new Set();
     this.reconnectTimeout = null;
     this.reconnectAttempts = 0;
-    this.maxReconnectDelay = 10000;
+    this.maxReconnectDelay = 3000;
     this.isManuallyClosed = false;
     this.isConnected = false;
+    this.pendingQueue = [];
   }
 
   connect() {
@@ -68,6 +69,18 @@ class WebSocketManager {
               handle: cleanH,
             },
           });
+        }
+
+        // Flush any messages queued while connecting
+        while (this.pendingQueue.length > 0) {
+          const item = this.pendingQueue.shift();
+          try {
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+              this.socket.send(item);
+            }
+          } catch (qErr) {
+            console.warn("[WebSocket] Error sending queued item:", qErr);
+          }
         }
       };
 
@@ -134,9 +147,16 @@ class WebSocketManager {
   }
 
   send(data) {
+    const serialized = typeof data === "string" ? data : JSON.stringify(data);
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(typeof data === "string" ? data : JSON.stringify(data));
+      this.socket.send(serialized);
       return true;
+    }
+
+    // Queue message so it sends as soon as connection is established/restored
+    this.pendingQueue.push(serialized);
+    if (!this.socket || this.socket.readyState === WebSocket.CLOSED) {
+      this.connect();
     }
     return false;
   }
@@ -145,8 +165,8 @@ class WebSocketManager {
     if (this.reconnectTimeout || this.isManuallyClosed) return;
 
     this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
-    console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})...`);
+    const delay = Math.min(400 * Math.pow(1.6, this.reconnectAttempts - 1), this.maxReconnectDelay);
+    console.log(`[WebSocket] Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts})...`);
 
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;

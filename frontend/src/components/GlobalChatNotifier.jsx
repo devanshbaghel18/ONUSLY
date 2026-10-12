@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { MessageSquare, X, ArrowRight } from "lucide-react";
+import { MessageSquare, X, ArrowRight, ShieldCheck } from "lucide-react";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { receiveChatMessage } from "../lib/friendsChat";
+import { notifyExtensionSync } from "../lib/extensionSync";
 
 export default function GlobalChatNotifier() {
   const navigate = useNavigate();
@@ -10,25 +11,56 @@ export default function GlobalChatNotifier() {
   const [activeToast, setActiveToast] = useState(null);
 
   useWebSocket((event) => {
+    // 1. Goal approval notification event
+    if (event?.type === "chat.message.approved" || event?.type === "goal.unlocked") {
+      const payload = event.payload || {};
+      const timeFormatted = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const approverName = payload.approverName || "Accountability Partner";
+      const goalTitle = payload.goalTitle || payload.title || "Goal";
+
+      // Trigger extension blocklist refresh immediately so focus lock is released
+      notifyExtensionSync();
+
+      setActiveToast({
+        id: `toast-approval-${Date.now()}`,
+        senderName: approverName,
+        text: `Verified and approved "${goalTitle}"! Distraction locks are now lifted.`,
+        time: timeFormatted,
+        isApproval: true,
+      });
+      return;
+    }
+
+    // 2. Incoming chat message event
     if (event?.type === "chat.message") {
       const payload = event.payload || {};
       const timeFormatted = payload.time
         ? new Date(payload.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-      // 1. Save and update local chat store
-      const { friend } = receiveChatMessage({
-        messageId: payload.id,
-        friendEmail: payload.senderEmail,
-        text: payload.text,
-        time: timeFormatted,
-        sender: "friend",
-      });
-
-      // 2. If user is NOT currently on the chat page, show the WhatsApp-style popup toast
+      // If user is currently on the chat page, let Communities.jsx handle it directly
       const isChatPage = location.pathname === "/community-friends" || location.pathname === "/communities";
       if (!isChatPage) {
-        const senderName = friend?.name || (payload.senderEmail ? payload.senderEmail.split("@")[0] : "Friend");
+        // Save and update local chat store with full payload
+        const { friend } = receiveChatMessage({
+          messageId: payload.id,
+          friendEmail: payload.senderEmail,
+          friendHandle: payload.senderHandle,
+          friendName: payload.senderName,
+          text: payload.text,
+          time: timeFormatted,
+          sender: "friend",
+          isProof: payload.isProof,
+          goalId: payload.goalId,
+          goalTitle: payload.goalTitle,
+          ownerId: payload.ownerId,
+          approved: payload.approved,
+          images: payload.images,
+          files: payload.files,
+          externalLink: payload.externalLink,
+        });
+
+        const senderName = friend?.name || (payload.senderName || (payload.senderEmail ? payload.senderEmail.split("@")[0] : "Friend"));
         setActiveToast({
           id: payload.id || `toast-${Date.now()}`,
           senderName,
@@ -54,17 +86,30 @@ export default function GlobalChatNotifier() {
 
   return (
     <div className="fixed top-5 right-5 z-50 max-w-sm w-full animate-in fade-in slide-in-from-top-4 duration-300">
-      <div className="rounded-2xl border border-white/20 bg-neutral-900/95 p-4 shadow-2xl backdrop-blur-md">
+      <div className={`rounded-2xl border p-4 shadow-2xl backdrop-blur-md ${
+        activeToast.isApproval
+          ? "border-emerald-500/40 bg-neutral-900/95"
+          : "border-white/20 bg-neutral-900/95"
+      }`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-950/60 text-emerald-400">
-              <MessageSquare size={18} />
+            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
+              activeToast.isApproval
+                ? "border-emerald-500/40 bg-emerald-950/70 text-emerald-400"
+                : "border-emerald-500/30 bg-emerald-950/60 text-emerald-400"
+            }`}>
+              {activeToast.isApproval ? <ShieldCheck size={20} /> : <MessageSquare size={18} />}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h4 className="truncate text-xs font-bold text-white">
                   {activeToast.senderName}
                 </h4>
+                {activeToast.isApproval && (
+                  <span className="rounded-full bg-emerald-950/80 border border-emerald-500/30 px-1.5 py-0.2 text-[9px] font-semibold text-emerald-300">
+                    Goal Approved
+                  </span>
+                )}
                 {activeToast.isOffline && (
                   <span className="rounded-full bg-blue-950/80 border border-blue-500/30 px-1.5 py-0.2 text-[9px] font-semibold text-blue-300">
                     Offline Delivered
@@ -73,17 +118,21 @@ export default function GlobalChatNotifier() {
                 <span className="text-[10px] text-neutral-400">{activeToast.time}</span>
               </div>
               <p className="mt-1 line-clamp-2 text-xs text-neutral-300 leading-snug">
-                "{activeToast.text}"
+                {activeToast.isApproval ? activeToast.text : `"${activeToast.text}"`}
               </p>
               <button
                 type="button"
                 onClick={() => {
                   setActiveToast(null);
-                  navigate("/community-friends");
+                  if (activeToast.isApproval) {
+                    navigate("/goals");
+                  } else {
+                    navigate("/community-friends");
+                  }
                 }}
                 className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 transition"
               >
-                <span>Open Chat</span>
+                <span>{activeToast.isApproval ? "View Goals" : "Open Chat"}</span>
                 <ArrowRight size={12} />
               </button>
             </div>

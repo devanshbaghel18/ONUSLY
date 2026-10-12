@@ -20,8 +20,8 @@ const (
 	// Send pings to peer with this period. Must be less than pongWait.
 	pingPeriod = (pongWait * 9) / 10
 
-	// Maximum message size allowed from peer (in bytes).
-	maxMessageSize = 4096
+	// Maximum message size allowed from peer (in bytes: 512 KB to accommodate attachments, proof links, and images).
+	maxMessageSize = 512 * 1024
 )
 
 // Client represents a single active WebSocket connection for an authenticated user.
@@ -44,7 +44,7 @@ func NewClient(hub *Hub, conn *websocket.Conn, userID string, email string, hand
 		userID: userID,
 		email:  strings.TrimSpace(strings.ToLower(email)),
 		handle: strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@")),
-		send:   make(chan []byte, 64),
+		send:   make(chan []byte, 256),
 	}
 }
 

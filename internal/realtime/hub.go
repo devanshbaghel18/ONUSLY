@@ -625,19 +625,37 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			},
 		}
 
-		// Forward directly to recipient's active live connection
+		// Forward directly to recipient's active live connection across all tabs/devices
 		delivered := false
+		targetClients := make(map[*Client]bool)
+
+		h.mu.RLock()
 		if req.RecipientHandle != "" {
-			if err := h.SendToHandle(req.RecipientHandle, outEvent); err == nil {
-				delivered = true
-				log.Printf("[WebSocket] Live delivered message to handle @%s", req.RecipientHandle)
+			for client := range h.handles[req.RecipientHandle] {
+				targetClients[client] = true
 			}
 		}
-		if !delivered && req.RecipientEmail != "" {
-			if err := h.SendToEmail(req.RecipientEmail, outEvent); err == nil {
-				delivered = true
-				log.Printf("[WebSocket] Live delivered message to email %s", req.RecipientEmail)
+		if req.RecipientEmail != "" {
+			for client := range h.emails[req.RecipientEmail] {
+				targetClients[client] = true
 			}
+		}
+		h.mu.RUnlock()
+
+		data, err := json.Marshal(outEvent)
+		if err == nil {
+			for target := range targetClients {
+				select {
+				case target.send <- data:
+					delivered = true
+				default:
+					log.Printf("[WebSocket] Buffer full for recipient client (%s/@%s)", target.email, target.handle)
+				}
+			}
+		}
+
+		if delivered {
+			log.Printf("[WebSocket] Live delivered message to recipient (%s/@%s) on %d active connection(s)", req.RecipientEmail, req.RecipientHandle, len(targetClients))
 		}
 
 		// Persist message in store if configured

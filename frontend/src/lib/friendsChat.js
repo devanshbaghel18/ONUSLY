@@ -153,8 +153,26 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
       (normalizedEmail && f.email && f.email.toLowerCase() === normalizedEmail)
     );
 
-    // If the friend is not yet in our friend list, automatically add them!
-    if (!friend) {
+    // If friend exists, unify email/handle/name
+    if (friend) {
+      let changed = false;
+      if (normalizedEmail && (!friend.email || friend.email !== normalizedEmail)) {
+        friend.email = normalizedEmail;
+        changed = true;
+      }
+      if (cleanHandle && (!friend.handle || friend.handle !== cleanHandle)) {
+        friend.handle = cleanHandle;
+        changed = true;
+      }
+      if (friendName && (!friend.name || friend.name.startsWith("@"))) {
+        friend.name = friendName.trim();
+        changed = true;
+      }
+      if (changed) {
+        saveFriends(friends);
+      }
+    } else {
+      // If the friend is not yet in our friend list, automatically add them!
       const fallback = cleanHandle ? `@${cleanHandle}` : (normalizedEmail ? normalizedEmail.split("@")[0] : "Friend");
       const displayName = friendName ? friendName.trim() : fallback;
       const capitalName = displayName.startsWith("@") ? displayName : displayName.charAt(0).toUpperCase() + displayName.slice(1);

@@ -247,9 +247,13 @@ export default function Communities() {
     return () => clearTimeout(timer);
   }, [location.state]);
 
-  // Refs for auto-scroll
+  // Refs for auto-scroll and container scrolling
   const chatEndRef = useRef(null);
   const commChatEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
+  const commChatContainerRef = useRef(null);
+  const isAtBottomRef = useRef(true);
+  const isCommAtBottomRef = useRef(true);
 
   // ==========================================
   // WEBSOCKET REALTIME CONNECTION
@@ -315,6 +319,14 @@ export default function Communities() {
       if (friend && isViewing) {
         if (!currentActiveId) setActiveFriendId(friend.id);
         setChatMessages(messages);
+        setTimeout(() => {
+          if (isAtBottomRef.current && chatContainerRef.current) {
+            chatContainerRef.current.scrollTo({
+              top: chatContainerRef.current.scrollHeight,
+              behavior: "smooth",
+            });
+          }
+        }, 10);
       }
     }
 
@@ -395,6 +407,14 @@ export default function Communities() {
         setCommunities(getStoredCommunities());
         if (selectedCommunityIdRef.current === p.communityId) {
           setCommChatMessages(updated);
+          setTimeout(() => {
+            if (isCommAtBottomRef.current && commChatContainerRef.current) {
+              commChatContainerRef.current.scrollTo({
+                top: commChatContainerRef.current.scrollHeight,
+                behavior: "smooth",
+              });
+            }
+          }, 10);
         }
       }
     }
@@ -497,15 +517,81 @@ export default function Communities() {
     };
   }, [selectedCommunity, isConnected, send]);
 
-  // Auto-scroll 1-on-1 chat
+  // Auto-scroll 1-on-1 chat on message change if user is near bottom
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isAtBottomRef.current && chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
   }, [chatMessages]);
 
-  // Auto-scroll community chat
+  // Auto-scroll community chat on message change if user is near bottom
   useEffect(() => {
-    commChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isCommAtBottomRef.current && commChatContainerRef.current) {
+      commChatContainerRef.current.scrollTo({
+        top: commChatContainerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
   }, [commChatMessages]);
+
+  // Instant scroll to bottom when selecting a different friend
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+    isAtBottomRef.current = true;
+  }, [activeFriendId]);
+
+  // Instant scroll to bottom when selecting a different community
+  useEffect(() => {
+    if (commChatContainerRef.current) {
+      commChatContainerRef.current.scrollTop = commChatContainerRef.current.scrollHeight;
+    }
+    isCommAtBottomRef.current = true;
+  }, [selectedCommunity?.id]);
+
+  // Background heartbeat & window focus sync (ensures latest chats with zero manual refresh)
+  useEffect(() => {
+    if (!activeFriendId) return;
+
+    const syncHistory = () => {
+      const f = friends.find((item) => item.id === activeFriendId);
+      const peerKey = f?.handle ? `@${f.handle}` : f?.email || "";
+      if (!peerKey) return;
+
+      getChatHistory(peerKey)
+        .then((serverMsgs) => {
+          if (serverMsgs && serverMsgs.length > 0) {
+            const merged = mergeChatHistory(activeFriendId, serverMsgs, currentUser?.email, currentUser?.handle);
+            setChatMessages((prev) => {
+              if (prev.length !== merged.length || (prev.length > 0 && merged.length > 0 && prev[prev.length - 1]?.id !== merged[merged.length - 1]?.id)) {
+                return merged;
+              }
+              return prev;
+            });
+          }
+        })
+        .catch(() => {});
+    };
+
+    // Immediate sync on mount / friend switch
+    syncHistory();
+
+    // 3-second heartbeat sync for zero-loss real-time assurance
+    const interval = setInterval(syncHistory, 3000);
+
+    // Sync on window focus / tab switch
+    const onFocus = () => syncHistory();
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [activeFriendId, friends, currentUser?.email, currentUser?.handle]);
 
   // ==========================================
   // ATTACHMENT MODAL HANDLERS (WhatsApp-style)
@@ -594,6 +680,15 @@ export default function Communities() {
         );
         setChatMessages(updated);
         setFriends(getStoredFriends());
+        isAtBottomRef.current = true;
+        setTimeout(() => {
+          if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTo({
+              top: chatContainerRef.current.scrollHeight,
+              behavior: "smooth",
+            });
+          }
+        }, 10);
       } else if (attachTargetType === "community" && selectedCommunity) {
         const msgId = generateMsgId("comm-msg");
         send({
@@ -624,6 +719,15 @@ export default function Communities() {
         });
         setCommChatMessages(updated);
         setCommunities(getStoredCommunities());
+        isCommAtBottomRef.current = true;
+        setTimeout(() => {
+          if (commChatContainerRef.current) {
+            commChatContainerRef.current.scrollTo({
+              top: commChatContainerRef.current.scrollHeight,
+              behavior: "smooth",
+            });
+          }
+        }, 10);
       }
     } catch (err) {
       console.error("Failed to send attachment:", err);
@@ -699,26 +803,6 @@ export default function Communities() {
           approverName: currentUser?.name || (currentUser?.handle ? `@${currentUser.handle}` : "Partner"),
         },
       });
-
-      // Also send a celebration message into chat
-      if (activeFriendId && activeFriend) {
-        const confirmMsg = sendChatMessage(
-          activeFriendId,
-          {
-            text: `🎉 Verified and approved "${msg.goalTitle || "Goal"}"! Distraction locks are now lifted.`,
-          },
-          "me"
-        );
-        setChatMessages(confirmMsg);
-      } else if (selectedCommunity) {
-        const confirmMsg = sendCommunityMessage(selectedCommunity.id, {
-          id: `comm-msg-${Date.now()}`,
-          senderName: currentUser?.name || "Partner",
-          senderHandle: currentUser?.handle,
-          text: `🎉 Verified and approved "${msg.goalTitle || "Goal"}"! Distraction locks are now lifted.`,
-        });
-        setCommChatMessages(confirmMsg);
-      }
     } catch (err) {
       console.error("Failed to approve in chat:", err);
     } finally {
@@ -985,9 +1069,12 @@ export default function Communities() {
     const senderName = u?.name || (senderHandle ? `@${senderHandle}` : "Friend");
     const recHandle = currentFriend?.handle ? currentFriend.handle.replace(/[@\s]/g, "").toLowerCase() : "";
 
+    const msgId = generateMsgId("msg");
+
     send({
       type: "chat.message",
       payload: {
+        id: msgId,
         recipientEmail: currentFriend?.email || "",
         recipientHandle: recHandle,
         senderEmail,
@@ -997,10 +1084,19 @@ export default function Communities() {
       },
     });
 
-    const updatedMessages = sendChatMessage(activeFriendId, text, "me");
+    const updatedMessages = sendChatMessage(activeFriendId, { id: msgId, text }, "me");
     setChatMessages(updatedMessages);
     setMessageInput("");
     setFriends(getStoredFriends());
+
+    setTimeout(() => {
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTo({
+          top: chatContainerRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      }
+    }, 10);
   };
 
   // Delete individual 1-on-1 message (WhatsApp style - deletes for both sides)
@@ -1061,6 +1157,16 @@ export default function Communities() {
     });
     setCommChatMessages(updated);
     setCommunities(getStoredCommunities());
+
+    isCommAtBottomRef.current = true;
+    setTimeout(() => {
+      if (commChatContainerRef.current) {
+        commChatContainerRef.current.scrollTo({
+          top: commChatContainerRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      }
+    }, 10);
   };
 
   // Delete individual community message
@@ -1436,7 +1542,7 @@ export default function Communities() {
                 {selectedCommunity.joined ? (
                   <div className="flex flex-col rounded-2xl border border-[#2B2B2B] bg-[#121212] overflow-hidden" style={{ height: "calc(100vh - 320px)", minHeight: "480px" }}>
                     {/* Community Description Banner */}
-                    <div className="border-b border-[#222222] bg-[#161616] px-5 py-2.5 flex items-center justify-between text-xs text-[#A3A3A3]">
+                    <div className="shrink-0 border-b border-[#222222] bg-[#161616] px-5 py-2.5 flex items-center justify-between text-xs text-[#A3A3A3]">
                       <span className="truncate max-w-xl">
                         📌 {selectedCommunity.description}
                       </span>
@@ -1446,7 +1552,14 @@ export default function Communities() {
                     </div>
 
                     {/* Community Chat Stream */}
-                    <div className="flex-1 space-y-3 overflow-y-auto p-4">
+                    <div
+                      ref={commChatContainerRef}
+                      onScroll={(e) => {
+                        const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                        isCommAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
+                      }}
+                      className="flex-1 min-h-0 space-y-3 overflow-y-auto p-4 overscroll-contain"
+                    >
                       {commChatMessages.length === 0 ? (
                         <div className="flex h-full flex-col items-center justify-center py-16 text-center">
                           <Users size={36} className="text-[#444444] mb-2" />
@@ -1475,7 +1588,7 @@ export default function Communities() {
                     {/* Community Chat Input - WhatsApp style */}
                     <form
                       onSubmit={handleSendCommMessage}
-                      className="flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
+                      className="shrink-0 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
                     >
                       <button
                         type="button"
@@ -1633,8 +1746,8 @@ export default function Communities() {
         {mainView === "friends" && (
           <div className="grid grid-cols-1 overflow-hidden rounded-2xl border border-[#2B2B2B] bg-[#181818] shadow-2xl md:grid-cols-12" style={{ height: "calc(100vh - 220px)", minHeight: "520px" }}>
             {/* Left Column: Friends List */}
-            <div className="border-b border-[#2A2A2A] bg-[#141414] p-4 md:col-span-4 md:border-b-0 md:border-r md:overflow-y-auto">
-              <div className="flex items-center justify-between pb-3">
+            <div className="flex flex-col h-full min-h-0 border-b border-[#2A2A2A] bg-[#141414] p-4 md:col-span-4 md:border-b-0 md:border-r overflow-hidden">
+              <div className="shrink-0 flex items-center justify-between pb-3">
                 <span className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3]">
                   Friends ({friends.length})
                 </span>
@@ -1649,7 +1762,7 @@ export default function Communities() {
               </div>
 
               {/* Search Friends */}
-              <div className="relative mt-2">
+              <div className="shrink-0 relative mt-2">
                 <Search
                   size={14}
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737373]"
@@ -1664,7 +1777,7 @@ export default function Communities() {
               </div>
 
               {/* Friends List items */}
-              <div className="mt-4 space-y-1">
+              <div className="flex-1 min-h-0 mt-4 space-y-1 overflow-y-auto">
                 {filteredFriends.length === 0 ? (
                   <div className="py-12 text-center">
                     <p className="text-xs text-[#737373]">No friends added yet.</p>
@@ -1752,11 +1865,11 @@ export default function Communities() {
             </div>
 
             {/* Right Column: 1-on-1 Chat Box */}
-            <div className="flex flex-col justify-between bg-[#121212] md:col-span-8">
+            <div className="flex flex-col h-full min-h-0 overflow-hidden bg-[#121212] md:col-span-8">
               {activeFriend ? (
                 <>
                   {/* Chat Header */}
-                  <div className="flex items-center justify-between border-b border-[#2A2A2A] bg-[#181818] p-4">
+                  <div className="shrink-0 flex items-center justify-between border-b border-[#2A2A2A] bg-[#181818] p-4">
                     <div className="flex items-center gap-3">
                       <div className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#444444] bg-[#282828] text-sm font-bold text-white overflow-hidden">
                         {activeFriend.picture ? (
@@ -1837,7 +1950,14 @@ export default function Communities() {
                   </div>
 
                   {/* Message Stream */}
-                  <div className="flex-1 space-y-3 overflow-y-auto p-4">
+                  <div
+                    ref={chatContainerRef}
+                    onScroll={(e) => {
+                      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                      isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
+                    }}
+                    className="flex-1 min-h-0 space-y-3 overflow-y-auto p-4 overscroll-contain"
+                  >
                     {chatMessages.length === 0 ? (
                       <div className="flex h-full flex-col items-center justify-center py-16 text-center">
                         <MessageSquare size={32} className="text-[#444444] mb-2" />
@@ -1862,7 +1982,7 @@ export default function Communities() {
                   {/* Chat Input - WhatsApp style with paperclip */}
                   <form
                     onSubmit={handleSendMessage}
-                    className="flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
+                    className="shrink-0 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
                   >
                     <button
                       type="button"
