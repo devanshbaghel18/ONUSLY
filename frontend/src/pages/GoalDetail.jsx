@@ -22,16 +22,24 @@ import {
   Lock,
   MessageSquare,
   X,
+  Pin,
+  RotateCcw,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
-import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof } from "../lib/api";
+import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal } from "../lib/api";
 import { getStoredFriends, sendChatMessage } from "../lib/friendsChat";
 import { getStoredCommunities, sendCommunityMessage } from "../lib/communities";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { notifyExtensionSync } from "../lib/extensionSync";
+import {
+  getPinnedGoalIds,
+  togglePinGoal,
+  transferPinGoal,
+  MAX_PINNED_GOALS,
+} from "../lib/pinnedGoals";
 
 import AppLayout from "../components/AppLayout";
-import { getFriendlyTargetName } from "../lib/blockedApps";
+import { getFriendlyTargetName, getUniqueDisplayTargets } from "../lib/blockedApps";
 
 function generateMsgId(prefix = "msg") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
@@ -69,6 +77,65 @@ export default function GoalDetail() {
   const [decisionComment, setDecisionComment] = useState("");
   const [decisionError, setDecisionError] = useState("");
   const [decisionSuccess, setDecisionSuccess] = useState("");
+  const [pinnedIds, setPinnedIds] = useState(() => getPinnedGoalIds());
+  const [repeating, setRepeating] = useState(false);
+
+  const isPinned = pinnedIds.includes(id);
+
+  const handleTogglePin = () => {
+    const res = togglePinGoal(id);
+    setPinnedIds(res.pinnedIds);
+    if (res.error) {
+      setError(res.error);
+      setTimeout(() => setError(""), 4500);
+    } else if (res.pinned) {
+      setSuccessNotice(`📌 Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
+      setTimeout(() => setSuccessNotice(""), 3000);
+    } else {
+      setSuccessNotice(`Goal unpinned from dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
+      setTimeout(() => setSuccessNotice(""), 2500);
+    }
+  };
+
+  // Ownership check: True only if the authenticated user owns this goal
+  const isOwner = Boolean(
+    goal &&
+    user &&
+    (!ownerIdParam || String(ownerIdParam) === String(user.id)) &&
+    (!goal.ownerId || String(goal.ownerId) === String(user.id))
+  );
+
+  const handleRepeatGoal = async () => {
+    if (!goal || !isOwner) return;
+
+    if (goal.status !== "completed") {
+      setError(`⚠️ "${goal.title}" is currently active! Complete or unlock the current lock before repeating.`);
+      setTimeout(() => setError(""), 5000);
+      return;
+    }
+
+    setRepeating(true);
+    try {
+      const newGoal = await repeatGoal(goal);
+
+      if (isPinned) {
+        const updatedPinned = transferPinGoal(goal.id, newGoal.id);
+        setPinnedIds(updatedPinned);
+      }
+
+      notifyExtensionSync();
+      setSuccessNotice(`🔁 Routine Repeated: New lock activated for "${newGoal.title}"!`);
+      setTimeout(() => {
+        navigate(`/goals/${newGoal.id}`);
+      }, 1000);
+    } catch (err) {
+      console.error("Failed to repeat routine:", err);
+      setError(err.message || "Failed to repeat routine");
+      setTimeout(() => setError(""), 5000);
+    } finally {
+      setRepeating(false);
+    }
+  };
 
   // Subscribe to real-time WebSocket events for instant unlock sync
   const { isConnected, send } = useWebSocket((event) => {
@@ -140,21 +207,18 @@ export default function GoalDetail() {
 
     try {
       try {
-        await submitProof(goalId, {
-          proofType: "text",
-          textExplanation: `Verification request shared for: ${goalTitle}`,
-        });
-      } catch (proofErr) {
-        console.warn("Backend proof submission skipped:", proofErr.message);
+        if (goal.status === "active") {
+          await updateGoal(goalId, {
+            approvalType: shareTarget === "community" ? "community" : "friend",
+            approverEmail: shareTarget === "friend" ? (friends.find((f) => f.id === selectedFriendId)?.email || friends.find((f) => f.id === selectedFriendId)?.handle) : undefined,
+          });
+        }
+      } catch (updErr) {
+        console.warn("Backend goal approver update skipped:", updErr.message);
       }
 
-      try {
-        await updateGoal(goalId, {
-          approvalType: shareTarget === "community" ? "community" : "friend",
-          approverEmail: shareTarget === "friend" ? (friends.find((f) => f.id === selectedFriendId)?.email || friends.find((f) => f.id === selectedFriendId)?.handle) : undefined,
-        });
-
-        // Submit proof on behalf of owner so goal transitions to proof_submitted and is ready for friend to approve
+      // Submit proof on behalf of owner so goal transitions to proof_submitted and is ready for friend to approve
+      if (goal.status === "active") {
         try {
           await submitProof(goalId, {
             proofType: "text",
@@ -163,8 +227,6 @@ export default function GoalDetail() {
         } catch (proofErr) {
           console.warn("Auto-submit proof on share:", proofErr.message);
         }
-      } catch (updErr) {
-        console.warn("Backend goal approver update skipped:", updErr.message);
       }
 
       const targetId = shareTarget === "community" ? selectedCommunityId : selectedFriendId;
@@ -349,6 +411,8 @@ export default function GoalDetail() {
   // Handle Save Goal Edit (Title / Description)
   const handleSaveGoalInfo = async (e) => {
     e.preventDefault();
+    if (!goal || !isOwner) return;
+
     if (!editTitle.trim()) {
       setGoalFormError("Title cannot be empty");
       return;
@@ -387,6 +451,8 @@ export default function GoalDetail() {
 
   // Handle Delete Goal
   const handleDelete = async () => {
+    if (!goal || !isOwner) return;
+
     if (!window.confirm("Are you sure you want to permanently delete this goal?")) {
       return;
     }
@@ -428,8 +494,63 @@ export default function GoalDetail() {
             <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" />
             <span>Back to Goals</span>
           </Link>
-          <div className="flex items-center gap-2.5">
-            {goal?.ownerId && (
+          <div className="flex flex-wrap items-center gap-2">
+            {!isOwner && (
+              <span className="flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-300">
+                <ShieldCheck size={13} className="text-indigo-400" />
+                <span>Approver Review Mode</span>
+              </span>
+            )}
+
+            {/* Pin Toggle Button (Owner Only) */}
+            {isOwner && (
+              <button
+                type="button"
+                onClick={handleTogglePin}
+                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                  isPinned
+                    ? "border-amber-500/50 bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"
+                    : "border-[#777777] bg-[#292929] text-[#B5B5B5] hover:text-white hover:border-white"
+                }`}
+                title={
+                  isPinned
+                    ? "Unpin from dashboard"
+                    : `Pin to dashboard (${pinnedIds.length}/${MAX_PINNED_GOALS})`
+                }
+              >
+                <Pin size={12} className={isPinned ? "fill-amber-400" : ""} />
+                <span>{isPinned ? "Pinned to Dashboard" : "Pin to Dashboard"}</span>
+              </button>
+            )}
+
+            {/* Repeat Routine Button (Owner Only) */}
+            {isOwner && goal && (
+              <button
+                type="button"
+                disabled={repeating || goal.status !== "completed"}
+                onClick={handleRepeatGoal}
+                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                  goal.status === "completed"
+                    ? "border-[#777777] bg-[#292929] text-white hover:border-white"
+                    : "border-[#444444] bg-[#1E1E1E] text-[#666666] cursor-not-allowed opacity-60"
+                }`}
+                title={
+                  goal.status === "completed"
+                    ? "Start another cycle of this lock with the same apps and settings"
+                    : "Routine is currently active"
+                }
+              >
+                {repeating ? (
+                  <Loader2 size={12} className="animate-spin text-white" />
+                ) : (
+                  <RotateCcw size={12} className={goal.status === "completed" ? "text-emerald-400" : "text-[#666666]"} />
+                )}
+                <span>Repeat Routine</span>
+              </button>
+            )}
+
+            {/* Share Link (Owner Only) */}
+            {isOwner && goal?.ownerId && (
               <button
                 type="button"
                 onClick={() => {
@@ -438,11 +559,11 @@ export default function GoalDetail() {
                   setCopiedReviewLink(true);
                   setTimeout(() => setCopiedReviewLink(false), 2500);
                 }}
-                className="flex items-center gap-1.5 rounded-xl border border-[#777777] bg-[#292929] px-3 py-1 text-[11px] font-semibold text-white hover:border-white transition"
+                className="flex items-center gap-1.5 rounded-xl border border-[#777777] bg-[#292929] px-3 py-1.5 text-xs font-semibold text-white hover:border-white transition"
                 title="Copy direct verification link for your assigned approver"
               >
                 <Share2 size={12} className="text-emerald-400" />
-                <span>{copiedReviewLink ? "Link Copied! ✓" : "Share with Approver"}</span>
+                <span>{copiedReviewLink ? "Link Copied! ✓" : "Share Link"}</span>
               </button>
             )}
             <span
@@ -548,7 +669,14 @@ export default function GoalDetail() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {goal.status !== "completed" && (
+                    {!isOwner && (
+                      <span className="flex items-center gap-1.5 rounded-full border border-indigo-500/40 bg-indigo-500/10 px-3 py-1 text-xs font-semibold text-indigo-300">
+                        <ShieldCheck size={12} className="text-indigo-400" />
+                        Partner Review
+                      </span>
+                    )}
+
+                    {isOwner && goal.status !== "completed" && (
                       <button
                         type="button"
                         onClick={openShareModal}
@@ -559,7 +687,7 @@ export default function GoalDetail() {
                       </button>
                     )}
 
-                    {!isEditingGoal && (
+                    {isOwner && !isEditingGoal && (
                       <button
                         type="button"
                         onClick={() => setIsEditingGoal(true)}
@@ -570,20 +698,22 @@ export default function GoalDetail() {
                       </button>
                     )}
 
-                    <button
-                      type="button"
-                      onClick={handleDelete}
-                      className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-[#292929] px-3 py-2 text-xs font-semibold text-rose-400 transition hover:bg-rose-500/20 hover:border-rose-400"
-                      title="Delete Goal"
-                    >
-                      <Trash2 size={14} />
-                      <span className="hidden sm:inline">Delete</span>
-                    </button>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        onClick={handleDelete}
+                        className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-[#292929] px-3 py-2 text-xs font-semibold text-rose-400 transition hover:bg-rose-500/20 hover:border-rose-400"
+                        title="Delete Goal"
+                      >
+                        <Trash2 size={14} />
+                        <span className="hidden sm:inline">Delete</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
                 {/* View / Edit Mode */}
-                {!isEditingGoal ? (
+                {!isEditingGoal || !isOwner ? (
                   <div className="pt-6">
                     <h1 className="text-2xl font-bold tracking-tight text-[#FFFFFF] sm:text-3xl">
                       {goal.title}
@@ -597,9 +727,13 @@ export default function GoalDetail() {
                         <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#E0E0E0]">
                           {goal.description}
                         </p>
-                      ) : (
+                      ) : isOwner ? (
                         <p className="text-sm italic text-[#777777]">
                           No description provided. Click "Edit Goal" to add context, stakes, or metrics.
+                        </p>
+                      ) : (
+                        <p className="text-sm italic text-[#777777]">
+                          No description provided.
                         </p>
                       )}
                     </div>
@@ -706,62 +840,89 @@ export default function GoalDetail() {
                   <h4 className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3] mb-3">
                     Target Apps & Domains Blocked For This Goal
                   </h4>
-                  {((goal?.blockedApps?.length > 0 || goal?.blockedDomains?.length > 0) || getGoalBlockedApps(id).length > 0) ? (
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        ...(goal?.blockedApps || []),
-                        ...(goal?.blockedDomains || []),
-                        ...(goal?.blockedApps?.length || goal?.blockedDomains?.length ? [] : getGoalBlockedApps(id)),
-                      ].map((target) => (
-                        <span
-                          key={target}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-red-900/40 bg-red-950/20 px-3 py-1.5 text-xs font-semibold text-red-300"
-                        >
-                          <Lock size={12} className="text-red-400" />
-                          <span>{getFriendlyTargetName(target)}</span>
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-[#737373] italic">
-                      Standard Distraction Lock Active (Focus mode enabled).
-                    </p>
-                  )}
+                  {(() => {
+                    const displayTargets = getUniqueDisplayTargets(
+                      goal?.blockedApps,
+                      goal?.blockedDomains,
+                      getGoalBlockedApps(id)
+                    );
+                    return displayTargets.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {displayTargets.map((target) => (
+                          <span
+                            key={target.label}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-red-900/40 bg-red-950/20 px-3 py-1.5 text-xs font-semibold text-red-300"
+                          >
+                            <Lock size={12} className="text-red-400" />
+                            <span>{target.label}</span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[#737373] italic">
+                        Standard Distraction Lock Active (Focus mode enabled).
+                      </p>
+                    );
+                  })()}
                 </div>
 
-                {/* How to Unlock via Chat Card */}
-                <div className="mt-5 rounded-2xl border border-emerald-900/40 bg-gradient-to-r from-emerald-950/30 to-[#1e2e26]/30 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <MessageSquare size={16} className="text-emerald-400" />
-                      <h4 className="text-sm font-bold text-white">
-                        Verify & Unlock via Chat
-                      </h4>
+                {/* How to Unlock via Chat Card (Owner vs Approver) */}
+                {isOwner ? (
+                  <div className="mt-5 rounded-2xl border border-emerald-900/40 bg-gradient-to-r from-emerald-950/30 to-[#1e2e26]/30 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare size={16} className="text-emerald-400" />
+                        <h4 className="text-sm font-bold text-white">
+                          Verify & Unlock via Chat
+                        </h4>
+                      </div>
+                      <p className="text-xs text-[#A3A3A3] leading-relaxed max-w-lg">
+                        Submit proof directly in Community or Friend chat using the <strong className="text-white">+</strong> button. Once verified, this goal unlocks automatically in real time.
+                      </p>
                     </div>
-                    <p className="text-xs text-[#A3A3A3] leading-relaxed max-w-lg">
-                      Submit proof directly in Community or Friend chat using the <strong className="text-white">+</strong> button. Once verified, this goal unlocks automatically in real time.
-                    </p>
-                  </div>
 
-                  {goal.status !== "completed" ? (
-                    <button
-                      type="button"
-                      onClick={openShareModal}
-                      className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shrink-0"
-                    >
-                      <Share2 size={13} />
-                      <span>Share for Verification in Chat</span>
-                    </button>
-                  ) : (
+                    {goal.status !== "completed" ? (
+                      <button
+                        type="button"
+                        onClick={openShareModal}
+                        className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shrink-0"
+                      >
+                        <Share2 size={13} />
+                        <span>Share for Verification in Chat</span>
+                      </button>
+                    ) : (
+                      <Link
+                        to="/community-friends"
+                        className="inline-flex items-center gap-2 rounded-xl bg-[#292929] border border-[#444] px-5 py-2.5 text-xs font-semibold text-white hover:border-white transition shrink-0"
+                      >
+                        <span>Open Community & Friends Chat</span>
+                        <ExternalLink size={13} />
+                      </Link>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-5 rounded-2xl border border-indigo-900/40 bg-gradient-to-r from-indigo-950/30 to-[#1e1e2e]/30 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck size={16} className="text-indigo-400" />
+                        <h4 className="text-sm font-bold text-white">
+                          Accountability Review Mode
+                        </h4>
+                      </div>
+                      <p className="text-xs text-[#A3A3A3] leading-relaxed max-w-lg">
+                        You are reviewing this goal as the designated accountability partner. Check the distraction shield and inspect the proof submissions below.
+                      </p>
+                    </div>
+
                     <Link
                       to="/community-friends"
                       className="inline-flex items-center gap-2 rounded-xl bg-[#292929] border border-[#444] px-5 py-2.5 text-xs font-semibold text-white hover:border-white transition shrink-0"
                     >
-                      <span>Open Community & Friends Chat</span>
+                      <span>Chat with Partner</span>
                       <ExternalLink size={13} />
                     </Link>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* =====================================================
@@ -781,7 +942,7 @@ export default function GoalDetail() {
                     </div>
                   </div>
 
-                  {goal?.approverEmail && (
+                  {isOwner && goal?.approverEmail && (
                     <button
                       type="button"
                       onClick={() => {
@@ -841,14 +1002,15 @@ export default function GoalDetail() {
                           : "Honor System"}
                       </strong>.
                     </p>
-                    {goal.status === "active" && (
-                      <Link
-                        to="/community-friends"
+                    {goal.status === "active" && isOwner && (
+                      <button
+                        type="button"
+                        onClick={openShareModal}
                         className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-[#292929] hover:bg-[#B5B5B5] transition"
                       >
                         <Send size={13} />
                         Share Proof in Community / Friend Chat
-                      </Link>
+                      </button>
                     )}
                   </div>
                 ) : (
