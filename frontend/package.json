@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "package:ext": "python3 ../scripts/package-extension.py",
+    "build": "python3 ../scripts/package-extension.py && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
