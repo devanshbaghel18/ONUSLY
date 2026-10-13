@@ -192,7 +192,7 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-7xl space-y-8">
+      <div className="mx-auto w-full max-w-[1720px] space-y-8">
         {/* Welcome Header */}
         <div className="flex flex-col justify-between gap-4 border-b border-[#2A2A2A] pb-6 sm:flex-row sm:items-center">
           <div>
@@ -203,14 +203,14 @@ export default function Dashboard() {
               <div
                 className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold tracking-wide transition-colors ${
                   isConnected
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                    ? "border-white/30 bg-white/10 text-white"
                     : "border-neutral-700 bg-neutral-900 text-neutral-400"
                 }`}
                 title={isConnected ? "Real-Time WebSocket Connected" : "Connecting to real-time gateway..."}
               >
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
-                    isConnected ? "bg-emerald-400 animate-pulse" : "bg-neutral-500"
+                    isConnected ? "bg-white animate-pulse" : "bg-neutral-500"
                   }`}
                 />
                 <span>{isConnected ? "Live Sync Active" : "Connecting..."}</span>
@@ -235,21 +235,21 @@ export default function Dashboard() {
 
         {/* Real-Time Celebratory Unlock Banner */}
         {unlockBanner && (
-          <div className="relative overflow-hidden rounded-2xl border border-emerald-500/50 bg-gradient-to-r from-emerald-950/80 via-[#1A2E1E] to-[#121212] p-5 shadow-[0_10px_35px_rgba(16,185,129,0.25)] transition-all">
+          <div className="relative overflow-hidden rounded-2xl border border-white/30 bg-[#1A1A1A] p-5 shadow-[0_10px_35px_rgba(0,0,0,0.5)] transition-all">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3.5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-emerald-400/40 bg-emerald-500/20 text-emerald-300 shadow-inner">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-white/30 bg-white/10 text-white shadow-inner">
                   <Unlock size={22} className="animate-pulse" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-emerald-400 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-black">
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-black">
                       Unlocked Live
                     </span>
-                    <span className="text-xs text-emerald-300/80">{unlockBanner.time}</span>
+                    <span className="text-xs text-neutral-400">{unlockBanner.time}</span>
                   </div>
                   <h3 className="mt-1 text-base font-bold text-white">
-                    Goal Unlocked: <span className="text-emerald-300 font-extrabold">{unlockBanner.title}</span>
+                    Goal Unlocked: <span className="text-white font-extrabold">{unlockBanner.title}</span>
                   </h3>
                   <p className="text-xs text-neutral-300 mt-0.5">
                     Your accountability partner approved your proof. All restrictions and application blocks have been released!
@@ -340,7 +340,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2.5">
                 <h2 className="text-lg font-bold text-white">Your Focus Lockouts</h2>
                 {pinnedIds.length > 0 && (
-                  <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-400">
+                  <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white">
                     📌 {pinnedIds.length}/{MAX_PINNED_GOALS} Pinned
                   </span>
                 )}
@@ -390,15 +390,15 @@ export default function Dashboard() {
 
           {/* Feedback Notices */}
           {pinNotice && (
-            <div className="flex items-center justify-between rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-semibold text-amber-300">
+            <div className="flex items-center justify-between rounded-xl border border-white/20 bg-[#1E1E1E] p-3 text-xs font-semibold text-white">
               <div className="flex items-center gap-2">
-                <Pin size={14} className="fill-amber-400 shrink-0" />
+                <Pin size={14} className="fill-white shrink-0" />
                 <span>{pinNotice}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setPinNotice("")}
-                className="text-amber-400 hover:text-white transition"
+                className="text-neutral-400 hover:text-white transition"
               >
                 <X size={14} />
               </button>
@@ -406,15 +406,15 @@ export default function Dashboard() {
           )}
 
           {repeatNotice && (
-            <div className="flex items-center justify-between rounded-xl border border-emerald-500/40 bg-emerald-950/60 p-3 text-xs font-semibold text-emerald-300">
+            <div className="flex items-center justify-between rounded-xl border border-white/20 bg-[#1E1E1E] p-3 text-xs font-semibold text-white">
               <div className="flex items-center gap-2">
-                <RotateCcw size={14} className="text-emerald-400 shrink-0 animate-spin" style={{ animationIterationCount: 1 }} />
+                <RotateCcw size={14} className="text-white shrink-0 animate-spin" style={{ animationIterationCount: 1 }} />
                 <span>{repeatNotice}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setRepeatNotice("")}
-                className="text-emerald-400 hover:text-white transition"
+                className="text-neutral-400 hover:text-white transition"
               >
                 <X size={14} />
               </button>
@@ -481,7 +481,7 @@ export default function Dashboard() {
                     key={g.id}
                     className={`relative flex flex-col justify-between rounded-2xl border p-6 shadow-sm transition-all hover:border-white ${
                       isPinned
-                        ? "border-amber-500/40 bg-[#1A1814]"
+                        ? "border-white/50 bg-[#1A1A1A]"
                         : "border-[#2B2B2B] bg-[#1A1A1A]"
                     }`}
                   >
@@ -504,8 +504,8 @@ export default function Dashboard() {
                           )}
 
                           {isPinned && (
-                            <span className="flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-400">
-                              <Pin size={10} className="fill-amber-400" />
+                            <span className="flex items-center gap-1 rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white">
+                              <Pin size={10} className="fill-white" />
                               <span>Pinned</span>
                             </span>
                           )}
@@ -517,7 +517,7 @@ export default function Dashboard() {
                           onClick={() => handleTogglePin(g.id)}
                           className={`flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
                             isPinned
-                              ? "border-amber-500/50 bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"
+                              ? "border-white bg-white text-black font-bold"
                               : "border-[#333333] bg-[#222222] text-[#A3A3A3] hover:text-white hover:border-[#555555]"
                           }`}
                           title={
@@ -526,7 +526,7 @@ export default function Dashboard() {
                               : `Pin to dashboard (${pinnedIds.length}/${MAX_PINNED_GOALS})`
                           }
                         >
-                          <Pin size={12} className={isPinned ? "fill-amber-400" : ""} />
+                          <Pin size={12} className={isPinned ? "fill-black" : ""} />
                           <span>{isPinned ? "Pinned" : "Pin"}</span>
                         </button>
                       </div>
@@ -573,7 +573,7 @@ export default function Dashboard() {
                             onClick={() => handleRepeatGoal(g)}
                             className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
                               isCompleted
-                                ? "border-[#3A3A3A] bg-[#222222] text-neutral-200 hover:text-white hover:border-white"
+                                ? "border-[#3A3A3A] bg-[#222222] text-white hover:border-white"
                                 : "border-[#262626] bg-[#1A1A1A] text-[#666666] cursor-not-allowed opacity-60"
                             }`}
                             title={
@@ -585,14 +585,14 @@ export default function Dashboard() {
                             {repeatingGoalId === g.id ? (
                               <Loader2 size={12} className="animate-spin text-white" />
                             ) : (
-                              <RotateCcw size={12} className={isCompleted ? "text-emerald-400" : "text-[#666666]"} />
+                              <RotateCcw size={12} className={isCompleted ? "text-white" : "text-[#666666]"} />
                             )}
                             <span>Repeat Routine</span>
                           </button>
                         </div>
 
                         {isCompleted ? (
-                          <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1">
+                          <span className="text-xs font-semibold text-white flex items-center gap-1">
                             <CheckCircle2 size={13} />
                             Approved
                           </span>
@@ -600,7 +600,7 @@ export default function Dashboard() {
                           <button
                             type="button"
                             onClick={() => setShareGoal(g)}
-                            className="text-xs font-semibold text-emerald-400 hover:underline flex items-center gap-1 transition"
+                            className="text-xs font-semibold text-white hover:underline flex items-center gap-1 transition"
                             title="Share proof for verification in chat"
                           >
                             <span>Share Proof in Chat</span>

@@ -5,7 +5,6 @@ import {
   Users,
   LogOut,
   X,
-  Lock,
 } from "lucide-react";
 import { getUser, clearAuth } from "../lib/auth";
 
@@ -58,16 +57,13 @@ export default function Sidebar({ isOpen, onClose }) {
           <div className="flex items-center justify-between border-b border-[#2B2B2B] pb-5">
             <Link
               to="/dashboard"
-              className="flex items-center gap-2.5"
+              className="flex items-center pl-1"
               onClick={onClose}
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#404040] bg-[#222222]">
-                <Lock size={16} className="text-white" />
-              </div>
               <img
                 src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
                 alt="ONUSLY"
-                className="h-5 w-auto object-contain"
+                className="h-6 w-auto object-contain"
               />
             </Link>
             <button
