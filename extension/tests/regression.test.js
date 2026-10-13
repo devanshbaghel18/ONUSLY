@@ -163,4 +163,28 @@ describe("Strict Shorts Mode Regression Suite", () => {
     // Regular watch remains unblocked
     assert.equal(evaluateUrl("https://www.youtube.com/watch?v=offline", cachedAfter).isBlocked, false);
   });
+
+  it("6. Unblocked Shorts URL preserves originalUrl and does not redirect to normal YouTube home", () => {
+    // Helper replicating unblocked destination calculation from blocked.js
+    function computeUnblockedDestination(originalUrl, targetDomain, dashboardUrl, isBlocked) {
+      if (isBlocked) return null;
+      let destination = dashboardUrl;
+      if (originalUrl && !originalUrl.startsWith("chrome-extension://")) {
+        destination = originalUrl;
+      } else if (targetDomain && !targetDomain.includes(" ") && targetDomain !== "Restricted Website") {
+        destination = `https://${targetDomain}/`;
+      }
+      return destination;
+    }
+
+    const shortsUrl = "https://www.youtube.com/shorts/my_short_id";
+    const normalYt = "https://www.youtube.com/";
+    const emptyCache = { userId: "user1", targets: [] };
+    const evalRes = evaluateUrl(shortsUrl, emptyCache);
+
+    assert.equal(evalRes.isBlocked, false);
+    const dest = computeUnblockedDestination(shortsUrl, "www.youtube.com", "http://localhost:5173", evalRes.isBlocked);
+    assert.equal(dest, shortsUrl, "Must restore the original Shorts URL rather than redirecting to normal YouTube");
+    assert.notEqual(dest, normalYt, "Must not redirect to normal YouTube homepage");
+  });
 });

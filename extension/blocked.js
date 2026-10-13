@@ -3,7 +3,6 @@
  */
 
 import { evaluateUrl } from "./src/blockerEngine.js";
-import { isYouTubeShortsUrl } from "./src/domainMatcher.js";
 
 const params = new URLSearchParams(window.location.search);
 const targetDomain = params.get("domain") || "Restricted Website";
@@ -55,8 +54,7 @@ async function renderBlockState() {
       let destination = dashboardUrl;
       if (
         originalUrl &&
-        !originalUrl.startsWith("chrome-extension://") &&
-        !isYouTubeShortsUrl(originalUrl)
+        !originalUrl.startsWith("chrome-extension://")
       ) {
         destination = originalUrl;
       } else if (

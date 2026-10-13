@@ -68,6 +68,9 @@ async function renderState() {
       const APP_MAP = {
         "com.google.android.youtube": ["youtube.com", "youtu.be"],
         "youtube": ["youtube.com", "youtu.be"],
+        "com.google.android.youtube.shorts": ["shorts.youtube.com"],
+        "youtube_shorts": ["shorts.youtube.com"],
+        "youtube-shorts": ["shorts.youtube.com"],
         "com.instagram.android": ["instagram.com"],
         "instagram": ["instagram.com"],
         "com.twitter.android": ["x.com", "twitter.com"],

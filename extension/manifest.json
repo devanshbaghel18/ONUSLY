@@ -81,7 +81,7 @@
       "matches": [
         "*://*.youtube.com/*"
       ],
-      "js": ["src/youtubeShortsContent.js"],
+      "js": ["src/youtubeShortsLoader.js"],
       "run_at": "document_start"
     },
     {
@@ -92,6 +92,16 @@
       ],
       "js": ["src/dashboardBridge.js"],
       "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/youtubeShortsContent.js"
+      ],
+      "matches": [
+        "*://*.youtube.com/*"
+      ]
     }
   ]
 }
