@@ -1,15 +1,19 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Lock, LogOut, AtSign, Check, Copy, X } from "lucide-react";
+import { LogOut, AtSign, Check, Copy, X, Menu } from "lucide-react";
 import { getUser, clearAuth, updateUserHandle } from "../lib/auth";
 import { updateHandle, getMyProfile } from "../lib/api";
 import { wsManager } from "../lib/websocket";
 import NotificationFeed from "./NotificationFeed";
+import Sidebar from "./Sidebar";
 
 export default function AppLayout({ children }) {
   const [user, setUser] = useState(() => getUser());
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Mobile drawer open state
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Scroll direction state for smart auto-hide slide-up
   const [isVisible, setIsVisible] = useState(true);
@@ -115,7 +119,9 @@ export default function AppLayout({ children }) {
     { name: "Community & Friends", path: "/community-friends" },
   ];
 
-  const displayHandle = user?.handle ? `@${user.handle}` : "@tag";
+  const displayHandle = user?.handle
+    ? (user.handle.startsWith("@") ? user.handle : `@${user.handle}`)
+    : (user?.name ? `@${user.name.toLowerCase().replace(/\s+/g, "")}` : "@user");
 
   return (
     <div className="relative min-h-screen bg-[#121212] text-[#FFFFFF] antialiased">
@@ -128,34 +134,46 @@ export default function AppLayout({ children }) {
         }}
       />
 
+      {/* Mobile Navigation Drawer */}
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+
       {/* Main Container */}
       <div className="relative z-10 flex min-h-screen flex-col">
         {/* Floating Centered Pill Navbar with Auto-Hide Slide-Up */}
         <header
-          className={`fixed top-4 left-0 right-0 z-40 mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 transition-all duration-300 ease-in-out ${
+          className={`fixed top-3 sm:top-5 left-0 right-0 z-40 mx-auto w-[98%] 2xl:w-[96%] max-w-[1720px] px-1 sm:px-4 transition-all duration-300 ease-in-out ${
             isVisible
               ? "translate-y-0 opacity-100"
               : "-translate-y-28 opacity-0 pointer-events-none"
           }`}
         >
-          <div className="flex items-center justify-between rounded-full border border-[#2D2D2D] bg-[#161616]/95 p-2 shadow-[0_12px_40px_rgba(0,0,0,0.7)] backdrop-blur-xl">
-            {/* Left: ONUSLY Brand */}
-            <Link
-              to="/dashboard"
-              className="flex items-center gap-2.5 rounded-full pl-1 pr-3 py-1 transition-opacity hover:opacity-90"
-            >
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black shadow-sm">
-                <Lock size={16} className="text-black stroke-[2.5]" />
-              </div>
-              <img
-                src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
-                alt="ONUSLY"
-                className="h-5 w-auto object-contain"
-              />
-            </Link>
+          <div className="flex items-center justify-between rounded-full border border-[#2D2D2D] bg-[#161616]/95 px-4 sm:px-8 lg:px-10 py-3 sm:py-4 lg:py-5 shadow-[0_20px_50px_rgba(0,0,0,0.85)] backdrop-blur-xl">
+            {/* Left: Mobile Menu Trigger + ONUSLY Brand */}
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              {/* Mobile Hamburger Drawer Button */}
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-neutral-300 transition-colors hover:border-white hover:text-white md:hidden"
+                aria-label="Open Navigation Menu"
+              >
+                <Menu size={18} />
+              </button>
 
-            {/* Center: Navigation Links */}
-            <nav className="flex items-center gap-1 sm:gap-2 overflow-x-auto py-0.5">
+              <Link
+                to="/dashboard"
+                className="flex items-center pl-1 sm:pl-2 pr-2 sm:pr-4 py-1 transition-opacity hover:opacity-90 shrink-0"
+              >
+                <img
+                  src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
+                  alt="ONUSLY"
+                  className="h-6 sm:h-7 md:h-8 lg:h-9 w-auto object-contain"
+                />
+              </Link>
+            </div>
+
+            {/* Center: Navigation Links (Desktop / Tablet only, completely hidden on mobile, NO scrollbar slider) */}
+            <nav className="hidden md:flex items-center gap-2 lg:gap-3 overflow-hidden no-scrollbar py-0.5">
               {navLinks.map((link) => {
                 const isActive =
                   location.pathname === link.path ||
@@ -166,7 +184,7 @@ export default function AppLayout({ children }) {
                   <Link
                     key={link.name}
                     to={link.path}
-                    className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-all ${
+                    className={`whitespace-nowrap rounded-full px-4 sm:px-5 lg:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all ${
                       isActive
                         ? "bg-[#252525] text-white shadow-inner border border-white/20"
                         : "text-[#888888] hover:text-white hover:bg-[#1E1E1E]"
@@ -178,58 +196,37 @@ export default function AppLayout({ children }) {
               })}
             </nav>
 
-            {/* Right: Unique @Handle Badge & User Pill & Sign Out */}
-            <div className="flex items-center gap-2 pl-2">
-              {/* Clickable @Handle Badge */}
-              <button
-                type="button"
-                onClick={openHandleModal}
-                className="hidden sm:flex items-center gap-1.5 rounded-full border border-[#333333] bg-[#202020] px-3 py-1.5 text-[11px] font-bold text-neutral-200 transition-all hover:border-white hover:bg-[#282828]"
-                title="Click to customize your ONUSLY Tag / Handle"
-              >
-                <AtSign size={13} className="text-white" />
-                <span className="font-mono">{displayHandle}</span>
-              </button>
-
+            {/* Right: Notifications, User Name Badge & Sign Out */}
+            <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 shrink-0">
               {/* In-App Notifications Feed */}
               <NotificationFeed />
 
-              <div
+              {/* Clickable Username Pill (responsive on mobile, no overflow, no white background) */}
+              <button
+                type="button"
                 onClick={openHandleModal}
-                className="flex cursor-pointer items-center gap-2 rounded-full bg-white px-3.5 py-1.5 text-xs font-bold text-black shadow-sm transition-transform hover:scale-[1.02]"
-                title="Account Profile & Tag Settings"
+                className="flex items-center gap-1.5 sm:gap-2 rounded-full border border-[#333333] bg-[#1E1E1E] px-3 sm:px-5 lg:px-6 py-2 sm:py-2.5 lg:py-3 text-xs sm:text-sm font-semibold text-neutral-200 transition-all hover:border-white hover:bg-[#262626] shadow-sm max-w-[130px] sm:max-w-[200px] md:max-w-none"
+                title="Click to customize your ONUSLY Tag / Handle"
               >
-                {user?.picture ? (
-                  <img
-                    src={user.picture}
-                    alt={user.name || "User"}
-                    className="h-5 w-5 rounded-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-black text-[9px] font-bold text-white">
-                    {(user?.name?.[0] || "U").toUpperCase()}
-                  </div>
-                )}
-                <span className="max-w-[85px] truncate text-xs font-bold">
-                  {user?.name?.split(" ")?.[0] || "Account"}
-                </span>
-              </div>
+                <AtSign size={14} className="text-neutral-300 shrink-0" />
+                <span className="font-mono tracking-tight truncate">{displayHandle}</span>
+              </button>
 
+              {/* Sign Out Button */}
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-[#888888] transition-colors hover:border-white hover:text-white"
+                className="flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-[#888888] transition-colors hover:border-white hover:text-white shrink-0"
                 title="Sign Out"
               >
-                <LogOut size={15} />
+                <LogOut size={17} />
               </button>
             </div>
           </div>
         </header>
 
-        {/* Page Content with top padding for floating navbar */}
-        <main className="flex-1 px-4 pt-24 pb-8 sm:px-6 sm:pt-28 lg:px-8">
+        {/* Page Content with adjusted top padding for the taller floating navbar */}
+        <main className="flex-1 px-3 sm:px-6 lg:px-8 pt-28 sm:pt-32 md:pt-36 pb-12">
           {children}
         </main>
       </div>
@@ -278,24 +275,19 @@ export default function AppLayout({ children }) {
                 onClick={handleCopyHandle}
                 className="flex items-center gap-1.5 rounded-lg border border-[#3A3A3A] bg-[#222222] px-3 py-1.5 text-xs font-semibold text-white transition hover:border-white"
               >
-                {copiedHandle ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                {copiedHandle ? <Check size={14} className="text-white" /> : <Copy size={14} />}
                 <span>{copiedHandle ? "Copied" : "Copy"}</span>
               </button>
             </div>
 
-            {/* Privacy Shield Info */}
-            <div className="mt-4 rounded-xl border border-[#2B2B2B] bg-[#161616] p-3 text-[11px] text-[#A3A3A3] leading-relaxed">
-              <strong className="text-white">100% Privacy Protected:</strong> Other users only see your public handle ({displayHandle}) across chat, friend lists, and goal approvals. Your personal Google email address remains completely private.
-            </div>
-
             {handleError && (
-              <div className="mt-4 rounded-xl border border-red-900/50 bg-red-950/40 p-3 text-xs text-red-300">
+              <div className="mt-4 rounded-xl border border-white/20 bg-white/10 p-3 text-xs text-white">
                 {handleError}
               </div>
             )}
 
             {handleSuccess && (
-              <div className="mt-4 rounded-xl border border-green-900/50 bg-green-950/40 p-3 text-xs text-green-300">
+              <div className="mt-4 rounded-xl border border-white/20 bg-white/10 p-3 text-xs text-white">
                 {handleSuccess}
               </div>
             )}

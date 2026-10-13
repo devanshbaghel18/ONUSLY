@@ -63,19 +63,19 @@ class MainActivity : AppCompatActivity() {
     private val googleSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            try {
-                val account = task.getResult(ApiException::class.java)
-                val idToken = account?.idToken
-                if (!idToken.isNullOrBlank()) {
-                    handleGoogleToken(idToken)
-                } else {
-                    Toast.makeText(this, "Google Sign-In returned no ID token", Toast.LENGTH_LONG).show()
-                }
-            } catch (e: Exception) {
-                Toast.makeText(this, "Google Sign-In failed: ${e.message}", Toast.LENGTH_LONG).show()
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            val idToken = account?.idToken
+            if (!idToken.isNullOrBlank()) {
+                handleGoogleToken(idToken)
+            } else {
+                Toast.makeText(this, "Google Sign-In returned no ID token", Toast.LENGTH_LONG).show()
             }
+        } catch (e: ApiException) {
+            Toast.makeText(this, "Google Sign-In failed (Code ${e.statusCode}): ${e.message}", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Google Sign-In error: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 

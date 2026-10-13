@@ -144,16 +144,16 @@ export default function NotificationFeed() {
         onClick={handleToggle}
         aria-label="Notifications"
         aria-expanded={isOpen}
-        className={`relative flex h-9 w-9 items-center justify-center rounded-full border transition-all ${
+        className={`relative flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded-full border transition-all ${
           isOpen
             ? "border-white bg-[#252525] text-white shadow-inner"
             : "border-[#2D2D2D] bg-[#1E1E1E] text-neutral-300 hover:border-white hover:text-white"
         }`}
         title="Notifications"
       >
-        <Bell size={16} />
+        <Bell size={17} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-black text-white shadow-lg animate-in zoom-in-50">
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black shadow-lg animate-in zoom-in-50">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -169,7 +169,7 @@ export default function NotificationFeed() {
                 Notifications
               </span>
               {unreadCount > 0 && (
-                <span className="rounded-full bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-400">
+                <span className="rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-[10px] font-bold text-white">
                   {unreadCount} new
                 </span>
               )}
@@ -228,15 +228,7 @@ export default function NotificationFeed() {
                     }`}
                   >
                     {/* Icon */}
-                    <div
-                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border shadow-sm ${
-                        isApproved
-                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                          : isProof
-                          ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-                          : "border-rose-500/30 bg-rose-500/10 text-rose-400"
-                      }`}
-                    >
+                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white shadow-sm">
                       {isApproved ? (
                         <Unlock size={14} />
                       ) : isProof ? (
@@ -267,7 +259,7 @@ export default function NotificationFeed() {
 
                     {/* Unread indicator dot */}
                     {!n.read && (
-                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]" />
                     )}
                   </div>
                 );

@@ -434,8 +434,8 @@ export default function ConnectExtension() {
           <div
             className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${
               status === "connected"
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-                : "border-indigo-500/40 bg-indigo-500/10 text-indigo-400"
+                ? "border-white/30 bg-white/10 text-white"
+                : "border-[#333333] bg-[#1E1E1E] text-white"
             }`}
           >
             <Shield size={22} />
@@ -445,12 +445,12 @@ export default function ConnectExtension() {
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-white">Browser Extension Enforcement</h3>
               {status === "connected" ? (
-                <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="flex items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white">
+                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
                   Connected ({extInfo?.version || "active"})
                 </span>
               ) : (
-                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-400">
+                <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white">
                   Ready to Pair
                 </span>
               )}
@@ -479,11 +479,7 @@ export default function ConnectExtension() {
               <button
                 type="button"
                 onClick={handleDisconnect}
-                className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors ${
-                  (extInfo?.targetsCount || 0) > 0
-                    ? "border-amber-900/30 bg-amber-950/20 text-amber-400 hover:bg-amber-900/40"
-                    : "border-red-900/30 bg-red-950/20 text-red-400 hover:bg-red-900/40"
-                }`}
+                className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/20"
                 title={
                   (extInfo?.targetsCount || 0) > 0
                     ? "Disconnection is locked while goals are in progress"
@@ -519,9 +515,9 @@ export default function ConnectExtension() {
                 type="button"
                 onClick={handleConnect}
                 disabled={loading}
-                className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-indigo-500 disabled:opacity-50"
+                className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black shadow-sm transition-all hover:bg-neutral-200 disabled:opacity-50"
               >
-                {loading ? <RefreshCw size={14} className="animate-spin" /> : <Shield size={14} />}
+                {loading ? <RefreshCw size={14} className="animate-spin text-black" /> : <Shield size={14} className="text-black" />}
                 <span>{loading ? "Connecting..." : "Connect Extension"}</span>
               </button>
             </div>

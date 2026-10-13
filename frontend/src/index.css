@@ -99,3 +99,12 @@ body {
 .animate-pulse-glow {
     animation: pulse-glow 2.8s ease-in-out infinite;
 }
+
+/* Hide scrollbar for Chrome, Safari, Opera, Firefox, Edge, IE */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
