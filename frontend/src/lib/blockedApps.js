@@ -6,6 +6,12 @@ export const APP_CATALOG = [
     domains: ["youtube.com", "youtu.be"],
   },
   {
+    id: "youtube_shorts",
+    name: "YouTube Shorts",
+    packageName: "com.google.android.youtube.shorts",
+    domains: ["shorts.youtube.com"],
+  },
+  {
     id: "instagram",
     name: "Instagram",
     packageName: "com.instagram.android",

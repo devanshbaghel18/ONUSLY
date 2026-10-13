@@ -10,7 +10,6 @@ import {
   Download,
   X,
   FolderArchive,
-  ExternalLink,
 } from "lucide-react";
 import { getToken, getUser } from "../lib/auth";
 import { getBlocklist, API_BASE_URL } from "../lib/api";
@@ -282,7 +281,7 @@ export default function ConnectExtension() {
       });
     };
 
-    let result = null;
+    let result;
     try {
       const [runtimeRes, bridgeRes] = await Promise.all([sendViaRuntime(), sendViaBridge()]);
       result = runtimeRes.ok ? runtimeRes : bridgeRes.ok ? bridgeRes : null;

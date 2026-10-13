@@ -31,31 +31,52 @@ describe("Strict Shorts Mode Regression Suite", () => {
     assert.equal(shortsResult.matchingTargets[0].goalTitle, "No YouTube At All");
   });
 
-  it("2. When a goal blocking youtube.com is completed, /watch unblocks while /shorts stays blocked", () => {
+  it("2. When a goal blocking YouTube Shorts is active, /watch is allowed while /shorts is blocked", () => {
+    const shortsCache = {
+      userId: "user_focus",
+      version: "v1-goal-shorts",
+      targets: [
+        {
+          goalId: "goal_study",
+          goalTitle: "Block Only Shorts",
+          status: "active",
+          apps: ["com.google.android.youtube.shorts"],
+          domains: ["shorts.youtube.com"],
+        },
+      ],
+    };
+
+    // /watch is allowed!
+    const watchResult = evaluateUrl("https://www.youtube.com/watch?v=123", shortsCache);
+    assert.equal(watchResult.isBlocked, false);
+    assert.equal(watchResult.isShortsRestricted, true);
+
+    // /shorts is blocked by goal Shorts restriction!
+    const shortsResult = evaluateUrl("https://www.youtube.com/shorts/123", shortsCache);
+    assert.equal(shortsResult.isBlocked, true);
+    assert.equal(shortsResult.reason, "youtube_shorts");
+
+    // When the goal is completed, /shorts is unblocked
     const completedCache = {
       userId: "user_focus",
       version: "v1-goal-done",
       targets: [
         {
           goalId: "goal_study",
-          goalTitle: "No YouTube At All",
-          status: "completed", // completed goal is excluded from enforcement
-          domains: ["youtube.com"],
+          goalTitle: "Block Only Shorts",
+          status: "completed",
+          apps: ["com.google.android.youtube.shorts"],
+          domains: ["shorts.youtube.com"],
         },
       ],
     };
 
-    // /watch is unblocked!
-    const watchResult = evaluateUrl("https://www.youtube.com/watch?v=123", completedCache);
-    assert.equal(watchResult.isBlocked, false);
-
-    // /shorts is still blocked by built-in Shorts enforcement!
-    const shortsResult = evaluateUrl("https://www.youtube.com/shorts/123", completedCache);
-    assert.equal(shortsResult.isBlocked, true);
-    assert.equal(shortsResult.reason, "youtube_shorts");
+    const completedShorts = evaluateUrl("https://www.youtube.com/shorts/123", completedCache);
+    assert.equal(completedShorts.isBlocked, false);
+    assert.equal(completedShorts.isShortsRestricted, false);
   });
 
-  it("3. Unrelated goal domain blocking works alongside Shorts mode", () => {
+  it("3. Unrelated goal domain blocking does NOT block YouTube Shorts", () => {
     const redditCache = {
       userId: "user_focus",
       version: "v1-reddit",
@@ -78,20 +99,20 @@ describe("Strict Shorts Mode Regression Suite", () => {
     const ytWatchResult = evaluateUrl("https://www.youtube.com/watch?v=python_course", redditCache);
     assert.equal(ytWatchResult.isBlocked, false);
 
-    // YouTube Shorts is blocked
+    // YouTube Shorts is NOT blocked when no goal targets it
     const ytShortsResult = evaluateUrl("https://www.youtube.com/shorts/distraction", redditCache);
-    assert.equal(ytShortsResult.isBlocked, true);
-    assert.equal(ytShortsResult.reason, "youtube_shorts");
+    assert.equal(ytShortsResult.isBlocked, false);
+    assert.equal(ytShortsResult.isShortsRestricted, false);
   });
 
-  it("4. Authentication and cache isolation remains intact with Shorts mode", async () => {
+  it("4. Authentication and cache isolation remains intact with Shorts targeting", async () => {
     const storage = createStorage();
     await storage.saveSession({ userId: "alice", token: "jwt_alice" });
     await storage.saveBlocklistCache(
       {
         userId: "alice",
         version: "v1-alice",
-        targets: [{ goalId: "g1", domains: ["tiktok.com"], status: "active" }],
+        targets: [{ goalId: "g1", domains: ["shorts.youtube.com"], apps: ["youtube_shorts"], status: "active" }],
       },
       "alice"
     );
@@ -105,20 +126,22 @@ describe("Strict Shorts Mode Regression Suite", () => {
     const bobCache = await storage.getBlocklistCache("bob");
     assert.equal(bobCache, null);
 
-    // Shorts mode works independently for both
+    // Alice has Shorts blocked
     assert.equal(evaluateUrl("https://youtube.com/shorts/test", cache).isBlocked, true);
-    assert.equal(evaluateUrl("https://youtube.com/shorts/test", bobCache).isBlocked, true);
+    // Bob has NO active goals, so Shorts is NOT blocked
+    assert.equal(evaluateUrl("https://youtube.com/shorts/test", bobCache).isBlocked, false);
+    // Alice's regular /watch is allowed
     assert.equal(evaluateUrl("https://youtube.com/watch?v=test", cache).isBlocked, false);
   });
 
-  it("5. Offline enforcement continues to preserve cache and block Shorts", async () => {
+  it("5. Offline enforcement continues to preserve cache and block Shorts when targeted", async () => {
     const storage = createStorage();
     await storage.saveSession({ userId: "offline_user", token: "jwt_offline" });
     await storage.saveBlocklistCache(
       {
         userId: "offline_user",
         version: "v1-cached",
-        targets: [{ goalId: "g1", domains: ["instagram.com"], status: "active" }],
+        targets: [{ goalId: "g1", domains: ["shorts.youtube.com"], status: "active" }],
       },
       "offline_user"
     );
@@ -134,9 +157,10 @@ describe("Strict Shorts Mode Regression Suite", () => {
     // Cached targets remain intact
     const cachedAfter = await storage.getBlocklistCache("offline_user");
     assert.equal(cachedAfter.targets.length, 1);
-    assert.equal(evaluateUrl("https://instagram.com/", cachedAfter).isBlocked, true);
 
-    // Shorts continue to be blocked
+    // Shorts continues to be blocked from offline cache
     assert.equal(evaluateUrl("https://www.youtube.com/shorts/offline", cachedAfter).isBlocked, true);
+    // Regular watch remains unblocked
+    assert.equal(evaluateUrl("https://www.youtube.com/watch?v=offline", cachedAfter).isBlocked, false);
   });
 });

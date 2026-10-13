@@ -12,7 +12,7 @@ export function notifyExtensionSync() {
   const rawUser =
     localStorage.getItem("user") ||
     localStorage.getItem("onusly_user");
-  let user = null;
+  let user;
   try {
     user = rawUser ? JSON.parse(rawUser) : null;
   } catch {
@@ -50,7 +50,7 @@ export function notifyExtensionSync() {
             baseUrl: "http://localhost:8080",
           },
           () => {
-            if (window.chrome.runtime.lastError) {}
+            void window.chrome.runtime.lastError;
           }
         );
       } catch {

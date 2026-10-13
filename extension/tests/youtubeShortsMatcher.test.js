@@ -98,28 +98,44 @@ describe("Strict YouTube Shorts Matcher Suite", () => {
     it("7. Direct navigation and SPA navigation use the same enforcement decision", () => {
       const targetShortsUrl = "https://www.youtube.com/shorts/focus_killer";
 
-      // 1. Direct navigation (no cache, standalone)
-      const directDecision = evaluateUrl(targetShortsUrl, null);
-      assert.equal(directDecision.isBlocked, true);
-      assert.equal(directDecision.reason, "youtube_shorts");
-      assert.equal(directDecision.status, "shorts_blocked");
-      assert.match(directDecision.instruction, /YouTube Shorts are blocked/);
+      // 1. When NO goal targets Shorts (null cache or unrelated goals)
+      const directNoGoal = evaluateUrl(targetShortsUrl, null);
+      assert.equal(directNoGoal.isBlocked, false);
 
-      // 2. SPA navigation with active unrelated goals
-      const dummyBlocklist = {
+      const unrelatedBlocklist = {
         userId: "user_test",
         targets: [
           { goalId: "g1", domains: ["twitter.com"], status: "active" },
         ],
       };
-      const spaDecision = evaluateUrl(targetShortsUrl, dummyBlocklist);
-      assert.equal(spaDecision.isBlocked, true);
-      assert.equal(spaDecision.reason, "youtube_shorts");
-      assert.equal(spaDecision.status, "shorts_blocked");
+      const spaNoGoal = evaluateUrl(targetShortsUrl, unrelatedBlocklist);
+      assert.equal(spaNoGoal.isBlocked, false);
 
-      // Verify consistency
-      assert.equal(directDecision.isBlocked, spaDecision.isBlocked);
-      assert.equal(directDecision.reason, spaDecision.reason);
+      // 2. When an active goal targets YouTube Shorts
+      const shortsBlocklist = {
+        userId: "user_test",
+        targets: [
+          {
+            goalId: "g_shorts",
+            status: "active",
+            domains: ["shorts.youtube.com"],
+            apps: ["com.google.android.youtube.shorts"],
+          },
+        ],
+      };
+
+      const directTargeted = evaluateUrl(targetShortsUrl, shortsBlocklist);
+      assert.equal(directTargeted.isBlocked, true);
+      assert.equal(directTargeted.reason, "youtube_shorts");
+      assert.match(directTargeted.instruction, /YouTube Shorts are blocked/);
+
+      const spaTargeted = evaluateUrl(targetShortsUrl, shortsBlocklist);
+      assert.equal(spaTargeted.isBlocked, true);
+      assert.equal(spaTargeted.reason, "youtube_shorts");
+
+      // Verify consistency between direct and SPA evaluations
+      assert.equal(directTargeted.isBlocked, spaTargeted.isBlocked);
+      assert.equal(directTargeted.reason, spaTargeted.reason);
     });
 
     it("8. Edge Case Diagnostic: /watch?v=... with a Short video ID", () => {

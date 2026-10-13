@@ -7,6 +7,9 @@ import { extractHostname, isDomainMatch, isProtectedUrl, isYouTubeShortsUrl } fr
 export const APP_DOMAINS_MAP = {
   "com.google.android.youtube": ["youtube.com", "youtu.be"],
   "youtube": ["youtube.com", "youtu.be"],
+  "com.google.android.youtube.shorts": ["shorts.youtube.com"],
+  "youtube_shorts": ["shorts.youtube.com"],
+  "youtube-shorts": ["shorts.youtube.com"],
   "com.instagram.android": ["instagram.com"],
   "instagram": ["instagram.com"],
   "com.twitter.android": ["x.com", "twitter.com"],
@@ -25,6 +28,82 @@ export const APP_DOMAINS_MAP = {
 };
 
 /**
+ * Checks whether an active target explicitly restricts YouTube Shorts (or full YouTube).
+ *
+ * @param {object} target
+ * @returns {boolean}
+ */
+export function isTargetShortsRestricted(target) {
+  if (!target) return false;
+  const status = (target.status || "").toLowerCase().trim();
+  if (status !== "active" && status !== "proof_submitted") {
+    return false;
+  }
+
+  const domains = Array.isArray(target.domains) ? target.domains : [];
+  const apps = Array.isArray(target.apps) ? target.apps : [];
+
+  // 1. Directly restricts YouTube Shorts
+  const hasShortsDomain = domains.some((d) => {
+    const clean = (d || "").toLowerCase().trim();
+    return (
+      clean === "shorts.youtube.com" ||
+      clean === "youtube.com/shorts" ||
+      clean === "m.youtube.com/shorts"
+    );
+  });
+  if (hasShortsDomain) return true;
+
+  const hasShortsApp = apps.some((a) => {
+    const clean = (a || "").toLowerCase().trim();
+    return (
+      clean === "com.google.android.youtube.shorts" ||
+      clean === "youtube_shorts" ||
+      clean === "youtube-shorts"
+    );
+  });
+  if (hasShortsApp) return true;
+
+  // 2. Full YouTube restriction also restricts Shorts
+  const hasFullYouTubeDomain = domains.some((d) => {
+    const clean = (d || "").toLowerCase().trim();
+    return isDomainMatch(clean, "youtube.com") || clean === "youtu.be";
+  });
+  if (hasFullYouTubeDomain) return true;
+
+  const hasFullYouTubeApp = apps.some((a) => {
+    const clean = (a || "").toLowerCase().trim();
+    return clean === "com.google.android.youtube" || clean === "youtube";
+  });
+  if (hasFullYouTubeApp) return true;
+
+  return false;
+}
+
+/**
+ * Returns all currently active or proof_submitted targets that restrict YouTube Shorts or full YouTube.
+ *
+ * @param {object|null} cachedBlocklist
+ * @returns {Array<object>}
+ */
+export function getActiveShortsTargets(cachedBlocklist) {
+  if (!cachedBlocklist || !Array.isArray(cachedBlocklist.targets)) {
+    return [];
+  }
+  return cachedBlocklist.targets.filter(isTargetShortsRestricted);
+}
+
+/**
+ * Checks whether YouTube Shorts is currently restricted by any active goal.
+ *
+ * @param {object|null} cachedBlocklist
+ * @returns {boolean}
+ */
+export function isShortsRestricted(cachedBlocklist) {
+  return getActiveShortsTargets(cachedBlocklist).length > 0;
+}
+
+/**
  * Evaluates whether a given URL should be blocked based on the current cached blocklist
  * and built-in distraction rules (e.g. Strict YouTube Shorts mode).
  *
@@ -36,10 +115,13 @@ export const APP_DOMAINS_MAP = {
  *   matchingTargets: Array<object>,
  *   status: string,
  *   instruction: string,
- *   reason?: string
+ *   reason?: string,
+ *   isShortsRestricted?: boolean
  * }}
  */
 export function evaluateUrl(urlStr, cachedBlocklist) {
+  const shortsRestricted = isShortsRestricted(cachedBlocklist);
+
   if (isProtectedUrl(urlStr)) {
     return {
       isBlocked: false,
@@ -48,6 +130,7 @@ export function evaluateUrl(urlStr, cachedBlocklist) {
       status: "none",
       instruction: "",
       reason: "protected_url",
+      isShortsRestricted: shortsRestricted,
     };
   }
 
@@ -60,6 +143,7 @@ export function evaluateUrl(urlStr, cachedBlocklist) {
       status: "none",
       instruction: "",
       reason: "invalid_hostname",
+      isShortsRestricted: shortsRestricted,
     };
   }
 
@@ -111,20 +195,32 @@ export function evaluateUrl(urlStr, cachedBlocklist) {
       status,
       instruction,
       reason: "goal_target",
+      isShortsRestricted: shortsRestricted,
     };
   }
 
-  // 2. Built-in Strict YouTube Shorts Mode: block direct Shorts navigation while preserving regular YouTube
+  // 2. Strict YouTube Shorts Mode: ONLY block if Shorts is restricted by an active goal!
   if (isYouTubeShortsUrl(urlStr)) {
-    return {
-      isBlocked: true,
-      hostname,
-      matchingTargets: [],
-      status: "shorts_blocked",
-      reason: "youtube_shorts",
-      instruction:
-        "YouTube Shorts are blocked so you can stay focused. Regular YouTube videos are still available.",
-    };
+    const shortsTargets = getActiveShortsTargets(cachedBlocklist);
+    if (shortsTargets.length > 0) {
+      const hasActive = shortsTargets.some(
+        (t) => (t.status || "").toLowerCase().trim() === "active"
+      );
+      const status = hasActive ? "active" : "proof_submitted";
+      const instruction = hasActive
+        ? "YouTube Shorts are blocked so you can stay focused. Regular YouTube videos are still available."
+        : "Proof submitted. Waiting for review.";
+
+      return {
+        isBlocked: true,
+        hostname,
+        matchingTargets: shortsTargets,
+        status,
+        reason: "youtube_shorts",
+        instruction,
+        isShortsRestricted: true,
+      };
+    }
   }
 
   return {
@@ -133,6 +229,7 @@ export function evaluateUrl(urlStr, cachedBlocklist) {
     matchingTargets: [],
     status: "none",
     instruction: "",
+    isShortsRestricted: shortsRestricted,
   };
 }
 

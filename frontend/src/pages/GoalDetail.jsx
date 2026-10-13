@@ -39,7 +39,7 @@ import {
 } from "../lib/pinnedGoals";
 
 import AppLayout from "../components/AppLayout";
-import { getFriendlyTargetName, getUniqueDisplayTargets } from "../lib/blockedApps";
+import { getUniqueDisplayTargets } from "../lib/blockedApps";
 
 function generateMsgId(prefix = "msg") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;

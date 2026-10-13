@@ -167,4 +167,65 @@ describe("Blocker Engine Suite", () => {
       [1, 3]
     );
   });
+
+  it("blocking YouTube blocks both normal YouTube and YouTube Shorts", () => {
+    const ytCache = {
+      targets: [
+        {
+          goalId: "g_yt",
+          status: "active",
+          apps: ["com.google.android.youtube"],
+          domains: ["youtube.com", "youtu.be"],
+        },
+      ],
+    };
+
+    const watchEval = evaluateUrl("https://www.youtube.com/watch?v=abc", ytCache);
+    assert.equal(watchEval.isBlocked, true);
+    assert.equal(watchEval.reason, "goal_target");
+
+    const shortsEval = evaluateUrl("https://www.youtube.com/shorts/xyz", ytCache);
+    assert.equal(shortsEval.isBlocked, true);
+    assert.equal(shortsEval.reason, "goal_target");
+  });
+
+  it("blocking YouTube Shorts ONLY blocks YouTube Shorts and allows normal YouTube", () => {
+    const shortsCache = {
+      targets: [
+        {
+          goalId: "g_shorts",
+          status: "active",
+          apps: ["com.google.android.youtube.shorts"],
+          domains: ["shorts.youtube.com"],
+        },
+      ],
+    };
+
+    const watchEval = evaluateUrl("https://www.youtube.com/watch?v=abc", shortsCache);
+    assert.equal(watchEval.isBlocked, false);
+    assert.equal(watchEval.isShortsRestricted, true);
+
+    const shortsEval = evaluateUrl("https://www.youtube.com/shorts/xyz", shortsCache);
+    assert.equal(shortsEval.isBlocked, true);
+    assert.equal(shortsEval.reason, "youtube_shorts");
+  });
+
+  it("does not block YouTube or YouTube Shorts when no goal selects them", () => {
+    const emptyCache = { targets: [] };
+    assert.equal(evaluateUrl("https://www.youtube.com/watch?v=abc", emptyCache).isBlocked, false);
+    assert.equal(evaluateUrl("https://www.youtube.com/shorts/xyz", emptyCache).isBlocked, false);
+
+    const unrelatedCache = {
+      targets: [
+        {
+          goalId: "g_tiktok",
+          status: "active",
+          apps: ["com.zhiliaoapp.musically"],
+          domains: ["tiktok.com"],
+        },
+      ],
+    };
+    assert.equal(evaluateUrl("https://www.youtube.com/watch?v=abc", unrelatedCache).isBlocked, false);
+    assert.equal(evaluateUrl("https://www.youtube.com/shorts/xyz", unrelatedCache).isBlocked, false);
+  });
 });

@@ -74,6 +74,18 @@ export function injectShortsBlockingStyles(doc = globalThis.document) {
 }
 
 /**
+ * Removes injected CSS rules from the document when Shorts restrictions are inactive.
+ * @param {Document} [doc]
+ */
+export function removeShortsBlockingStyles(doc = globalThis.document) {
+  if (!doc) return;
+  const existing = doc.getElementById?.("onusly-shorts-style");
+  if (existing && typeof existing.remove === "function") {
+    existing.remove();
+  }
+}
+
+/**
  * Checks whether an element is or is part of an ordinary /watch video card.
  * Used to avoid false positives (e.g. video cards containing text or descriptions mentioning "Shorts").
  *
@@ -329,37 +341,80 @@ export function createShortsObserver(doc = globalThis.document) {
   return observer;
 }
 
-// Auto-run in browser content script context
-if (typeof document !== "undefined" && typeof window !== "undefined") {
-  // If YouTube is entirely blocked for an active goal, immediately redirect to blocked page
-  if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
-    try {
-      chrome.runtime.sendMessage(
-        { type: "EVALUATE_URL", url: window.location.href },
-        (res) => {
-          if (res?.isBlocked) {
-            const blockedPageUrl =
-              chrome.runtime.getURL("blocked.html") +
-              `?domain=${encodeURIComponent(res.hostname || "")}` +
-              `&url=${encodeURIComponent(window.location.href)}`;
-            window.location.replace(blockedPageUrl);
+let isObserverActive = false;
+let currentObserver = null;
+
+/**
+ * Checks with the extension background worker whether YouTube or Shorts are restricted,
+ * and conditionally injects CSS styles and DOM observers.
+ *
+ * @param {Document} [doc]
+ */
+export function checkAndApplyShortsBlocking(doc = globalThis.document) {
+  const rt =
+    typeof chrome !== "undefined" && chrome.runtime?.sendMessage
+      ? chrome.runtime
+      : typeof browser !== "undefined" && browser.runtime?.sendMessage
+      ? browser.runtime
+      : null;
+
+  if (!rt) return;
+
+  try {
+    rt.sendMessage(
+      { type: "EVALUATE_URL", url: window.location.href },
+      (res) => {
+        if (rt.lastError) return;
+
+        if (res?.isBlocked) {
+          const blockedPageUrl =
+            rt.getURL("blocked.html") +
+            `?domain=${encodeURIComponent(res.hostname || "")}` +
+            `&url=${encodeURIComponent(window.location.href)}`;
+          window.location.replace(blockedPageUrl);
+          return;
+        }
+
+        if (res?.isShortsRestricted) {
+          injectShortsBlockingStyles(doc);
+          filterYouTubeShorts(doc);
+          if (!isObserverActive) {
+            currentObserver = createShortsObserver(doc);
+            isObserverActive = true;
+          }
+        } else {
+          removeShortsBlockingStyles(doc);
+          if (isObserverActive && currentObserver) {
+            currentObserver.disconnect();
+            currentObserver = null;
+            isObserverActive = false;
           }
         }
-      );
-    } catch {
-      // Fail gracefully
-    }
+      }
+    );
+  } catch {
+    // Fail gracefully
   }
+}
 
-  injectShortsBlockingStyles(document);
-
+// Auto-run in browser content script context
+if (typeof document !== "undefined" && typeof window !== "undefined") {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
-      filterYouTubeShorts(document);
-      createShortsObserver(document);
+      checkAndApplyShortsBlocking(document);
     });
   } else {
-    filterYouTubeShorts(document);
-    createShortsObserver(document);
+    checkAndApplyShortsBlocking(document);
   }
+
+  // Handle YouTube SPA navigation events
+  globalThis.addEventListener?.("yt-navigate-finish", () => {
+    checkAndApplyShortsBlocking(document);
+  });
+  globalThis.addEventListener?.("yt-page-data-updated", () => {
+    checkAndApplyShortsBlocking(document);
+  });
+  globalThis.addEventListener?.("popstate", () => {
+    checkAndApplyShortsBlocking(document);
+  });
 }
