@@ -107,8 +107,34 @@ func (s *Service) generateUniqueHandle(ctx context.Context, name, email string) 
 }
 
 func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*GoogleLoginResponse, error) {
-	payload, err := idtoken.Validate(ctx, idTokenString, s.cfg.GoogleClientID)
-	if err != nil {
+	var payload *idtoken.Payload
+	var err error
+
+	// Support authorized client IDs across web and android platforms
+	authorizedIDs := []string{
+		"316293252544-c8s2tsrvd4g8tj0fv4f4hgavrtm44jg8.apps.googleusercontent.com",
+		"24284302254-n26lia4s6vi33koas28u1i26ejimdfp3.apps.googleusercontent.com",
+	}
+	if s.cfg.GoogleClientID != "" {
+		for _, raw := range strings.Split(s.cfg.GoogleClientID, ",") {
+			trimmed := strings.TrimSpace(raw)
+			if trimmed != "" {
+				authorizedIDs = append(authorizedIDs, trimmed)
+			}
+		}
+	}
+
+	for _, cid := range authorizedIDs {
+		if cid == "" {
+			continue
+		}
+		payload, err = idtoken.Validate(ctx, idTokenString, cid)
+		if err == nil && payload != nil {
+			break
+		}
+	}
+
+	if err != nil || payload == nil {
 		return nil, errors.New("invalid Google token")
 	}
 
