@@ -49,6 +49,7 @@ import {
   deleteChatMessageGlobally,
   mergeChatHistory,
   markChatMessageApproved,
+  clearUnreadCount,
 } from "../lib/friendsChat";
 import { getChatHistory, lookupUser } from "../lib/api";
 import { getUser } from "../lib/auth";
@@ -149,8 +150,13 @@ function WhatsAppImageGrid({ images, onImageClick }) {
 }
 
 export default function Communities() {
+  const location = useLocation();
   // Main mode: 'communities' | 'friends'
-  const [mainView, setMainView] = useState("communities");
+  const [mainView, setMainView] = useState(() => {
+    if (location.state?.view) return location.state.view;
+    if (location.pathname === "/community-friends") return "friends";
+    return "communities";
+  });
 
   // ==========================================
   // COMMUNITIES STATE
@@ -184,9 +190,12 @@ export default function Communities() {
   // ==========================================
   const [friends, setFriends] = useState(() => getStoredFriends());
   const [friendSearch, setFriendSearch] = useState("");
-  const [activeFriendId, setActiveFriendId] = useState(() =>
-    getStoredFriends().length > 0 ? getStoredFriends()[0].id : null
-  );
+  const [activeFriendId, setActiveFriendId] = useState(() => {
+    if (location.state?.view === "friends" && location.state?.targetId) {
+      return location.state.targetId;
+    }
+    return null;
+  });
   const activeFriend = friends.find((f) => f.id === activeFriendId);
   const activeFriendIdRef = useRef(activeFriendId);
   useEffect(() => {
@@ -195,8 +204,10 @@ export default function Communities() {
 
   const currentUser = getUser();
   const [chatMessages, setChatMessages] = useState(() => {
-    const stored = getStoredFriends();
-    return stored.length > 0 ? getChatMessages(stored[0].id) : [];
+    if (location.state?.view === "friends" && location.state?.targetId) {
+      return getChatMessages(location.state.targetId);
+    }
+    return [];
   });
   const [messageInput, setMessageInput] = useState("");
   const [onlineEmails, setOnlineEmails] = useState(new Set());
@@ -224,7 +235,6 @@ export default function Communities() {
   const [approvingMsgId, setApprovingMsgId] = useState(null);
 
   // Navigation state handler (e.g. redirected from "Share for Verification")
-  const location = useLocation();
   useEffect(() => {
     if (!location.state) return;
     const timer = setTimeout(() => {
@@ -233,6 +243,8 @@ export default function Communities() {
       }
       if (location.state?.view === "friends" && location.state?.targetId) {
         setActiveFriendId(location.state.targetId);
+        const updated = clearUnreadCount(location.state.targetId);
+        setFriends(updated);
         setChatMessages(getChatMessages(location.state.targetId));
       }
       if (location.state?.view === "communities" && location.state?.targetId) {
@@ -287,6 +299,20 @@ export default function Communities() {
         ? new Date(p.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+      const currentActiveId = activeFriendIdRef.current;
+      const currentFriendsList = getStoredFriends();
+      const currentActive = currentFriendsList.find((f) => f.id === currentActiveId);
+
+      const senderEmail = (p.senderEmail || "").trim().toLowerCase();
+      const senderHandle = (p.senderHandle || "").replace(/[@\s]/g, "").toLowerCase();
+
+      // Check whether user is currently looking at this sender's chat
+      const isViewing =
+        Boolean(currentActiveId) &&
+        (currentActiveId === p.id ||
+          (currentActive?.handle && senderHandle && currentActive.handle.toLowerCase().replace(/[@\s]/g, "") === senderHandle) ||
+          (currentActive?.email && senderEmail && currentActive.email.toLowerCase() === senderEmail));
+
       const { friend, messages } = receiveChatMessage({
         messageId: p.id,
         friendEmail: p.senderEmail,
@@ -303,21 +329,14 @@ export default function Communities() {
         images: p.images,
         files: p.files,
         externalLink: p.externalLink,
+        isCurrentlyActive: isViewing,
       });
 
       const updatedFriends = getStoredFriends();
       setFriends(updatedFriends);
 
-      const currentActiveId = activeFriendIdRef.current;
-      const currentActive = updatedFriends.find((f) => f.id === currentActiveId);
-      const isViewing =
-        currentActiveId === friend?.id ||
-        (currentActive?.handle && friend?.handle && currentActive.handle.toLowerCase().replace(/[@\s]/g, "") === friend.handle.toLowerCase().replace(/[@\s]/g, "")) ||
-        (currentActive?.email && friend?.email && currentActive.email.toLowerCase() === friend.email.toLowerCase()) ||
-        !currentActiveId;
-
+      // Only update messages if user is actively viewing this friend. NEVER auto-open or switch chat!
       if (friend && isViewing) {
-        if (!currentActiveId) setActiveFriendId(friend.id);
         setChatMessages(messages);
         setTimeout(() => {
           if (isAtBottomRef.current && chatContainerRef.current) {
@@ -813,9 +832,11 @@ export default function Communities() {
   // Select a friend in 1-on-1 chat
   const selectFriend = (id) => {
     setActiveFriendId(id);
+    const updated = clearUnreadCount(id);
+    setFriends(updated);
     setChatMessages(getChatMessages(id));
 
-    const f = friends.find((item) => item.id === id);
+    const f = updated.find((item) => item.id === id);
     const peerKey = f?.handle ? `@${f.handle}` : f?.email || "";
     if (peerKey) {
       getChatHistory(peerKey)
@@ -828,6 +849,10 @@ export default function Communities() {
         .catch(() => {});
     }
   };
+
+  const totalUnreadFriends = useMemo(() => {
+    return friends.reduce((acc, f) => acc + (Number(f.unreadCount) || 0), 0);
+  }, [friends]);
 
   // Filtered lists
   const filteredCommunities = useMemo(() => {
@@ -1457,7 +1482,12 @@ export default function Communities() {
               }`}
             >
               <MessageSquare size={15} />
-              Friends ({friends.length})
+              <span>Friends ({friends.length})</span>
+              {totalUnreadFriends > 0 && (
+                <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-emerald-500 px-1 text-[9px] font-black text-black shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse">
+                  {totalUnreadFriends > 99 ? "99+" : totalUnreadFriends}
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -1558,7 +1588,7 @@ export default function Communities() {
                         const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
                         isCommAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
                       }}
-                      className="flex-1 min-h-0 space-y-3 overflow-y-auto p-4 overscroll-contain"
+                      className="flex-1 min-h-0 space-y-3 overflow-y-auto no-scrollbar p-4 overscroll-contain"
                     >
                       {commChatMessages.length === 0 ? (
                         <div className="flex h-full flex-col items-center justify-center py-16 text-center">
@@ -1777,7 +1807,7 @@ export default function Communities() {
               </div>
 
               {/* Friends List items */}
-              <div className="flex-1 min-h-0 mt-4 space-y-1 overflow-y-auto">
+              <div className="flex-1 min-h-0 mt-4 space-y-1 overflow-y-auto no-scrollbar">
                 {filteredFriends.length === 0 ? (
                   <div className="py-12 text-center">
                     <p className="text-xs text-[#737373]">No friends added yet.</p>
@@ -1792,6 +1822,7 @@ export default function Communities() {
                 ) : (
                   filteredFriends.map((f) => {
                     const isSelected = f.id === activeFriendId;
+                    const hasUnread = Number(f.unreadCount) > 0 && !isSelected;
                     return (
                       <div
                         key={f.id}
@@ -1837,7 +1868,7 @@ export default function Communities() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
-                              <p className="truncate text-xs font-semibold text-white">
+                              <p className={`truncate text-xs ${hasUnread ? "font-bold text-white" : "font-semibold text-white"}`}>
                                 {f.name}
                               </p>
                               {f.handle && (
@@ -1846,17 +1877,24 @@ export default function Communities() {
                                 </span>
                               )}
                             </div>
-                            <p className="truncate text-[11px] text-[#737373]">
+                            <p className={`truncate text-[11px] ${hasUnread ? "font-medium text-neutral-200" : "text-[#737373]"}`}>
                               {f.lastMessage || "Click to start chatting"}
                             </p>
                           </div>
                         </div>
 
-                        {f.lastMessageTime && (
-                          <span className="text-[10px] text-[#737373] flex-shrink-0 ml-2">
-                            {f.lastMessageTime}
-                          </span>
-                        )}
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
+                          {f.lastMessageTime && (
+                            <span className={`text-[10px] ${hasUnread ? "font-bold text-emerald-400" : "text-[#737373]"}`}>
+                              {f.lastMessageTime}
+                            </span>
+                          )}
+                          {hasUnread && (
+                            <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-black text-black shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-in zoom-in-75 duration-200">
+                              {f.unreadCount > 99 ? "99+" : f.unreadCount}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })
@@ -1871,6 +1909,17 @@ export default function Communities() {
                   {/* Chat Header */}
                   <div className="shrink-0 flex items-center justify-between border-b border-[#2A2A2A] bg-[#181818] p-4">
                     <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveFriendId(null);
+                          setChatMessages([]);
+                        }}
+                        className="rounded-xl border border-[#333333] bg-[#141414] p-2 text-neutral-400 hover:text-white hover:border-white transition"
+                        title="Back to Share Proof / All Chats"
+                      >
+                        <ArrowLeft size={16} />
+                      </button>
                       <div className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#444444] bg-[#282828] text-sm font-bold text-white overflow-hidden">
                         {activeFriend.picture ? (
                           <img
@@ -1956,7 +2005,7 @@ export default function Communities() {
                       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
                       isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
                     }}
-                    className="flex-1 min-h-0 space-y-3 overflow-y-auto p-4 overscroll-contain"
+                    className="flex-1 min-h-0 space-y-3 overflow-y-auto no-scrollbar p-4 overscroll-contain"
                   >
                     {chatMessages.length === 0 ? (
                       <div className="flex h-full flex-col items-center justify-center py-16 text-center">
@@ -2011,12 +2060,48 @@ export default function Communities() {
                   </form>
                 </>
               ) : (
-                <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-                  <Users size={40} className="text-[#444444] mb-3" />
-                  <h3 className="text-sm font-bold text-white">No Friend Selected</h3>
-                  <p className="mt-1 text-xs text-[#737373]">
-                    Select a friend on the left or add a new friend to start chatting.
+                <div className="relative flex h-full flex-col items-center justify-center p-8 text-center select-none overflow-hidden bg-[#121212]">
+                  {/* Subtle radial ambient background glow */}
+                  <div className="pointer-events-none absolute h-72 w-72 rounded-full bg-white/[0.03] blur-3xl" />
+
+                  {/* Icon Emblem */}
+                  <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl border border-[#2B2B2B] bg-gradient-to-b from-[#202020] to-[#141414] shadow-2xl">
+                    <ShieldCheck size={38} className="text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.2)]" />
+                    <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border border-[#2B2B2B] bg-[#161616] text-[#A3A3A3]">
+                      <Paperclip size={12} />
+                    </span>
+                  </div>
+
+                  {/* Heading & Tagline */}
+                  <h2 className="mt-6 text-xl sm:text-2xl font-bold tracking-tight text-white">
+                    Share proof with friends
+                  </h2>
+                  <p className="mt-2.5 max-w-sm text-xs sm:text-sm leading-relaxed text-[#A3A3A3]">
+                    Select an accountability partner from the left to exchange proof, verify completed goals, and stay locked in together.
                   </p>
+
+                  {/* Quick Action / Guide Pill */}
+                  {friends.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowAddFriendModal(true)}
+                      className="mt-6 flex items-center gap-2 rounded-xl border border-white bg-white px-4 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-lg"
+                    >
+                      <UserPlus size={14} />
+                      Add your first friend
+                    </button>
+                  ) : (
+                    <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-[#2B2B2B] bg-[#181818] px-4 py-1.5 text-xs text-[#8A8A8A]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>Select a friend from the left sidebar to start</span>
+                    </div>
+                  )}
+
+                  {/* WhatsApp-style Security & Verification footer */}
+                  <div className="mt-12 flex items-center gap-2 text-[11px] text-[#555555]">
+                    <ShieldCheck size={13} className="text-emerald-500/80" />
+                    <span>End-to-end peer verification • Direct live sync</span>
+                  </div>
                 </div>
               )}
             </div>

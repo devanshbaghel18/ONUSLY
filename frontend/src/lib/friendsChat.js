@@ -46,6 +46,7 @@ export function addFriend({ name, handle, email, picture }) {
     status: "Active Partner",
     lastMessage: "Connected as accountability friend",
     lastMessageTime: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    unreadCount: 0,
   };
 
   const updated = [newFriend, ...list];
@@ -122,7 +123,7 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
     allChats[friendId] = [...friendMessages, newMsg];
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
 
-    // Also update friend's last message preview
+    // Also update friend's last message preview and reset unread count
     const previewText = newMsg.isProof ? `📸 Proof: ${newMsg.goalTitle || "Goal"}` : newMsg.text;
     const friends = getStoredFriends();
     const updatedFriends = friends.map((f) =>
@@ -131,10 +132,14 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
             ...f,
             lastMessage: previewText,
             lastMessageTime: newMsg.time,
+            unreadCount: 0,
           }
         : f
     );
-    saveFriends(updatedFriends);
+    const targetFriend = updatedFriends.find((f) => f.id === friendId);
+    const otherFriends = updatedFriends.filter((f) => f.id !== friendId);
+    const sortedFriends = targetFriend ? [targetFriend, ...otherFriends] : updatedFriends;
+    saveFriends(sortedFriends);
 
     return allChats[friendId];
   } catch (err) {
@@ -143,7 +148,7 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
   }
 }
 
-export function receiveChatMessage({ friendEmail, friendHandle, friendName, text, time, sender = "friend", messageId, isProof, goalId, goalTitle, ownerId, approved, images, files, externalLink }) {
+export function receiveChatMessage({ friendEmail, friendHandle, friendName, text, time, sender = "friend", messageId, isProof, goalId, goalTitle, ownerId, approved, images, files, externalLink, isCurrentlyActive = false }) {
   try {
     const normalizedEmail = friendEmail ? friendEmail.trim().toLowerCase() : "";
     const cleanHandle = friendHandle ? friendHandle.replace(/[@\s]/g, "").toLowerCase() : "";
@@ -184,6 +189,7 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
         status: "Active Partner",
         lastMessage: isProof ? `📸 Proof: ${goalTitle || "Goal"}` : (text || "Connected"),
         lastMessageTime: time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        unreadCount: isCurrentlyActive ? 0 : 1,
       };
       friends = [friend, ...friends];
       saveFriends(friends);
@@ -246,7 +252,7 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
     allChats[friend.id] = [...friendMessages, newMsg];
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
 
-    // Update friend's last message preview
+    // Update friend's last message preview and unread count
     const previewText = newMsg.isProof ? `📸 Proof: ${newMsg.goalTitle || "Goal"}` : newMsg.text;
     const updatedFriends = friends.map((f) =>
       f.id === friend.id
@@ -254,15 +260,34 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
             ...f,
             lastMessage: previewText,
             lastMessageTime: newMsg.time,
+            unreadCount: isCurrentlyActive ? 0 : ((Number(f.unreadCount) || 0) + 1),
           }
         : f
     );
-    saveFriends(updatedFriends);
+    const targetFriend = updatedFriends.find((f) => f.id === friend.id);
+    const otherFriends = updatedFriends.filter((f) => f.id !== friend.id);
+    const sortedFriends = targetFriend ? [targetFriend, ...otherFriends] : updatedFriends;
+    saveFriends(sortedFriends);
 
     return { friend, messages: allChats[friend.id] };
   } catch (err) {
     console.error("Failed to receive message:", err);
     return { friend: null, messages: [] };
+  }
+}
+
+export function clearUnreadCount(friendId) {
+  try {
+    if (!friendId) return getStoredFriends();
+    const friends = getStoredFriends();
+    const updated = friends.map((f) =>
+      f.id === friendId ? { ...f, unreadCount: 0 } : f
+    );
+    saveFriends(updated);
+    return updated;
+  } catch (err) {
+    console.error("Failed to clear unread count:", err);
+    return getStoredFriends();
   }
 }
 
