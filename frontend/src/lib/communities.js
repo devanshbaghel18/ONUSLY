@@ -198,6 +198,7 @@ export function sendCommunityMessage(communityId, msg) {
       files: Array.isArray(msg.files) ? msg.files : [],
       externalLink: msg.externalLink || "",
       time: msg.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      replyTo: msg.replyTo || null,
     };
 
     all[communityId] = [...existing, newMsg];
@@ -262,6 +263,7 @@ export function receiveCommunityMessage(communityId, msg) {
       files: Array.isArray(msg.files) ? msg.files : [],
       externalLink: msg.externalLink || "",
       time: msg.time ? new Date(msg.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      replyTo: msg.replyTo || null,
     };
 
     all[communityId] = [...existing, newMsg];
@@ -300,6 +302,47 @@ export function deleteCommunityMessage(communityId, messageId) {
   } catch (err) {
     console.error("Failed to delete community message:", err);
     return [];
+  }
+}
+
+export function deleteCommunityMessageForMe(communityId, messageId) {
+  return deleteCommunityMessage(communityId, messageId);
+}
+
+export function clearCommunityChat(communityId) {
+  try {
+    if (!communityId) return [];
+    const raw = localStorage.getItem(COMMUNITY_CHATS_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    all[communityId] = [];
+    localStorage.setItem(COMMUNITY_CHATS_KEY, JSON.stringify(all));
+
+    const list = getStoredCommunities();
+    const updated = list.map((c) =>
+      c.id === communityId
+        ? { ...c, lastMessage: "", lastMessageTime: "" }
+        : c
+    );
+    saveCommunities(updated);
+    return [];
+  } catch (err) {
+    console.error("Failed to clear community chat:", err);
+    return [];
+  }
+}
+
+export function toggleFavoriteCommunity(communityId) {
+  try {
+    if (!communityId) return getStoredCommunities();
+    const list = getStoredCommunities();
+    const updated = list.map((c) =>
+      c.id === communityId ? { ...c, isFavorite: !c.isFavorite } : c
+    );
+    saveCommunities(updated);
+    return updated;
+  } catch (err) {
+    console.error("Failed to toggle favorite community:", err);
+    return getStoredCommunities();
   }
 }
 

@@ -24,6 +24,10 @@ import {
   ThumbsUp,
   FileText,
   CheckCircle2,
+  MoreVertical,
+  Star,
+  Reply,
+  RotateCcw,
 } from "lucide-react";
 import {
   getStoredCommunities,
@@ -37,6 +41,9 @@ import {
   sendCommunityMessage,
   receiveCommunityMessage,
   deleteCommunityMessage,
+  deleteCommunityMessageForMe,
+  clearCommunityChat,
+  toggleFavoriteCommunity,
   markCommunityMessageApproved,
 } from "../lib/communities";
 import {
@@ -47,6 +54,9 @@ import {
   sendChatMessage,
   receiveChatMessage,
   deleteChatMessageGlobally,
+  deleteChatMessageForMe,
+  clearFriendChat,
+  toggleFavoriteFriend,
   mergeChatHistory,
   markChatMessageApproved,
   clearUnreadCount,
@@ -218,6 +228,53 @@ export default function Communities() {
   const [commToDelete, setCommToDelete] = useState(null);
   const [commToLeave, setCommToLeave] = useState(null);
 
+  // WhatsApp-style Features: Reply, 3-Dot Dropdown, Delete Modals, Favorites
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [showFriendMenu, setShowFriendMenu] = useState(false);
+  const [showCommMenu, setShowCommMenu] = useState(false);
+  const [deleteMsgModal, setDeleteMsgModal] = useState({
+    isOpen: false,
+    msg: null,
+    isMe: false,
+    type: "friend",
+  });
+  const [clearChatModal, setClearChatModal] = useState({
+    isOpen: false,
+    type: "friend",
+    targetName: "",
+  });
+  const friendMenuRef = useRef(null);
+  const commMenuRef = useRef(null);
+
+  // Jump to quoted message with highlight animation (WhatsApp style)
+  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
+
+  const handleJumpToMessage = (targetMsgId) => {
+    if (!targetMsgId) return;
+    const element = document.getElementById(`msg-${targetMsgId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedMsgId(targetMsgId);
+      setTimeout(() => {
+        setHighlightedMsgId((curr) => (curr === targetMsgId ? null : curr));
+      }, 2200);
+    }
+  };
+
+  // Close menus on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (friendMenuRef.current && !friendMenuRef.current.contains(e.target)) {
+        setShowFriendMenu(false);
+      }
+      if (commMenuRef.current && !commMenuRef.current.contains(e.target)) {
+        setShowCommMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   // Lightbox Preview State
   const [lightboxImage, setLightboxImage] = useState(null);
 
@@ -330,6 +387,7 @@ export default function Communities() {
         files: p.files,
         externalLink: p.externalLink,
         isCurrentlyActive: isViewing,
+        replyTo: p.replyTo || null,
       });
 
       const updatedFriends = getStoredFriends();
@@ -422,6 +480,7 @@ export default function Communities() {
           files: p.files,
           externalLink: p.externalLink,
           time: p.time,
+          replyTo: p.replyTo || null,
         });
         setCommunities(getStoredCommunities());
         if (selectedCommunityIdRef.current === p.communityId) {
@@ -669,6 +728,7 @@ export default function Communities() {
     const senderName = currentUser?.name || (senderHandle ? `@${senderHandle}` : "You");
     const text = attachCaption.trim();
     const externalLink = attachLink.trim();
+    const currentReplyTo = replyingTo ? { ...replyingTo } : null;
 
     try {
       if (attachTargetType === "friend" && activeFriendId && activeFriend) {
@@ -684,6 +744,7 @@ export default function Communities() {
             images: imageUrls,
             files: docFiles,
             externalLink,
+            replyTo: currentReplyTo,
           },
         });
 
@@ -694,11 +755,13 @@ export default function Communities() {
             images: imageUrls,
             files: docFiles,
             externalLink,
+            replyTo: currentReplyTo,
           },
           "me"
         );
         setChatMessages(updated);
         setFriends(getStoredFriends());
+        setReplyingTo(null);
         isAtBottomRef.current = true;
         setTimeout(() => {
           if (chatContainerRef.current) {
@@ -724,6 +787,7 @@ export default function Communities() {
             images: imageUrls,
             files: docFiles,
             externalLink,
+            replyTo: currentReplyTo,
           },
         });
 
@@ -735,9 +799,11 @@ export default function Communities() {
           images: imageUrls,
           files: docFiles,
           externalLink,
+          replyTo: currentReplyTo,
         });
         setCommChatMessages(updated);
         setCommunities(getStoredCommunities());
+        setReplyingTo(null);
         isCommAtBottomRef.current = true;
         setTimeout(() => {
           if (commChatContainerRef.current) {
@@ -854,19 +920,29 @@ export default function Communities() {
     return friends.reduce((acc, f) => acc + (Number(f.unreadCount) || 0), 0);
   }, [friends]);
 
-  // Filtered lists
+  // Filtered lists (Favorited items are sorted to the top)
   const filteredCommunities = useMemo(() => {
-    return communities.filter((c) => {
+    const list = communities.filter((c) => {
       const q = searchQuery.toLowerCase();
       return c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q);
+    });
+    return [...list].sort((a, b) => {
+      if (a.isFavorite && !b.isFavorite) return -1;
+      if (!a.isFavorite && b.isFavorite) return 1;
+      return 0;
     });
   }, [communities, searchQuery]);
 
   const filteredFriends = useMemo(() => {
-    return friends.filter((f) =>
+    const list = friends.filter((f) =>
       f.name.toLowerCase().includes(friendSearch.toLowerCase()) ||
       (f.handle && f.handle.toLowerCase().includes(friendSearch.toLowerCase()))
     );
+    return [...list].sort((a, b) => {
+      if (a.isFavorite && !b.isFavorite) return -1;
+      if (!a.isFavorite && b.isFavorite) return 1;
+      return 0;
+    });
   }, [friends, friendSearch]);
 
   // Join / Leave / Delete Community actions
@@ -1095,6 +1171,7 @@ export default function Communities() {
     const recHandle = currentFriend?.handle ? currentFriend.handle.replace(/[@\s]/g, "").toLowerCase() : "";
 
     const msgId = generateMsgId("msg");
+    const currentReplyTo = replyingTo ? { ...replyingTo } : null;
 
     send({
       type: "chat.message",
@@ -1106,12 +1183,18 @@ export default function Communities() {
         senderHandle,
         senderName,
         text,
+        replyTo: currentReplyTo,
       },
     });
 
-    const updatedMessages = sendChatMessage(activeFriendId, { id: msgId, text }, "me");
+    const updatedMessages = sendChatMessage(
+      activeFriendId,
+      { id: msgId, text, replyTo: currentReplyTo },
+      "me"
+    );
     setChatMessages(updatedMessages);
     setMessageInput("");
+    setReplyingTo(null);
     setFriends(getStoredFriends());
 
     setTimeout(() => {
@@ -1157,8 +1240,10 @@ export default function Communities() {
     const senderHandle = currentUser?.handle || "";
     const senderName = currentUser?.name || (senderHandle ? `@${senderHandle}` : "You");
     const msgId = `comm-msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const currentReplyTo = replyingTo ? { ...replyingTo } : null;
 
     setCommMessageInput("");
+    setReplyingTo(null);
 
     send({
       type: "community.message",
@@ -1171,6 +1256,7 @@ export default function Communities() {
         senderEmail,
         senderHandle,
         text,
+        replyTo: currentReplyTo,
       },
     });
 
@@ -1179,6 +1265,7 @@ export default function Communities() {
       senderName: "You",
       senderHandle,
       text,
+      replyTo: currentReplyTo,
     });
     setCommChatMessages(updated);
     setCommunities(getStoredCommunities());
@@ -1211,10 +1298,86 @@ export default function Communities() {
     setCommunities(getStoredCommunities());
   };
 
+  // Open modal for message deletion (Delete for me vs Delete for everyone)
+  const requestDeleteMessage = (msg, isMe, type = "friend") => {
+    setDeleteMsgModal({
+      isOpen: true,
+      msg,
+      isMe,
+      type,
+    });
+  };
+
+  const handleConfirmDeleteForEveryone = () => {
+    const { msg, type } = deleteMsgModal;
+    if (!msg) return;
+    if (type === "friend") {
+      handleDeleteChatMessage(msg.id);
+    } else {
+      handleDeleteCommMessage(msg.id);
+    }
+    setDeleteMsgModal({ isOpen: false, msg: null, isMe: false, type: "friend" });
+  };
+
+  const handleConfirmDeleteForMe = () => {
+    const { msg, type } = deleteMsgModal;
+    if (!msg) return;
+    if (type === "friend" && activeFriendId) {
+      const updated = deleteChatMessageForMe(activeFriendId, msg.id);
+      setChatMessages(updated);
+      setFriends(getStoredFriends());
+    } else if (type === "community" && selectedCommunity) {
+      const updated = deleteCommunityMessageForMe(selectedCommunity.id, msg.id);
+      setCommChatMessages(updated);
+      setCommunities(getStoredCommunities());
+    }
+    setDeleteMsgModal({ isOpen: false, msg: null, isMe: false, type: "friend" });
+  };
+
+  // Clear chat confirm handler
+  const handleConfirmClearChat = () => {
+    if (clearChatModal.type === "friend" && activeFriendId) {
+      clearFriendChat(activeFriendId);
+      setChatMessages([]);
+      setFriends(getStoredFriends());
+    } else if (clearChatModal.type === "community" && selectedCommunity) {
+      clearCommunityChat(selectedCommunity.id);
+      setCommChatMessages([]);
+      setCommunities(getStoredCommunities());
+    }
+    setClearChatModal({ isOpen: false, type: "friend", targetName: "" });
+  };
+
+  // Star / Favorite toggle handler
+  const handleToggleFavoriteActiveFriend = () => {
+    if (!activeFriendId) return;
+    const updated = toggleFavoriteFriend(activeFriendId);
+    setFriends(updated);
+    setShowFriendMenu(false);
+  };
+
+  const handleToggleFavoriteActiveCommunity = () => {
+    if (!selectedCommunity) return;
+    const updated = toggleFavoriteCommunity(selectedCommunity.id);
+    setCommunities(updated);
+    const refreshed = updated.find((c) => c.id === selectedCommunity.id);
+    if (refreshed) setSelectedCommunity(refreshed);
+    setShowCommMenu(false);
+  };
+
   // ==========================================
   // CHAT MESSAGE BUBBLE COMPONENT
   // ==========================================
-  const ChatBubble = ({ msg, isMe, onDelete, onImageClick, showSenderBadge = false }) => {
+  const ChatBubble = ({
+    msg,
+    isMe,
+    onDelete,
+    onReply,
+    onJumpToMessage,
+    isHighlighted = false,
+    onImageClick,
+    showSenderBadge = false,
+  }) => {
     const textStr = (msg.text || "").trim();
     const textMatch = textStr.match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
     const isVerification = Boolean(
@@ -1226,9 +1389,18 @@ export default function Communities() {
     const displayGoalTitle = msg.goalTitle || (textMatch ? textMatch[1].trim() : "");
 
     return (
-      <div className={`group flex ${isMe ? "justify-end" : "justify-start"}`}>
+      <div
+        id={`msg-${msg.id}`}
+        className={`group flex transition-all duration-300 scroll-mt-20 ${
+          isMe ? "justify-end" : "justify-start"
+        }`}
+      >
         <div
-          className={`relative max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 text-xs ${
+          className={`relative max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 text-xs transition-all duration-300 ${
+            isHighlighted
+              ? "ring-2 ring-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.6)] scale-[1.02] bg-emerald-500/15"
+              : ""
+          } ${
             isMe
               ? "bg-white text-black font-medium"
               : "border border-[#333333] bg-[#1E1E1E] text-white"
@@ -1243,6 +1415,33 @@ export default function Communities() {
                   @{msg.senderHandle.replace(/^@/, "")}
                 </span>
               )}
+            </div>
+          )}
+
+          {/* Quoted Reply context with WhatsApp-style jump to message */}
+          {msg.replyTo && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                if (msg.replyTo.id && onJumpToMessage) {
+                  onJumpToMessage(msg.replyTo.id);
+                }
+              }}
+              className={`mb-2 rounded-lg border-l-4 p-2 text-[11px] select-none cursor-pointer transition-all hover:opacity-90 active:scale-[0.98] ${
+                isMe
+                  ? "border-emerald-600 bg-black/10 hover:bg-black/15 text-neutral-800"
+                  : "border-emerald-400 bg-white/10 hover:bg-white/15 text-neutral-300"
+              }`}
+              title="Click to jump to quoted message"
+            >
+              <div className="flex items-center justify-between font-bold text-[10px] text-emerald-500 mb-0.5">
+                <div className="flex items-center gap-1">
+                  <Reply size={10} />
+                  <span>{msg.replyTo.senderName || (msg.replyTo.sender === "me" ? "You" : "Message")}</span>
+                </div>
+                <span className="text-[9px] font-normal opacity-70 underline ml-2">Jump ↑</span>
+              </div>
+              <p className="line-clamp-2 italic opacity-90 text-[11px]">{msg.replyTo.text}</p>
             </div>
           )}
 
@@ -1429,10 +1628,28 @@ export default function Communities() {
             </span>
             {isMe && <CheckCheck size={12} className="text-neutral-500" />}
 
+            {/* Reply action icon */}
+            <button
+              type="button"
+              onClick={() =>
+                onReply &&
+                onReply({
+                  id: msg.id,
+                  text: (isVerification && displayGoalTitle ? `🎯 Goal: ${displayGoalTitle}` : "") || msg.text || (msg.images?.length ? "📸 Photo attachment" : "📎 Attachment"),
+                  senderName: msg.senderName || (isMe ? "You" : (activeFriend?.name || "Member")),
+                  sender: msg.sender,
+                })
+              }
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-neutral-400 hover:text-white"
+              title="Reply to message"
+            >
+              <Reply size={11} />
+            </button>
+
             {/* Delete message icon */}
             <button
               type="button"
-              onClick={() => onDelete(msg.id)}
+              onClick={() => onDelete && onDelete(msg, isMe)}
               className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-neutral-400 hover:text-red-500"
               title="Delete message"
             >
@@ -1513,8 +1730,11 @@ export default function Communities() {
                     </button>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-bold text-white">
-                          {selectedCommunity.name}
+                        <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                          <span>{selectedCommunity.name}</span>
+                          {selectedCommunity.isFavorite && (
+                            <Star size={15} className="fill-amber-400 text-amber-400 shrink-0" title="Favorited Community" />
+                          )}
                         </h2>
                         <span className="rounded-full border border-[#444444] px-2 py-0.5 text-[10px] uppercase font-bold text-[#A3A3A3]">
                           {selectedCommunity.category}
@@ -1537,26 +1757,70 @@ export default function Communities() {
                       {copiedCode ? "Copied" : selectedCommunity.code}
                     </button>
 
-                    {selectedCommunity.joined ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setCommToLeave(selectedCommunity)}
-                          className="rounded-xl border border-[#444444] bg-transparent px-3 py-1.5 text-xs font-semibold text-neutral-300 hover:text-white hover:border-white transition"
-                        >
-                          Leave
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCommToDelete(selectedCommunity)}
-                          className="rounded-xl border border-red-900/50 bg-red-950/20 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-900/30 transition"
-                          title="Delete Community"
-                        >
-                          <Trash2 size={13} className="inline mr-1" />
-                          Delete
-                        </button>
-                      </>
-                    ) : (
+                    {/* WhatsApp-style 3-Dot Menu */}
+                    <div className="relative" ref={commMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => setShowCommMenu((prev) => !prev)}
+                        className="rounded-xl border border-[#333333] bg-[#222222] p-2 text-neutral-300 hover:text-white hover:border-white transition"
+                        title="More options"
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+
+                      {showCommMenu && (
+                        <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#333333] bg-[#1E1E1E] py-1 shadow-2xl z-40 backdrop-blur-md">
+                          <button
+                            type="button"
+                            onClick={handleToggleFavoriteActiveCommunity}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                          >
+                            <Star size={14} className={selectedCommunity.isFavorite ? "fill-amber-400 text-amber-400" : "text-neutral-400"} />
+                            <span>{selectedCommunity.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowCommMenu(false);
+                              setClearChatModal({ isOpen: true, type: "community", targetName: selectedCommunity.name });
+                            }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                          >
+                            <RotateCcw size={14} className="text-neutral-400" />
+                            <span>Clear Chat</span>
+                          </button>
+                          {selectedCommunity.joined && (
+                            <>
+                              <div className="my-1 border-t border-[#333333]" />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowCommMenu(false);
+                                  setCommToLeave(selectedCommunity);
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                              >
+                                <ArrowLeft size={14} className="text-neutral-400" />
+                                <span>Leave Community</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowCommMenu(false);
+                                  setCommToDelete(selectedCommunity);
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 text-left transition"
+                              >
+                                <Trash2 size={14} className="text-red-400" />
+                                <span>Delete Community</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {!selectedCommunity.joined && (
                       <button
                         type="button"
                         onClick={(e) => handleJoin(selectedCommunity.id, e)}
@@ -1606,7 +1870,10 @@ export default function Communities() {
                             key={msg.id}
                             msg={msg}
                             isMe={msg.sender === "me"}
-                            onDelete={handleDeleteCommMessage}
+                            onDelete={(m, isMe) => requestDeleteMessage(m, isMe, "community")}
+                            onReply={(replyContext) => setReplyingTo(replyContext)}
+                            onJumpToMessage={handleJumpToMessage}
+                            isHighlighted={highlightedMsgId === msg.id}
                             onImageClick={setLightboxImage}
                             showSenderBadge={true}
                           />
@@ -1614,6 +1881,29 @@ export default function Communities() {
                       )}
                       <div ref={commChatEndRef} />
                     </div>
+
+                    {/* Quoted Reply banner */}
+                    {replyingTo && (
+                      <div className="shrink-0 flex items-center justify-between border-t border-l-4 border-l-emerald-500 border-t-[#2A2A2A] bg-[#1E1E1E] px-4 py-2 text-xs">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400">
+                            <Reply size={12} />
+                            <span>Replying to {replyingTo.senderName || "Message"}</span>
+                          </div>
+                          <p className="truncate text-[11px] text-neutral-300 italic mt-0.5">
+                            {replyingTo.text}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setReplyingTo(null)}
+                          className="ml-3 rounded-full p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition"
+                          title="Cancel reply"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
 
                     {/* Community Chat Input - WhatsApp style */}
                     <form
@@ -1741,7 +2031,12 @@ export default function Communities() {
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-base font-bold text-white">{c.name}</h3>
+                            <h3 className="text-base font-bold text-white flex items-center gap-1.5">
+                              <span>{c.name}</span>
+                              {c.isFavorite && (
+                                <Star size={13} className="fill-amber-400 text-amber-400 shrink-0" title="Starred Community" />
+                              )}
+                            </h3>
                             {c.joined && (
                               <span className="rounded-md border border-emerald-900 bg-emerald-950/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
                                 Joined
@@ -1871,6 +2166,9 @@ export default function Communities() {
                               <p className={`truncate text-xs ${hasUnread ? "font-bold text-white" : "font-semibold text-white"}`}>
                                 {f.name}
                               </p>
+                              {f.isFavorite && (
+                                <Star size={11} className="fill-amber-400 text-amber-400 shrink-0" title="Starred Friend" />
+                              )}
                               {f.handle && (
                                 <span className="font-mono text-[10px] text-[#A3A3A3]">
                                   @{f.handle.replace(/^@/, "")}
@@ -1946,8 +2244,11 @@ export default function Communities() {
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-bold text-white">
-                            {activeFriend.name}
+                          <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                            <span>{activeFriend.name}</span>
+                            {activeFriend.isFavorite && (
+                              <Star size={13} className="fill-amber-400 text-amber-400 shrink-0" title="Starred Friend" />
+                            )}
                           </h3>
                           {activeFriend.handle && (
                             <span className="rounded-md border border-[#3A3A3A] bg-[#222222] px-2 py-0.5 font-mono text-[11px] font-semibold text-white">
@@ -1987,14 +2288,53 @@ export default function Communities() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setFriendToDelete(activeFriend)}
-                        className="rounded-xl border border-red-900/40 bg-red-950/20 p-2 text-red-400 hover:bg-red-900/40 transition"
-                        title="Delete Friend & Clear Chat"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      {/* WhatsApp-style 3-Dot Dropdown Menu */}
+                      <div className="relative" ref={friendMenuRef}>
+                        <button
+                          type="button"
+                          onClick={() => setShowFriendMenu((prev) => !prev)}
+                          className="rounded-xl border border-[#333333] bg-[#222222] p-2 text-neutral-300 hover:text-white hover:border-white transition"
+                          title="More options"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+
+                        {showFriendMenu && (
+                          <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#333333] bg-[#1E1E1E] py-1 shadow-2xl z-40 backdrop-blur-md">
+                            <button
+                              type="button"
+                              onClick={handleToggleFavoriteActiveFriend}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                            >
+                              <Star size={14} className={activeFriend.isFavorite ? "fill-amber-400 text-amber-400" : "text-neutral-400"} />
+                              <span>{activeFriend.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowFriendMenu(false);
+                                setClearChatModal({ isOpen: true, type: "friend", targetName: activeFriend.name });
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                            >
+                              <RotateCcw size={14} className="text-neutral-400" />
+                              <span>Clear Chat</span>
+                            </button>
+                            <div className="my-1 border-t border-[#333333]" />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowFriendMenu(false);
+                                setFriendToDelete(activeFriend);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 text-left transition"
+                            >
+                              <Trash2 size={14} className="text-red-400" />
+                              <span>Delete Contact</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -2020,13 +2360,39 @@ export default function Communities() {
                           key={msg.id}
                           msg={msg}
                           isMe={msg.sender === "me"}
-                          onDelete={handleDeleteChatMessage}
+                          onDelete={(m, isMe) => requestDeleteMessage(m, isMe, "friend")}
+                          onReply={(replyContext) => setReplyingTo(replyContext)}
+                          onJumpToMessage={handleJumpToMessage}
+                          isHighlighted={highlightedMsgId === msg.id}
                           onImageClick={setLightboxImage}
                         />
                       ))
                     )}
                     <div ref={chatEndRef} />
                   </div>
+
+                  {/* Quoted Reply banner */}
+                  {replyingTo && (
+                    <div className="shrink-0 flex items-center justify-between border-t border-l-4 border-l-emerald-500 border-t-[#2A2A2A] bg-[#1E1E1E] px-4 py-2 text-xs">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400">
+                          <Reply size={12} />
+                          <span>Replying to {replyingTo.senderName || "Message"}</span>
+                        </div>
+                        <p className="truncate text-[11px] text-neutral-300 italic mt-0.5">
+                          {replyingTo.text}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setReplyingTo(null)}
+                        className="ml-3 rounded-full p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition"
+                        title="Cancel reply"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
 
                   {/* Chat Input - WhatsApp style with paperclip */}
                   <form
@@ -2608,6 +2974,105 @@ export default function Communities() {
                   className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-500 transition"
                 >
                   Delete Community
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================
+            WHATSAPP-STYLE DELETE MESSAGE MODAL (Delete for me vs Delete for everyone)
+        ============================================================ */}
+        {deleteMsgModal.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-2xl border border-[#333333] bg-[#1A1A1A] p-6 shadow-2xl space-y-4">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500/15 text-red-400 border border-red-500/30">
+                  <Trash2 size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Delete Message?</h3>
+                  <p className="text-[11px] text-[#A3A3A3]">
+                    {deleteMsgModal.isMe ? "Choose how you want to delete this message" : "Remove this message from your view"}
+                  </p>
+                </div>
+              </div>
+
+              {deleteMsgModal.msg?.text && (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-2.5 text-xs text-neutral-300 italic line-clamp-2">
+                  "{deleteMsgModal.msg.text}"
+                </div>
+              )}
+
+              <div className="pt-2 flex flex-col gap-2">
+                {deleteMsgModal.isMe && (
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteForEveryone}
+                    className="w-full rounded-xl bg-red-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-500 transition shadow-sm"
+                  >
+                    Delete for everyone
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteForMe}
+                  className={`w-full rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+                    deleteMsgModal.isMe
+                      ? "border border-[#444444] bg-[#222222] text-white hover:border-white"
+                      : "bg-red-600 text-white hover:bg-red-500"
+                  }`}
+                >
+                  Delete for me
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteMsgModal({ isOpen: false, msg: null, isMe: false, type: "friend" })}
+                  className="w-full rounded-xl border border-transparent px-4 py-2 text-xs font-semibold text-[#A3A3A3] hover:text-white transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================
+            WHATSAPP-STYLE CLEAR CHAT MODAL
+        ============================================================ */}
+        {clearChatModal.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-2xl border border-red-900/40 bg-[#1A1A1A] p-6 shadow-2xl space-y-4">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500/15 text-red-400 border border-red-500/30">
+                  <RotateCcw size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Clear Chat Messages?</h3>
+                  <p className="text-[11px] text-[#A3A3A3]">
+                    {clearChatModal.targetName ? `Chat with ${clearChatModal.targetName}` : "This conversation"}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-[#A3A3A3] leading-relaxed">
+                Are you sure you want to clear all messages from this chat? Media and text will be deleted from your view.
+              </p>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setClearChatModal({ isOpen: false, type: "friend", targetName: "" })}
+                  className="rounded-xl border border-[#444444] px-4 py-2 text-xs font-semibold text-white hover:border-white transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmClearChat}
+                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-500 transition"
+                >
+                  Clear Chat
                 </button>
               </div>
             </div>

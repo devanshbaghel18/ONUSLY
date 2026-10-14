@@ -118,6 +118,7 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
       files: isDataObj && Array.isArray(messageData.files) ? messageData.files : [],
       externalLink: isDataObj ? (messageData.externalLink || "") : "",
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      replyTo: isDataObj && messageData.replyTo ? messageData.replyTo : null,
     };
 
     allChats[friendId] = [...friendMessages, newMsg];
@@ -148,7 +149,7 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
   }
 }
 
-export function receiveChatMessage({ friendEmail, friendHandle, friendName, text, time, sender = "friend", messageId, isProof, goalId, goalTitle, ownerId, approved, images, files, externalLink, isCurrentlyActive = false }) {
+export function receiveChatMessage({ friendEmail, friendHandle, friendName, text, time, sender = "friend", messageId, isProof, goalId, goalTitle, ownerId, approved, images, files, externalLink, isCurrentlyActive = false, replyTo = null }) {
   try {
     const normalizedEmail = friendEmail ? friendEmail.trim().toLowerCase() : "";
     const cleanHandle = friendHandle ? friendHandle.replace(/[@\s]/g, "").toLowerCase() : "";
@@ -212,7 +213,8 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
         (!existing.isProof && finalIsProof) ||
         (!existing.goalId && goalId) ||
         (!existing.goalTitle && finalGoalTitle) ||
-        (!existing.approved && approved);
+        (!existing.approved && approved) ||
+        (!existing.replyTo && replyTo);
 
       if (shouldUpdate) {
         const updatedMsg = {
@@ -225,6 +227,7 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
           images: (Array.isArray(images) && images.length > 0) ? images : existing.images,
           files: (Array.isArray(files) && files.length > 0) ? files : existing.files,
           externalLink: externalLink || existing.externalLink,
+          replyTo: replyTo || existing.replyTo || null,
         };
         friendMessages[existingIndex] = updatedMsg;
         allChats[friend.id] = friendMessages;
@@ -247,6 +250,7 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
       files: Array.isArray(files) ? files : [],
       externalLink: externalLink || "",
       time: time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      replyTo: replyTo || null,
     };
 
     allChats[friend.id] = [...friendMessages, newMsg];
@@ -288,6 +292,75 @@ export function clearUnreadCount(friendId) {
   } catch (err) {
     console.error("Failed to clear unread count:", err);
     return getStoredFriends();
+  }
+}
+
+export function clearFriendChat(friendId) {
+  try {
+    if (!friendId) return [];
+    const raw = localStorage.getItem(CHATS_KEY);
+    const allChats = raw ? JSON.parse(raw) : {};
+    allChats[friendId] = [];
+    localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
+
+    const friends = getStoredFriends();
+    const updated = friends.map((f) =>
+      f.id === friendId
+        ? { ...f, lastMessage: "", lastMessageTime: "", unreadCount: 0 }
+        : f
+    );
+    saveFriends(updated);
+    return [];
+  } catch (err) {
+    console.error("Failed to clear friend chat:", err);
+    return [];
+  }
+}
+
+export function toggleFavoriteFriend(friendId) {
+  try {
+    if (!friendId) return getStoredFriends();
+    const friends = getStoredFriends();
+    const updated = friends.map((f) =>
+      f.id === friendId ? { ...f, isFavorite: !f.isFavorite } : f
+    );
+    saveFriends(updated);
+    return updated;
+  } catch (err) {
+    console.error("Failed to toggle favorite friend:", err);
+    return getStoredFriends();
+  }
+}
+
+export function deleteChatMessageForMe(friendId, messageId) {
+  try {
+    if (!friendId || !messageId) return [];
+    const raw = localStorage.getItem(CHATS_KEY);
+    if (!raw) return [];
+    const allChats = JSON.parse(raw);
+    const msgs = allChats[friendId] || [];
+    const updatedMsgs = msgs.filter((m) => m.id !== messageId);
+    allChats[friendId] = updatedMsgs;
+    localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
+
+    // Update last message preview
+    const lastMsg = updatedMsgs[updatedMsgs.length - 1];
+    const friends = getStoredFriends();
+    const updatedFriends = friends.map((f) =>
+      f.id === friendId
+        ? {
+            ...f,
+            lastMessage: lastMsg ? (lastMsg.isProof ? `📸 Proof: ${lastMsg.goalTitle || "Goal"}` : lastMsg.text) : "",
+            lastMessageTime: lastMsg ? lastMsg.time : "",
+          }
+        : f
+    );
+    saveFriends(updatedFriends);
+
+    return updatedMsgs;
+  } catch (err) {
+    console.error("Failed to delete chat message for me:", err);
+    return [];
   }
 }
 
@@ -402,6 +475,7 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail, cur
         images,
         files,
         externalLink,
+        replyTo: m.replyTo || existing.replyTo || null,
         time: m.time
           ? (m.time.includes("T") ? new Date(m.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : m.time)
           : (existing.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
