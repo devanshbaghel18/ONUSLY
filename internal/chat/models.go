@@ -14,9 +14,11 @@ type Message struct {
 	GoalID          string   `dynamodbav:"GoalID,omitempty" json:"goalId,omitempty"`
 	GoalTitle       string   `dynamodbav:"GoalTitle,omitempty" json:"goalTitle,omitempty"`
 	OwnerID         string   `dynamodbav:"OwnerID,omitempty" json:"ownerId,omitempty"`
-	Images          []string `dynamodbav:"Images,omitempty" json:"images,omitempty"`
-	ExternalLink    string   `dynamodbav:"ExternalLink,omitempty" json:"externalLink,omitempty"`
-	Approved        bool     `dynamodbav:"Approved,omitempty" json:"approved,omitempty"`
-	Time            string   `dynamodbav:"Time" json:"time"`
-	Delivered       bool     `dynamodbav:"Delivered" json:"delivered"`
+	Images          []string    `dynamodbav:"Images,omitempty" json:"images,omitempty"`
+	Files           interface{} `dynamodbav:"Files,omitempty" json:"files,omitempty"`
+	ExternalLink    string      `dynamodbav:"ExternalLink,omitempty" json:"externalLink,omitempty"`
+	Approved        bool        `dynamodbav:"Approved,omitempty" json:"approved,omitempty"`
+	ReplyTo         interface{} `dynamodbav:"ReplyTo,omitempty" json:"replyTo,omitempty"`
+	Time            string      `dynamodbav:"Time" json:"time"`
+	Delivered       bool        `dynamodbav:"Delivered" json:"delivered"`
 }

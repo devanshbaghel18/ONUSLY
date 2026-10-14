@@ -28,11 +28,13 @@ type StoredMessage struct {
 	GoalID          string   `json:"goalId,omitempty" dynamodbav:"GoalID,omitempty"`
 	GoalTitle       string   `json:"goalTitle,omitempty" dynamodbav:"GoalTitle,omitempty"`
 	OwnerID         string   `json:"ownerId,omitempty" dynamodbav:"OwnerID,omitempty"`
-	Images          []string `json:"images,omitempty" dynamodbav:"Images,omitempty"`
-	ExternalLink    string   `json:"externalLink,omitempty" dynamodbav:"ExternalLink,omitempty"`
-	Approved        bool     `json:"approved,omitempty" dynamodbav:"Approved,omitempty"`
-	Time            string   `json:"time" dynamodbav:"Time"`
-	Delivered       bool     `json:"delivered" dynamodbav:"Delivered"`
+	Images          []string    `json:"images,omitempty" dynamodbav:"Images,omitempty"`
+	Files           interface{} `json:"files,omitempty" dynamodbav:"Files,omitempty"`
+	ExternalLink    string      `json:"externalLink,omitempty" dynamodbav:"ExternalLink,omitempty"`
+	Approved        bool        `json:"approved,omitempty" dynamodbav:"Approved,omitempty"`
+	ReplyTo         interface{} `json:"replyTo,omitempty" dynamodbav:"ReplyTo,omitempty"`
+	Time            string      `json:"time" dynamodbav:"Time"`
+	Delivered       bool        `json:"delivered" dynamodbav:"Delivered"`
 }
 
 // MessageStore is an optional persistent storage layer for chat messages.
@@ -542,8 +544,10 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			GoalID          string   `json:"goalId"`
 			GoalTitle       string   `json:"goalTitle"`
 			OwnerID         string   `json:"ownerId"`
-			Images          []string `json:"images"`
-			ExternalLink    string   `json:"externalLink"`
+			Images          []string    `json:"images"`
+			Files           interface{} `json:"files"`
+			ExternalLink    string      `json:"externalLink"`
+			ReplyTo         interface{} `json:"replyTo"`
 		}
 		if err := json.Unmarshal(base.Payload, &req); err != nil {
 			log.Printf("[WebSocket] Failed to parse chat.message payload: %v", err)
@@ -620,7 +624,9 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 				"goalTitle":       req.GoalTitle,
 				"ownerId":         req.OwnerID,
 				"images":          req.Images,
+				"files":           req.Files,
 				"externalLink":    req.ExternalLink,
+				"replyTo":         req.ReplyTo,
 				"time":            now,
 			},
 		}
@@ -677,7 +683,9 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 				GoalTitle:       req.GoalTitle,
 				OwnerID:         req.OwnerID,
 				Images:          req.Images,
+				Files:           req.Files,
 				ExternalLink:    req.ExternalLink,
+				ReplyTo:         req.ReplyTo,
 				Time:            now,
 				Delivered:       delivered,
 			}
@@ -905,9 +913,11 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			IsProof       bool     `json:"isProof"`
 			GoalID        string   `json:"goalId"`
 			GoalTitle     string   `json:"goalTitle"`
-			Images        []string `json:"images"`
-			ExternalLink  string   `json:"externalLink"`
-			Time          string   `json:"time"`
+			Images        []string    `json:"images"`
+			Files         interface{} `json:"files"`
+			ExternalLink  string      `json:"externalLink"`
+			ReplyTo       interface{} `json:"replyTo"`
+			Time          string      `json:"time"`
 		}
 		if err := json.Unmarshal(base.Payload, &req); err != nil || strings.TrimSpace(req.CommunityID) == "" {
 			log.Printf("[WebSocket] Failed to parse community.message payload: %v", err)
@@ -956,7 +966,9 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 				"goalId":        req.GoalID,
 				"goalTitle":     req.GoalTitle,
 				"images":        req.Images,
+				"files":         req.Files,
 				"externalLink":  req.ExternalLink,
+				"replyTo":       req.ReplyTo,
 				"time":          now,
 			},
 		}
