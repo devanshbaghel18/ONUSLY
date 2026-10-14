@@ -100,11 +100,33 @@ body {
     animation: pulse-glow 2.8s ease-in-out infinite;
 }
 
-/* Hide scrollbar for Chrome, Safari, Opera, Firefox, Edge, IE */
+/* Hide scrollbar completely for Chrome, Safari, Opera, Firefox, Edge, IE */
 .no-scrollbar::-webkit-scrollbar {
-    display: none;
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
 }
 .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+}
+
+/* Global scrollbar fallback: never render ugly white system scrollbars on dark theme */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
