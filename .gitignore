@@ -4,3 +4,6 @@
 onusly-server
 server.log
 .idea/
+*items*.json
+*backup*.json
+
