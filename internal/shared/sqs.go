@@ -9,11 +9,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
-// NewSQSClient creates an AWS SQS client configured from AWS_REGION (defaults to ap-south-1).
+// NewSQSClient creates an AWS SQS client configured from AWS_REGION (defaults to eu-north-1).
 func NewSQSClient() *sqs.Client {
 	region := os.Getenv("AWS_REGION")
 	if region == "" {
-		region = "ap-south-1"
+		region = "eu-north-1"
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(

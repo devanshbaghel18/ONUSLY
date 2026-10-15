@@ -12,7 +12,7 @@ import (
 func NewDynamoClient() *dynamodb.Client {
 	region := os.Getenv("AWS_REGION")
 	if region == "" {
-		region = "ap-south-1"
+		region = "eu-north-1"
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(
