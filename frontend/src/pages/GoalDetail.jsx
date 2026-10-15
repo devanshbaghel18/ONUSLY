@@ -486,18 +486,18 @@ export default function GoalDetail() {
     <AppLayout>
       <div className="mx-auto max-w-5xl space-y-6">
         {/* Navigation Bar back button */}
-        <div className="flex items-center justify-between border-b border-[#777777]/30 pb-4">
+        <div className="flex items-center justify-between border-b border-white/10 pb-4">
           <Link
             to="/goals"
-            className="group flex items-center gap-2 rounded-xl border border-[#777777] bg-[#3A3A3A] px-3.5 py-2 text-xs font-semibold text-[#B5B5B5] transition hover:border-white hover:text-white"
+            className="group btn-premium flex items-center gap-2 rounded-xl border border-white/10 bg-[#1E1E1E] px-3.5 py-2 text-xs font-semibold text-[#B5B5B5] transition hover:border-white hover:text-white"
           >
             <ArrowLeft size={15} className="transition-transform group-hover:-translate-x-0.5" />
             <span>Back to Goals</span>
           </Link>
           <div className="flex flex-wrap items-center gap-2">
             {!isOwner && (
-              <span className="flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-300">
-                <ShieldCheck size={13} className="text-indigo-400" />
+              <span className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-neutral-300">
+                <ShieldCheck size={13} className="text-white" />
                 <span>Approver Review Mode</span>
               </span>
             )}
@@ -507,10 +507,10 @@ export default function GoalDetail() {
               <button
                 type="button"
                 onClick={handleTogglePin}
-                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                className={`btn-premium flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
                   isPinned
-                    ? "border-amber-500/50 bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"
-                    : "border-[#777777] bg-[#292929] text-[#B5B5B5] hover:text-white hover:border-white"
+                    ? "border-white/40 bg-white/15 text-white hover:bg-white/25"
+                    : "border-white/10 bg-[#1E1E1E] text-neutral-300 hover:text-white hover:border-white"
                 }`}
                 title={
                   isPinned
@@ -518,7 +518,7 @@ export default function GoalDetail() {
                     : `Pin to dashboard (${pinnedIds.length}/${MAX_PINNED_GOALS})`
                 }
               >
-                <Pin size={12} className={isPinned ? "fill-amber-400" : ""} />
+                <Pin size={12} className={isPinned ? "fill-white" : ""} />
                 <span>{isPinned ? "Pinned to Dashboard" : "Pin to Dashboard"}</span>
               </button>
             )}
@@ -529,9 +529,9 @@ export default function GoalDetail() {
                 type="button"
                 disabled={repeating || goal.status !== "completed"}
                 onClick={handleRepeatGoal}
-                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                className={`btn-premium flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
                   goal.status === "completed"
-                    ? "border-[#777777] bg-[#292929] text-white hover:border-white"
+                    ? "border-white/20 bg-[#222222] text-white hover:border-white"
                     : "border-[#444444] bg-[#1E1E1E] text-[#666666] cursor-not-allowed opacity-60"
                 }`}
                 title={
@@ -543,7 +543,7 @@ export default function GoalDetail() {
                 {repeating ? (
                   <Loader2 size={12} className="animate-spin text-white" />
                 ) : (
-                  <RotateCcw size={12} className={goal.status === "completed" ? "text-emerald-400" : "text-[#666666]"} />
+                  <RotateCcw size={12} className={goal.status === "completed" ? "text-white" : "text-[#666666]"} />
                 )}
                 <span>Repeat Routine</span>
               </button>
@@ -559,22 +559,22 @@ export default function GoalDetail() {
                   setCopiedReviewLink(true);
                   setTimeout(() => setCopiedReviewLink(false), 2500);
                 }}
-                className="flex items-center gap-1.5 rounded-xl border border-[#777777] bg-[#292929] px-3 py-1.5 text-xs font-semibold text-white hover:border-white transition"
+                className="btn-premium flex items-center gap-1.5 rounded-xl border border-white/20 bg-[#222222] px-3 py-1.5 text-xs font-semibold text-white hover:border-white transition"
                 title="Copy direct verification link for your assigned approver"
               >
-                <Share2 size={12} className="text-emerald-400" />
+                <Share2 size={12} className="text-white" />
                 <span>{copiedReviewLink ? "Link Copied! ✓" : "Share Link"}</span>
               </button>
             )}
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
                 isConnected
-                  ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  ? "border border-white/20 bg-white/10 text-white"
                   : "border border-neutral-700 bg-neutral-800 text-neutral-400"
               }`}
               title={isConnected ? "Real-Time WebSocket Connected" : "Connecting to real-time gateway..."}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-400 animate-pulse" : "bg-neutral-500"}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-white animate-pulse" : "bg-neutral-500"}`} />
               <span>{isConnected ? "Live Sync Active" : "Connecting..."}</span>
             </span>
             <span className="text-xs font-semibold text-[#8E8E8E]">Goal ID: {id}</span>
@@ -583,18 +583,18 @@ export default function GoalDetail() {
 
         {/* Real-time Unlock Celebration Banner */}
         {unlockBanner && (
-          <div className="relative mb-6 overflow-hidden rounded-2xl border border-emerald-500/50 bg-gradient-to-r from-emerald-950/80 via-[#22382e] to-emerald-950/80 p-5 text-white shadow-[0_10px_40px_rgba(16,185,129,0.25)] animate-in fade-in slide-in-from-top-4 duration-500">
+          <div className="relative mb-6 overflow-hidden rounded-2xl border border-white/20 bg-white/[0.06] backdrop-blur-xl p-5 text-white shadow-[0_10px_40px_rgba(0,0,0,0.6)] animate-in fade-in slide-in-from-top-4 duration-500">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 border border-white/20 text-white">
                   <ShieldCheck size={24} />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                    <span className="text-xs font-bold uppercase tracking-wider text-white">
                       Goal Completed & Unlocked Live!
                     </span>
-                    <span className="text-[10px] text-emerald-300/70">{unlockBanner.time}</span>
+                    <span className="text-[10px] text-neutral-500">{unlockBanner.time}</span>
                   </div>
                   <p className="mt-0.5 text-sm font-semibold text-white">
                     "{unlockBanner.title}" has been reviewed, approved, and unlocked in real time!
@@ -604,7 +604,7 @@ export default function GoalDetail() {
               <button
                 type="button"
                 onClick={() => setUnlockBanner(null)}
-                className="rounded-lg p-1 text-emerald-400 hover:bg-emerald-900/50 hover:text-white transition"
+                className="rounded-lg p-1 text-neutral-400 hover:bg-white/5 hover:text-white transition"
               >
                 ✕
               </button>
@@ -613,14 +613,14 @@ export default function GoalDetail() {
         )}
           {/* Notifications */}
           {successNotice && (
-            <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/30 px-5 py-3.5 text-sm text-emerald-300 shadow-lg">
+            <div className="mb-6 flex items-center gap-3 rounded-2xl border border-white/20 bg-white/[0.06] px-5 py-3.5 text-sm text-white shadow-lg">
               <CheckCircle2 size={18} className="shrink-0" />
               <span>{successNotice}</span>
             </div>
           )}
 
           {error && (
-            <div className="mb-6 flex items-center justify-between rounded-2xl border border-rose-500/40 bg-rose-950/30 px-5 py-3.5 text-sm text-rose-300 shadow-lg">
+            <div className="mb-6 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3.5 text-sm text-neutral-300 shadow-lg">
               <div className="flex items-center gap-3">
                 <AlertCircle size={18} className="shrink-0" />
                 <span>{error}</span>
@@ -653,12 +653,12 @@ export default function GoalDetail() {
               {/* =====================================================
                   1. GOAL OVERVIEW & EDIT CARD
               ===================================================== */}
-              <div className="relative overflow-hidden rounded-[28px] border border-[#777777]/70 bg-[#3A3A3A] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.4)] sm:p-8">
+              <div className="card-glass relative overflow-hidden rounded-[28px] border border-white/10 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] sm:p-8">
                 {/* Status & Action Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#777777]/30 pb-5">
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
                   <div className="flex items-center gap-3">
-                    <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300 uppercase tracking-wider">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold text-white uppercase tracking-wider">
+                      <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
                       {goal.status || "active"}
                     </span>
 
@@ -670,8 +670,8 @@ export default function GoalDetail() {
 
                   <div className="flex items-center gap-2">
                     {!isOwner && (
-                      <span className="flex items-center gap-1.5 rounded-full border border-indigo-500/40 bg-indigo-500/10 px-3 py-1 text-xs font-semibold text-indigo-300">
-                        <ShieldCheck size={12} className="text-indigo-400" />
+                      <span className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-neutral-300">
+                        <ShieldCheck size={12} className="text-white" />
                         Partner Review
                       </span>
                     )}
@@ -680,7 +680,7 @@ export default function GoalDetail() {
                       <button
                         type="button"
                         onClick={openShareModal}
-                        className="flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-sm"
+                        className="btn-premium flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-xs font-bold text-black hover:bg-neutral-100 transition shadow-sm"
                       >
                         <Share2 size={14} />
                         <span>Share for Verification</span>
@@ -691,7 +691,7 @@ export default function GoalDetail() {
                       <button
                         type="button"
                         onClick={() => setIsEditingGoal(true)}
-                        className="flex items-center gap-2 rounded-xl border border-[#777777] bg-[#292929] px-3.5 py-2 text-xs font-semibold text-white transition hover:border-white hover:bg-[#4A4A4A]"
+                        className="btn-premium flex items-center gap-2 rounded-xl border border-white/20 bg-[#222222] px-3.5 py-2 text-xs font-semibold text-white transition hover:border-white hover:bg-[#2C2C2C]"
                       >
                         <Edit3 size={14} className="text-[#B5B5B5]" />
                         <span>Edit Goal</span>
@@ -702,7 +702,7 @@ export default function GoalDetail() {
                       <button
                         type="button"
                         onClick={handleDelete}
-                        className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-[#292929] px-3 py-2 text-xs font-semibold text-rose-400 transition hover:bg-rose-500/20 hover:border-rose-400"
+                        className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#292929] px-3 py-2 text-xs font-semibold text-neutral-400 transition hover:bg-white/10 hover:border-white/20"
                         title="Delete Goal"
                       >
                         <Trash2 size={14} />
@@ -719,27 +719,27 @@ export default function GoalDetail() {
                       {goal.title}
                     </h1>
 
-                    <div className="mt-4 rounded-2xl border border-[#777777]/40 bg-[#292929]/60 p-5">
-                      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[#B5B5B5] mb-2">
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] mb-2">
                         Description & Context
                       </h4>
                       {goal.description ? (
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#E0E0E0]">
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#EDEDED]">
                           {goal.description}
                         </p>
                       ) : isOwner ? (
-                        <p className="text-sm italic text-[#777777]">
+                        <p className="text-sm italic text-neutral-500">
                           No description provided. Click "Edit Goal" to add context, stakes, or metrics.
                         </p>
                       ) : (
-                        <p className="text-sm italic text-[#777777]">
+                        <p className="text-sm italic text-neutral-500">
                           No description provided.
                         </p>
                       )}
                     </div>
 
                     {goal.updatedAt && (
-                      <div className="mt-4 flex items-center gap-2 text-[11px] text-[#777777]">
+                      <div className="mt-4 flex items-center gap-2 text-[11px] text-neutral-400">
                         <Clock size={12} />
                         <span>Last modified {formatDate(goal.updatedAt)}</span>
                       </div>
@@ -749,14 +749,14 @@ export default function GoalDetail() {
                   /* Edit Form */
                   <form onSubmit={handleSaveGoalInfo} className="space-y-5 pt-6">
                     {goalFormError && (
-                      <div className="rounded-xl border border-rose-500/40 bg-rose-950/30 px-4 py-2.5 text-xs text-rose-300">
+                      <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-xs text-neutral-300">
                         {goalFormError}
                       </div>
                     )}
 
                     <div>
-                      <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[#FFFFFF]">
-                        Goal Title <span className="text-rose-400">*</span>
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-white">
+                        Goal Title <span className="text-neutral-500">*</span>
                       </label>
                       <input
                         type="text"
@@ -764,12 +764,12 @@ export default function GoalDetail() {
                         onChange={(e) => setEditTitle(e.target.value)}
                         placeholder="e.g. Master Go Single-Table DynamoDB"
                         required
-                        className="w-full rounded-xl border border-[#777777] bg-[#4A4A4A] px-4 py-3 text-sm text-[#FFFFFF] placeholder:text-[#B5B5B5] outline-none transition focus:border-white focus:ring-2 focus:ring-white/10"
+                        className="w-full rounded-xl border border-white/10 bg-[#16161A] px-4 py-3 text-sm text-white placeholder:text-neutral-500 outline-none transition focus:border-white focus:ring-2 focus:ring-white/10"
                       />
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[#FFFFFF]">
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-white">
                         Description & Stakes
                       </label>
                       <textarea
@@ -777,7 +777,7 @@ export default function GoalDetail() {
                         onChange={(e) => setEditDescription(e.target.value)}
                         placeholder="Provide the purpose, milestones, or consequences..."
                         rows={4}
-                        className="w-full resize-none rounded-xl border border-[#777777] bg-[#4A4A4A] px-4 py-3 text-sm text-[#FFFFFF] placeholder:text-[#B5B5B5] outline-none transition focus:border-white focus:ring-2 focus:ring-white/10"
+                        className="w-full resize-none rounded-xl border border-white/10 bg-[#16161A] px-4 py-3 text-sm text-white placeholder:text-neutral-500 outline-none transition focus:border-white focus:ring-2 focus:ring-white/10"
                       />
                     </div>
 
@@ -785,14 +785,14 @@ export default function GoalDetail() {
                       <button
                         type="button"
                         onClick={handleCancelGoalEdit}
-                        className="rounded-xl border border-[#777777] bg-[#292929] px-4 py-2 text-xs font-semibold text-[#B5B5B5] transition hover:text-white"
+                        className="btn-premium rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-neutral-300 transition hover:text-white hover:bg-white/10"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
                         disabled={savingGoal}
-                        className="flex items-center gap-2 rounded-xl bg-white px-5 py-2 text-xs font-bold text-[#292929] transition hover:bg-[#B5B5B5] disabled:opacity-50"
+                        className="btn-glow flex items-center gap-2 rounded-xl px-5 py-2 text-xs font-bold text-black disabled:opacity-50"
                       >
                         {savingGoal ? (
                           <>
@@ -814,29 +814,29 @@ export default function GoalDetail() {
               {/* =====================================================
                   2. DISTRACTION APPS & IN-CHAT VERIFICATION STRATEGY
               ===================================================== */}
-              <div className="rounded-[28px] border border-[#777777]/50 bg-[#262626] p-6 shadow-xl sm:p-8">
+              <div className="card-glass rounded-[28px] border border-white/10 p-6 shadow-xl sm:p-8">
                 <div className="mb-6 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
                   <div>
                     <div className="flex items-center gap-2.5">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 border border-white/20 text-white">
                         <Lock size={18} />
                       </div>
                       <h2 className="text-xl font-bold tracking-tight text-white">
                         Distraction Shield & App Blockers
                       </h2>
                     </div>
-                    <p className="mt-1 text-xs text-[#B5B5B5]">
+                    <p className="mt-1 text-xs text-[#A1A1AA]">
                       Apps locked while this goal constraint is active.
                     </p>
                   </div>
 
-                  <span className="self-start sm:self-auto rounded-full border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300">
+                  <span className="self-start sm:self-auto rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-neutral-300">
                     Status: <strong className="text-white">{goal.status === "completed" ? "Unlocked" : "Active Lock"}</strong>
                   </span>
                 </div>
 
                 {/* Blocked Apps & Domains Display */}
-                <div className="rounded-2xl border border-[#333333] bg-[#1A1A1A] p-5">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3] mb-3">
                     Target Apps & Domains Blocked For This Goal
                   </h4>
@@ -851,9 +851,9 @@ export default function GoalDetail() {
                         {displayTargets.map((target) => (
                           <span
                             key={target.label}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-red-900/40 bg-red-950/20 px-3 py-1.5 text-xs font-semibold text-red-300"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-neutral-300"
                           >
-                            <Lock size={12} className="text-red-400" />
+                            <Lock size={12} className="text-neutral-400" />
                             <span>{target.label}</span>
                           </span>
                         ))}
@@ -868,10 +868,10 @@ export default function GoalDetail() {
 
                 {/* How to Unlock via Chat Card (Owner vs Approver) */}
                 {isOwner ? (
-                  <div className="mt-5 rounded-2xl border border-emerald-900/40 bg-gradient-to-r from-emerald-950/30 to-[#1e2e26]/30 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <MessageSquare size={16} className="text-emerald-400" />
+                        <MessageSquare size={16} className="text-white" />
                         <h4 className="text-sm font-bold text-white">
                           Verify & Unlock via Chat
                         </h4>
@@ -901,10 +901,10 @@ export default function GoalDetail() {
                     )}
                   </div>
                 ) : (
-                  <div className="mt-5 rounded-2xl border border-indigo-900/40 bg-gradient-to-r from-indigo-950/30 to-[#1e1e2e]/30 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <ShieldCheck size={16} className="text-indigo-400" />
+                        <ShieldCheck size={16} className="text-white" />
                         <h4 className="text-sm font-bold text-white">
                           Accountability Review Mode
                         </h4>
@@ -955,8 +955,8 @@ export default function GoalDetail() {
                     >
                       {copiedReviewLink ? (
                         <>
-                          <Check size={14} className="text-emerald-400" />
-                          <span className="text-emerald-400">Review Link Copied!</span>
+                          <Check size={14} className="text-white" />
+                          <span className="text-white">Review Link Copied!</span>
                         </>
                       ) : (
                         <>
@@ -969,14 +969,14 @@ export default function GoalDetail() {
                 </div>
 
                 {decisionSuccess && (
-                  <div className="mt-4 flex items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-950/30 px-4 py-3 text-xs text-emerald-300">
+                  <div className="mt-4 flex items-center gap-3 rounded-xl border border-white/20 bg-white/[0.06] px-4 py-3 text-xs text-white">
                     <CheckCircle2 size={16} className="shrink-0" />
                     <span>{decisionSuccess}</span>
                   </div>
                 )}
 
                 {decisionError && (
-                  <div className="mt-4 flex items-center gap-3 rounded-xl border border-rose-500/40 bg-rose-950/30 px-4 py-3 text-xs text-rose-300">
+                  <div className="mt-4 flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs text-neutral-300">
                     <AlertCircle size={16} className="shrink-0" />
                     <span>{decisionError}</span>
                   </div>
@@ -1054,13 +1054,13 @@ export default function GoalDetail() {
 
                           {p.externalLink && (
                             <div className="flex items-center gap-2 text-xs">
-                              <ExternalLink size={14} className="text-blue-400 shrink-0" />
+                              <ExternalLink size={14} className="text-neutral-400 shrink-0" />
                               <span className="text-[#A3A3A3]">Verification Link:</span>
                               <a
                                 href={p.externalLink.startsWith("http") ? p.externalLink : `https://${p.externalLink}`}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="text-blue-400 underline hover:text-blue-300 truncate"
+                                className="text-neutral-300 underline hover:text-white truncate"
                               >
                                 {p.externalLink}
                               </a>
@@ -1069,7 +1069,7 @@ export default function GoalDetail() {
 
                           {p.photoUrl && (
                             <div className="flex items-center gap-2 text-xs text-[#A3A3A3]">
-                              <FileText size={14} className="text-purple-400 shrink-0" />
+                              <FileText size={14} className="text-neutral-400 shrink-0" />
                               <span>Attached: <strong className="text-white">{p.photoUrl}</strong></span>
                             </div>
                           )}
@@ -1079,10 +1079,10 @@ export default function GoalDetail() {
                             <div className="mt-4 rounded-xl border border-white/20 bg-gradient-to-b from-neutral-900 to-[#1F1F1F] p-4 space-y-3">
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                                  <ShieldCheck size={15} className="text-emerald-400" />
+                                  <ShieldCheck size={15} className="text-white" />
                                   Accountability Partner Decision
                                 </span>
-                                <span className="text-[10px] text-amber-300 bg-amber-950/60 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                                <span className="text-[10px] text-neutral-400 bg-neutral-800 border border-white/10 px-2 py-0.5 rounded-full">
                                   Action Required
                                 </span>
                               </div>
@@ -1100,7 +1100,7 @@ export default function GoalDetail() {
                                   type="button"
                                   disabled={isDeciding}
                                   onClick={() => handleDecideApproval(p.id, "approved")}
-                                  className="flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 text-xs font-bold transition shadow-md disabled:opacity-50"
+                                  className="flex items-center gap-2 rounded-xl bg-white hover:bg-neutral-200 text-black px-4 py-2 text-xs font-bold transition shadow-md disabled:opacity-50"
                                 >
                                   {isDeciding ? (
                                     <Loader2 size={13} className="animate-spin" />
@@ -1114,7 +1114,7 @@ export default function GoalDetail() {
                                   type="button"
                                   disabled={isDeciding}
                                   onClick={() => handleDecideApproval(p.id, "rejected")}
-                                  className="flex items-center gap-2 rounded-xl border border-rose-500/50 bg-rose-950/20 hover:bg-rose-950/40 text-rose-300 px-4 py-2 text-xs font-bold transition disabled:opacity-50"
+                                  className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-neutral-300 px-4 py-2 text-xs font-bold transition disabled:opacity-50"
                                 >
                                   {isDeciding ? (
                                     <Loader2 size={13} className="animate-spin" />
@@ -1126,13 +1126,13 @@ export default function GoalDetail() {
                               </div>
                             </div>
                           ) : goal.status === "completed" ? (
-                            <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-2.5">
+                            <div className="flex items-center gap-2 text-xs text-white font-semibold bg-white/[0.06] border border-white/15 rounded-xl p-2.5">
                               <CheckCircle2 size={15} />
                               <span>Approved and unlocked! Constraints have been released.</span>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-2 text-xs text-neutral-400 bg-neutral-900/60 border border-neutral-700/30 rounded-xl p-2.5">
-                              <Clock size={14} className="text-amber-400" />
+                            <div className="flex items-center gap-2 text-xs text-neutral-400 bg-neutral-900/60 border border-white/10 rounded-xl p-2.5">
+                              <Clock size={14} className="text-neutral-500" />
                               <span>
                                 Waiting for review by partner{" "}
                                 <strong className="text-neutral-200">({goal.approverEmail || "Assigned Approver"})</strong>.
@@ -1163,7 +1163,7 @@ export default function GoalDetail() {
               {/* Header */}
               <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 border border-white/20 text-white">
                     <Share2 size={18} />
                   </div>
                   <div>
@@ -1185,7 +1185,7 @@ export default function GoalDetail() {
               </div>
 
               {shareError && (
-                <div className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">
+                <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
                   {shareError}
                 </div>
               )}
@@ -1264,7 +1264,7 @@ export default function GoalDetail() {
                                 )}
                               </div>
                               {isSelected && (
-                                <CheckCircle2 size={16} className="text-emerald-400 flex-shrink-0" />
+                                <CheckCircle2 size={16} className="text-white flex-shrink-0" />
                               )}
                             </button>
                           );
@@ -1305,7 +1305,7 @@ export default function GoalDetail() {
                                 <p className="text-[10px] text-[#737373]">{c.membersCount} Members</p>
                               </div>
                               {isSelected && (
-                                <CheckCircle2 size={16} className="text-emerald-400 flex-shrink-0" />
+                                <CheckCircle2 size={16} className="text-white flex-shrink-0" />
                               )}
                             </button>
                           );

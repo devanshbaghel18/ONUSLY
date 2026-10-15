@@ -249,6 +249,43 @@ func (r *Repository) GetConversationHistory(ctx context.Context, userEmail, peer
 	return msgs, nil
 }
 
+// ClearConversation deletes all message records for userKey with peerKey from DynamoDB.
+func (r *Repository) ClearConversation(ctx context.Context, userKey, peerKey string) error {
+	normUser := strings.TrimSpace(strings.ToLower(userKey))
+	normPeer := strings.TrimSpace(strings.ToLower(peerKey))
+	if normUser == "" || normPeer == "" {
+		return nil
+	}
+
+	result, err := r.db.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String(r.tableName),
+		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :sk)"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: "USER#" + normUser},
+			":sk": &types.AttributeValueMemberS{Value: fmt.Sprintf("CHAT#%s#", normPeer)},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, item := range result.Items {
+		pk := item["PK"]
+		sk := item["SK"]
+		if pk != nil && sk != nil {
+			_, _ = r.db.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+				TableName: aws.String(r.tableName),
+				Key: map[string]types.AttributeValue{
+					"PK": pk,
+					"SK": sk,
+				},
+			})
+		}
+	}
+
+	return nil
+}
+
 // DeleteMessage removes a message by ID from DynamoDB so offline recipients won't receive it.
 func (r *Repository) DeleteMessage(ctx context.Context, msgID string) error {
 	normID := strings.TrimSpace(msgID)
@@ -283,3 +320,4 @@ func (r *Repository) DeleteMessage(ctx context.Context, msgID string) error {
 
 	return nil
 }
+

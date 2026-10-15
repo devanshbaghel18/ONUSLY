@@ -428,49 +428,53 @@ export default function ConnectExtension() {
   };
 
   return (
-    <div className="rounded-2xl border border-[#2A2A2A] bg-[#141414] p-5 shadow-sm">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-3.5">
+    <div className="card-stat rounded-2xl p-6 shadow-sm border border-white/[0.08] transition-all">
+      <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-4">
           <div
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition-all ${
               status === "connected"
-                ? "border-white/30 bg-white/10 text-white"
-                : "border-[#333333] bg-[#1E1E1E] text-white"
+                ? "border-white/30 bg-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.12)]"
+                : "border-white/15 bg-white/5 text-white"
             }`}
           >
-            <Shield size={22} />
+            <Shield size={24} />
           </div>
 
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-white">Browser Extension Enforcement</h3>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h3 className="text-base font-bold text-white tracking-tight">Browser Extension Enforcement</h3>
               {status === "connected" ? (
-                <span className="flex items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white">
-                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                  Connected ({extInfo?.version || "active"})
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-0.5 text-[11px] font-bold text-white glow-pill-white">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+                  </span>
+                  <span>Connected ({extInfo?.version || "active"})</span>
                 </span>
               ) : (
-                <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white">
-                  Ready to Pair
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-0.5 text-[11px] font-bold text-white glow-pill-white">
+                  <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                  <span>Ready to Pair</span>
                 </span>
               )}
             </div>
-            <p className="mt-0.5 text-xs text-[#A3A3A3]">
+            <p className="mt-1 text-xs text-[#A1A1AA] leading-relaxed">
               {status === "connected"
-                ? `Enforcing ${extInfo?.targetsCount ?? 0} active accountability target(s) across desktop browser tabs.`
+                ? `Enforcing ${extInfo?.targetsCount ?? 0} active accountability target(s) across desktop browser tabs in real-time.`
                 : "Link the ONUSLY extension to enforce goal website restrictions and block distractions."}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 shrink-0">
           {status === "connected" ? (
             <>
               <button
                 type="button"
                 onClick={handleResync}
                 disabled={loading}
-                className="flex items-center gap-1.5 rounded-xl border border-neutral-700 bg-neutral-800/80 px-3.5 py-2 text-xs font-semibold text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white disabled:opacity-50"
+                className="btn-premium flex items-center gap-1.5 rounded-xl border border-neutral-700 bg-neutral-800/90 px-4 py-2 text-xs font-semibold text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white disabled:opacity-50"
                 title="Re-sync blocklist with extension"
               >
                 <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
@@ -479,7 +483,7 @@ export default function ConnectExtension() {
               <button
                 type="button"
                 onClick={handleDisconnect}
-                className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/20"
+                className="btn-premium flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/20"
                 title={
                   (extInfo?.targetsCount || 0) > 0
                     ? "Disconnection is locked while goals are in progress"
@@ -500,11 +504,11 @@ export default function ConnectExtension() {
               </button>
             </>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => setShowInstallModal(true)}
-                className="flex items-center gap-1.5 rounded-xl border border-neutral-700 bg-neutral-800/90 px-3 py-2 text-xs font-semibold text-neutral-200 transition-colors hover:bg-neutral-700 hover:text-white"
+                className="btn-premium flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-xs font-semibold text-neutral-200 transition-colors hover:bg-white/10 hover:text-white"
                 title="Download Extension ZIP & Setup Guide"
               >
                 <Download size={13} />
@@ -515,7 +519,7 @@ export default function ConnectExtension() {
                 type="button"
                 onClick={handleConnect}
                 disabled={loading}
-                className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black shadow-sm transition-all hover:bg-neutral-200 disabled:opacity-50"
+                className="btn-glow flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-bold text-black shadow-lg disabled:opacity-50"
               >
                 {loading ? <RefreshCw size={14} className="animate-spin text-black" /> : <Shield size={14} className="text-black" />}
                 <span>{loading ? "Connecting..." : "Connect Extension"}</span>
@@ -526,7 +530,7 @@ export default function ConnectExtension() {
           <button
             type="button"
             onClick={() => setShowConfig(!showConfig)}
-            className="rounded-xl border border-neutral-800 p-2 text-xs text-neutral-400 hover:text-white hover:bg-neutral-800/60 transition"
+            className="rounded-xl border border-white/10 p-2.5 text-xs text-neutral-400 hover:text-white hover:bg-white/5 transition"
             title="Configure Extension Connection & Pairing Token"
           >
             ⚙️
@@ -538,16 +542,16 @@ export default function ConnectExtension() {
         <div
           className={`mt-3 flex items-start gap-2.5 rounded-xl border p-3 text-xs leading-relaxed ${
             messageType === "success"
-              ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-300"
+              ? "border-white/20 bg-white/10 text-neutral-200"
               : messageType === "error"
-              ? "border-rose-500/40 bg-rose-950/30 text-rose-300"
+              ? "border-white/15 bg-white/[0.04] text-neutral-300"
               : "border-neutral-800 bg-neutral-900/80 text-neutral-300"
           }`}
         >
           {messageType === "success" ? (
-            <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+            <CheckCircle2 size={16} className="text-white shrink-0 mt-0.5" />
           ) : (
-            <AlertCircle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+            <AlertCircle size={16} className="text-neutral-400 shrink-0 mt-0.5" />
           )}
           <div className="flex-1">
             <span>{message}</span>
@@ -566,7 +570,7 @@ export default function ConnectExtension() {
                 type="text"
                 defaultValue={extensionId}
                 onBlur={(e) => handleSaveId(e.target.value)}
-                className="w-full max-w-md rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 font-mono text-xs text-white focus:border-indigo-500 focus:outline-none"
+                className="w-full max-w-md rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 font-mono text-xs text-white focus:border-white focus:outline-none"
                 placeholder="Extension ID"
               />
               <button
@@ -592,7 +596,7 @@ export default function ConnectExtension() {
                 onClick={handleCopyToken}
                 className="flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-neutral-700 hover:text-white transition shrink-0 ml-3"
               >
-                {copiedToken ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                {copiedToken ? <Check size={13} className="text-white" /> : <Copy size={13} />}
                 <span>{copiedToken ? "Copied!" : "Copy Token"}</span>
               </button>
             </div>
@@ -610,16 +614,16 @@ export default function ConnectExtension() {
       {/* Extension Download & Installation Guide Modal */}
       {showInstallModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4"
           onClick={() => setShowInstallModal(false)}
         >
           <div
-            className="w-full max-w-lg rounded-2xl border border-neutral-800 bg-[#161616] p-6 shadow-2xl space-y-5"
+            className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#161616] p-6 shadow-2xl space-y-5 animate-scale-in"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-400">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white">
                   <FolderArchive size={20} />
                 </div>
                 <div>
@@ -639,7 +643,7 @@ export default function ConnectExtension() {
             <div className="space-y-3 text-xs text-neutral-300">
               <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3.5 space-y-2">
                 <div className="flex items-center gap-2 text-white font-semibold">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-bold">1</span>
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-black text-[11px] font-bold">1</span>
                   <span>Download the Extension Package</span>
                 </div>
                 <p className="text-neutral-400 pl-7 leading-relaxed">
@@ -649,7 +653,7 @@ export default function ConnectExtension() {
                   <a
                     href="/downloads/onusly-extension.zip"
                     download="onusly-extension.zip"
-                    className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-sm"
+                    className="btn-premium inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-100 transition shadow-sm"
                   >
                     <Download size={14} />
                     <span>Download onusly-extension.zip</span>
@@ -659,7 +663,7 @@ export default function ConnectExtension() {
 
               <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3.5 space-y-1.5">
                 <div className="flex items-center gap-2 text-white font-semibold">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-bold">2</span>
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-black text-[11px] font-bold">2</span>
                   <span>Extract the ZIP Archive</span>
                 </div>
                 <p className="text-neutral-400 pl-7 leading-relaxed">
@@ -669,7 +673,7 @@ export default function ConnectExtension() {
 
               <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3.5 space-y-2">
                 <div className="flex items-center gap-2 text-white font-semibold">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-bold">3</span>
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-black text-[11px] font-bold">3</span>
                   <span>Load in Your Browser (Windows & Linux)</span>
                 </div>
                 <div className="text-neutral-400 pl-7 space-y-2 leading-relaxed">
@@ -704,7 +708,7 @@ export default function ConnectExtension() {
                   setShowInstallModal(false);
                 }}
                 disabled={loading}
-                className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-500 transition disabled:opacity-50"
+                className="btn-premium flex items-center gap-2 rounded-xl bg-white px-5 py-2 text-xs font-bold text-black shadow-sm hover:bg-neutral-100 transition disabled:opacity-50"
               >
                 <Shield size={14} />
                 <span>I've Loaded It — Connect Now</span>

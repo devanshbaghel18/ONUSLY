@@ -86,18 +86,10 @@ export default function GlobalChatNotifier() {
 
   return (
     <div className="fixed top-5 right-5 z-50 max-w-sm w-full animate-in fade-in slide-in-from-top-4 duration-300">
-      <div className={`rounded-2xl border p-4 shadow-2xl backdrop-blur-md ${
-        activeToast.isApproval
-          ? "border-emerald-500/40 bg-neutral-900/95"
-          : "border-white/20 bg-neutral-900/95"
-      }`}>
+      <div className="rounded-2xl border border-white/20 bg-[#161618]/95 p-4 shadow-2xl backdrop-blur-md">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
-            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
-              activeToast.isApproval
-                ? "border-emerald-500/40 bg-emerald-950/70 text-emerald-400"
-                : "border-emerald-500/30 bg-emerald-950/60 text-emerald-400"
-            }`}>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white shadow-inner">
               {activeToast.isApproval ? <ShieldCheck size={20} /> : <MessageSquare size={18} />}
             </div>
             <div className="min-w-0 flex-1">
@@ -106,12 +98,12 @@ export default function GlobalChatNotifier() {
                   {activeToast.senderName}
                 </h4>
                 {activeToast.isApproval && (
-                  <span className="rounded-full bg-emerald-950/80 border border-emerald-500/30 px-1.5 py-0.2 text-[9px] font-semibold text-emerald-300">
+                  <span className="rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-[9px] font-bold text-white">
                     Goal Approved
                   </span>
                 )}
                 {activeToast.isOffline && (
-                  <span className="rounded-full bg-blue-950/80 border border-blue-500/30 px-1.5 py-0.2 text-[9px] font-semibold text-blue-300">
+                  <span className="rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-[9px] font-semibold text-neutral-300">
                     Offline Delivered
                   </span>
                 )}
@@ -130,7 +122,7 @@ export default function GlobalChatNotifier() {
                     navigate("/community-friends");
                   }
                 }}
-                className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 transition"
+                className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-bold text-white hover:text-neutral-300 transition"
               >
                 <span>{activeToast.isApproval ? "View Goals" : "Open Chat"}</span>
                 <ArrowRight size={12} />

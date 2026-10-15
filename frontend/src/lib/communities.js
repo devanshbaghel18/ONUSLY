@@ -1,8 +1,32 @@
 const STORAGE_KEY = "onusly_user_communities";
 const COMMUNITY_CHATS_KEY = "onusly_community_chats";
+const COMMUNITY_CLEARED_AT_KEY = "onusly_community_chats_cleared_at";
+
+export function getCommunityClearedAt(communityId) {
+  try {
+    const raw = localStorage.getItem(COMMUNITY_CLEARED_AT_KEY);
+    if (!raw) return 0;
+    const map = JSON.parse(raw);
+    return Number(map[communityId]) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function setCommunityClearedAt(communityId, timestamp = Date.now()) {
+  try {
+    const raw = localStorage.getItem(COMMUNITY_CLEARED_AT_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[communityId] = timestamp;
+    localStorage.setItem(COMMUNITY_CLEARED_AT_KEY, JSON.stringify(map));
+  } catch (err) {
+    console.error("Failed to set community cleared at:", err);
+  }
+}
 
 // No pre-formed fake communities. Only communities created by the user will exist.
 export const DEFAULT_COMMUNITIES = [];
+
 
 export function getStoredCommunities() {
   try {
@@ -164,11 +188,20 @@ export function getCommunityMessages(communityId) {
     const raw = localStorage.getItem(COMMUNITY_CHATS_KEY);
     if (!raw) return [];
     const all = JSON.parse(raw);
-    return all[communityId] || [];
+    const list = all[communityId] || [];
+    const clearedAt = getCommunityClearedAt(communityId);
+    if (clearedAt > 0) {
+      return list.filter((m) => {
+        const msgTime = m.timestamp || (m.time && m.time.includes("T") ? new Date(m.time).getTime() : 0);
+        return !msgTime || msgTime > clearedAt;
+      });
+    }
+    return list;
   } catch {
     return [];
   }
 }
+
 
 export function sendCommunityMessage(communityId, msg) {
   try {
@@ -317,6 +350,8 @@ export function clearCommunityChat(communityId) {
     all[communityId] = [];
     localStorage.setItem(COMMUNITY_CHATS_KEY, JSON.stringify(all));
 
+    setCommunityClearedAt(communityId, Date.now());
+
     const list = getStoredCommunities();
     const updated = list.map((c) =>
       c.id === communityId
@@ -330,6 +365,7 @@ export function clearCommunityChat(communityId) {
     return [];
   }
 }
+
 
 export function toggleFavoriteCommunity(communityId) {
   try {

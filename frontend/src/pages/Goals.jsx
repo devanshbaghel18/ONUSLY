@@ -313,14 +313,14 @@ export default function Goals() {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto w-full max-w-[1720px] space-y-7">
         {/* Top Header */}
-        <div className="flex flex-col justify-between gap-4 border-b border-[#2A2A2A] pb-6 sm:flex-row sm:items-center">
+        <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-center">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+            <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
               Lockout Goals
             </h1>
-            <p className="mt-1 text-xs sm:text-sm text-[#A3A3A3]">
+            <p className="mt-1 text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
               Active focus tasks and distraction constraints. Click + to start a new lock.
             </p>
           </div>
@@ -329,10 +329,10 @@ export default function Goals() {
             <button
               type="button"
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-sm"
+              className="btn-glow inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-black shadow-lg"
               title="Create new accountability lock"
             >
-              <Plus size={16} />
+              <Plus size={16} strokeWidth={3} />
               <span>New Lock</span>
             </button>
           </div>
@@ -340,52 +340,54 @@ export default function Goals() {
 
         {/* Notices */}
         {successNotice && (
-          <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/50 bg-emerald-950/40 p-4 text-xs font-semibold text-emerald-300">
-            <CheckCircle2 size={16} className="flex-shrink-0" />
+          <div className="flex items-center gap-2.5 rounded-2xl border border-white/20 bg-white/[0.06] backdrop-blur-md p-4 text-xs font-semibold text-white animate-fade-in shadow-lg">
+            <CheckCircle2 size={16} className="shrink-0 text-white" />
             <span>{successNotice}</span>
           </div>
         )}
         {error && (
-          <div className="flex items-center gap-2 rounded-2xl border border-[#444444] bg-[#1E1E1E] p-4 text-xs font-semibold text-white">
-            <AlertCircle size={16} className="flex-shrink-0" />
+          <div className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-md p-4 text-xs font-semibold text-neutral-300 animate-fade-in shadow-lg">
+            <AlertCircle size={16} className="shrink-0 text-neutral-400" />
             <span>{error}</span>
           </div>
         )}
 
         {/* Goals List (Full Width Clean View) */}
-        <div>
-          <div className="flex items-center justify-between pb-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3]">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between pb-1">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">
               Your Created Goals ({goals.length})
             </h2>
 
-            <span className="text-[11px] text-[#737373]">
+            <span className="text-[11px] text-neutral-400">
               Click "Share" on a goal to send verification to chat
             </span>
           </div>
 
           {loading ? (
-            <div className="flex h-64 items-center justify-center rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A]">
-              <Loader2 size={24} className="animate-spin text-white" />
+            <div className="flex h-64 items-center justify-center rounded-2xl border border-white/10 bg-[#141418]/60 backdrop-blur-xl">
+              <Loader2 size={26} className="animate-spin text-white" />
             </div>
           ) : goals.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#333333] bg-[#1A1A1A]/30 p-12 text-center">
-              <Target size={40} className="mx-auto text-[#737373] mb-3" />
-              <h3 className="text-base font-bold text-white">No active goals yet</h3>
-              <p className="mt-1 text-xs text-[#A3A3A3] max-w-sm mx-auto">
+            <div className="rounded-2xl border border-dashed border-white/10 bg-[#141418]/40 backdrop-blur-xl p-14 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[#A1A1AA] mb-4">
+                <Target size={26} />
+              </div>
+              <h3 className="text-lg font-bold text-white">No active goals yet</h3>
+              <p className="mt-1.5 text-xs text-[#A1A1AA] max-w-sm mx-auto leading-relaxed">
                 Ready to focus? Click below to create your accountability lock and block distracting apps.
               </p>
               <button
                 type="button"
                 onClick={() => setShowCreateModal(true)}
-                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition"
+                className="btn-glow mt-5 inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-bold text-black"
               >
-                <Plus size={15} />
+                <Plus size={15} strokeWidth={3} />
                 <span>Create Your First Lock</span>
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
               {goals.map((g) => {
                 const isCompleted = g.status === "completed";
                 const isProofSubmitted = g.status === "proof_submitted";
@@ -399,8 +401,10 @@ export default function Goals() {
                 return (
                   <div
                     key={g.id}
-                    className={`group relative flex flex-col justify-between rounded-2xl border p-5 transition-all hover:border-[#444444] shadow-sm ${
-                      isPinned ? "border-amber-500/40 bg-[#1A1814]" : "border-[#2B2B2B] bg-[#1A1A1A]"
+                    className={`card-glass group relative flex flex-col justify-between rounded-2xl p-6 transition-all duration-300 shadow-md ${
+                      isPinned
+                        ? "border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.04)]"
+                        : "border-white/[0.08]"
                     }`}
                   >
                     <div>
@@ -408,24 +412,24 @@ export default function Goals() {
                       <div className="flex items-start justify-between gap-3">
                         <Link
                           to={`/goals/${g.id}`}
-                          className="text-base font-bold text-white hover:underline transition line-clamp-1 flex-1"
+                          className="text-base font-bold text-white hover:text-neutral-100 transition line-clamp-1 flex-1"
                         >
                           {g.title}
                         </Link>
 
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           {isCompleted ? (
-                            <span className="flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-400">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white glow-pill-white">
                               <Unlock size={11} />
                               Unlocked
                             </span>
                           ) : isProofSubmitted ? (
-                            <span className="flex items-center gap-1 rounded-full border border-[#444444] bg-[#262626] px-2.5 py-0.5 text-[10px] font-bold text-white">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300 glow-pill-white">
                               Pending
                             </span>
                           ) : (
-                            <span className="flex items-center gap-1 rounded-full border border-[#444444] bg-[#222222] px-2.5 py-0.5 text-[10px] font-bold text-[#D4D4D4]">
-                              <Lock size={11} className="text-amber-400" />
+                            <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300">
+                              <Lock size={11} className="text-neutral-400" />
                               Active
                             </span>
                           )}
@@ -438,10 +442,10 @@ export default function Goals() {
                               e.stopPropagation();
                               handleTogglePin(g.id);
                             }}
-                            className={`flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-semibold transition ${
+                            className={`btn-premium flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-semibold transition ${
                               isPinned
-                                ? "border-amber-500/50 bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"
-                                : "border-[#333333] bg-[#222222] text-[#737373] hover:text-white hover:border-[#555555]"
+                                ? "border-white bg-white text-black font-bold shadow-sm"
+                                : "border-white/10 bg-white/5 text-[#A1A1AA] hover:text-white hover:border-white/20 hover:bg-white/10"
                             }`}
                             title={
                               isPinned
@@ -449,14 +453,14 @@ export default function Goals() {
                                 : `Pin to dashboard (${pinnedIds.length}/${MAX_PINNED_GOALS})`
                             }
                           >
-                            <Pin size={11} className={isPinned ? "fill-amber-400" : ""} />
+                            <Pin size={11} className={isPinned ? "fill-black" : ""} />
                             <span>{isPinned ? "Pinned" : "Pin"}</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={(e) => handleDelete(g.id, e)}
-                            className="rounded-lg p-1 text-[#737373] opacity-0 transition-all hover:text-red-400 group-hover:opacity-100"
+                            className="rounded-lg p-1 text-neutral-500 opacity-0 transition-all hover:text-white hover:bg-white/5 group-hover:opacity-100"
                             title="Delete Goal"
                           >
                             <Trash2 size={13} />
@@ -466,29 +470,29 @@ export default function Goals() {
 
                       {/* Description */}
                       {g.description ? (
-                        <p className="mt-2 text-xs text-[#A3A3A3] line-clamp-2 leading-relaxed">
+                        <p className="mt-2 text-xs text-[#A1A1AA] line-clamp-2 leading-relaxed">
                           {g.description}
                         </p>
                       ) : (
-                        <p className="mt-2 text-xs italic text-[#666666]">
+                        <p className="mt-2 text-xs italic text-neutral-500">
                           No description provided.
                         </p>
                       )}
 
                       {/* Blocked Apps & Domains list */}
-                      <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
+                      <div className="mt-4 flex flex-wrap items-center gap-1.5">
                         {displayTargets.length > 0 ? (
                           displayTargets.map((target) => (
                             <span
                               key={target.label}
-                              className="inline-flex items-center gap-1 rounded-md border border-[#333333] bg-[#141414] px-2 py-0.5 text-[10px] font-medium text-neutral-300"
+                              className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-neutral-300 transition-colors hover:border-white/20"
                             >
-                              <Lock size={9} className="text-red-400" />
+                              <Lock size={9} className="text-neutral-400" />
                               {target.label}
                             </span>
                           ))
                         ) : (
-                          <span className="text-[10px] text-[#737373] italic">
+                          <span className="text-[10px] text-neutral-400 italic">
                             Full Focus Shield Active
                           </span>
                         )}
@@ -496,15 +500,15 @@ export default function Goals() {
                     </div>
 
                     {/* Card Footer Actions */}
-                    <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-[#2B2B2B] pt-3 text-[11px]">
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.08] pt-3 text-[11px]">
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={(e) => openShareModal(g, e)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#3A3A3A] bg-[#222222] px-2.5 py-1 font-semibold text-white hover:border-white transition"
+                          className="btn-premium inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 font-semibold text-white hover:bg-white/10 hover:border-white/30 transition"
                           title="Share for verification with friend or community"
                         >
-                          <Share2 size={12} className="text-emerald-400" />
+                          <Share2 size={12} className="text-white" />
                           <span>Share</span>
                         </button>
 
@@ -517,10 +521,10 @@ export default function Goals() {
                             e.stopPropagation();
                             handleRepeatGoal(g);
                           }}
-                          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-semibold transition ${
+                          className={`btn-premium inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-semibold transition ${
                             g.status === "completed"
-                              ? "border-[#3A3A3A] bg-[#222222] text-neutral-200 hover:text-white hover:border-white"
-                              : "border-[#262626] bg-[#1A1A1A] text-[#666666] cursor-not-allowed opacity-60"
+                              ? "border-white/15 bg-white/5 text-neutral-200 hover:text-white hover:border-white/30 hover:bg-white/10"
+                              : "border-white/5 bg-white/[0.02] text-neutral-600 cursor-not-allowed opacity-50"
                           }`}
                           title={
                             g.status === "completed"
@@ -531,7 +535,7 @@ export default function Goals() {
                           {repeatingGoalId === g.id ? (
                             <Loader2 size={12} className="animate-spin text-white" />
                           ) : (
-                            <RotateCcw size={12} className={g.status === "completed" ? "text-emerald-400" : "text-[#666666]"} />
+                            <RotateCcw size={12} className={g.status === "completed" ? "text-white" : "text-neutral-600"} />
                           )}
                           <span>Repeat Routine</span>
                         </button>
@@ -564,17 +568,17 @@ export default function Goals() {
         ============================================================ */}
         {shareGoal && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md"
+            className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4"
             onClick={() => setShareGoal(null)}
           >
             <div
-              className="w-full max-w-md rounded-2xl border border-[#333333] bg-[#181818] p-6 shadow-2xl"
+              className="w-full max-w-md rounded-2xl border border-white/10 bg-[#181818] p-6 shadow-2xl animate-scale-in"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
               <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 border border-white/20 text-white">
                     <Share2 size={18} />
                   </div>
                   <div>
@@ -596,7 +600,7 @@ export default function Goals() {
               </div>
 
               {shareError && (
-                <div className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">
+                <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
                   {shareError}
                 </div>
               )}
@@ -675,7 +679,7 @@ export default function Goals() {
                                 )}
                               </div>
                               {isSelected && (
-                                <CheckCircle2 size={16} className="text-emerald-400 flex-shrink-0" />
+                                <CheckCircle2 size={16} className="text-white flex-shrink-0" />
                               )}
                             </button>
                           );
@@ -716,7 +720,7 @@ export default function Goals() {
                                 <p className="text-[10px] text-[#737373]">{c.membersCount} Members</p>
                               </div>
                               {isSelected && (
-                                <CheckCircle2 size={16} className="text-emerald-400 flex-shrink-0" />
+                                <CheckCircle2 size={16} className="text-white flex-shrink-0" />
                               )}
                             </button>
                           );
@@ -732,7 +736,7 @@ export default function Goals() {
                     type="button"
                     onClick={() => setShareGoal(null)}
                     disabled={sharingProof}
-                    className="flex-1 rounded-xl border border-[#3A3A3A] bg-[#222222] py-3 text-xs font-semibold text-white hover:border-white transition"
+                    className="btn-premium flex-1 rounded-xl border border-[#3A3A3A] bg-[#222222] py-3 text-xs font-semibold text-white hover:border-white transition"
                   >
                     Cancel
                   </button>
@@ -744,7 +748,7 @@ export default function Goals() {
                       (shareTarget === "friend" && (!selectedFriendId || friends.length === 0)) ||
                       (shareTarget === "community" && (!selectedCommunityId || communities.length === 0))
                     }
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
+                    className="btn-premium flex-1 flex items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold text-black transition-all hover:bg-neutral-100 disabled:opacity-40"
                   >
                     {sharingProof ? (
                       <>

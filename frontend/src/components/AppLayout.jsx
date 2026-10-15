@@ -124,13 +124,16 @@ export default function AppLayout({ children }) {
     : (user?.name ? `@${user.name.toLowerCase().replace(/\s+/g, "")}` : "@user");
 
   return (
-    <div className="relative min-h-screen bg-[#121212] text-[#FFFFFF] antialiased">
-      {/* Subtle monochrome background grid */}
+    <div className="relative min-h-screen bg-[#0D0D0E] text-[#FFFFFF] antialiased selection:bg-white/20 selection:text-white">
+      {/* Ambient Top Glow Mesh */}
+      <div className="ambient-mesh" />
+
+      {/* Subtle monochrome micro dot grid */}
       <div
-        className="pointer-events-none fixed inset-0 opacity-[0.03]"
+        className="pointer-events-none fixed inset-0 opacity-[0.035]"
         style={{
           backgroundImage: "radial-gradient(#ffffff 1px, transparent 1px)",
-          backgroundSize: "8px 8px",
+          backgroundSize: "24px 24px",
         }}
       />
 
@@ -147,7 +150,7 @@ export default function AppLayout({ children }) {
               : "-translate-y-28 opacity-0 pointer-events-none"
           }`}
         >
-          <div className="flex items-center justify-between rounded-full border border-[#2D2D2D] bg-[#161616]/95 px-4 sm:px-8 lg:px-10 py-3 sm:py-4 lg:py-5 shadow-[0_20px_50px_rgba(0,0,0,0.85)] backdrop-blur-xl">
+          <div className="flex items-center justify-between rounded-full border border-white/[0.12] bg-[#141416]/85 px-4 sm:px-8 lg:px-10 py-2.5 sm:py-3 lg:py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.85),inset_0_1px_0_0_rgba(255,255,255,0.1)] backdrop-blur-2xl transition-all">
             {/* Left: Mobile Menu Trigger + ONUSLY Brand */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               {/* Mobile Hamburger Drawer Button */}
@@ -162,7 +165,7 @@ export default function AppLayout({ children }) {
 
               <Link
                 to="/dashboard"
-                className="flex items-center pl-1 sm:pl-2 pr-2 sm:pr-4 py-1 transition-opacity hover:opacity-90 shrink-0"
+                className="flex items-center pl-1 sm:pl-2 pr-2 sm:pr-4 py-1 transition-all hover:opacity-90 hover:scale-[1.02] shrink-0"
               >
                 <img
                   src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
@@ -184,10 +187,10 @@ export default function AppLayout({ children }) {
                   <Link
                     key={link.name}
                     to={link.path}
-                    className={`whitespace-nowrap rounded-full px-4 sm:px-5 lg:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all ${
+                    className={`whitespace-nowrap rounded-full px-4 sm:px-5 lg:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all duration-200 ${
                       isActive
-                        ? "bg-[#252525] text-white shadow-inner border border-white/20"
-                        : "text-[#888888] hover:text-white hover:bg-[#1E1E1E]"
+                        ? "bg-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.06)] border border-white/20"
+                        : "text-[#888888] hover:text-white hover:bg-white/5"
                     }`}
                   >
                     {link.name}
@@ -205,7 +208,7 @@ export default function AppLayout({ children }) {
               <button
                 type="button"
                 onClick={openHandleModal}
-                className="flex items-center gap-1.5 sm:gap-2 rounded-full border border-[#333333] bg-[#1E1E1E] px-3 sm:px-5 lg:px-6 py-2 sm:py-2.5 lg:py-3 text-xs sm:text-sm font-semibold text-neutral-200 transition-all hover:border-white hover:bg-[#262626] shadow-sm max-w-[130px] sm:max-w-[200px] md:max-w-none"
+                className="btn-premium flex items-center gap-1.5 sm:gap-2 rounded-full border border-[#333333] bg-[#1E1E1E] px-3 sm:px-5 lg:px-6 py-2 sm:py-2.5 lg:py-3 text-xs sm:text-sm font-semibold text-neutral-200 transition-all hover:border-white/50 hover:bg-[#252525] shadow-sm max-w-[130px] sm:max-w-[200px] md:max-w-none"
                 title="Click to customize your ONUSLY Tag / Handle"
               >
                 <AtSign size={14} className="text-neutral-300 shrink-0" />
@@ -216,7 +219,7 @@ export default function AppLayout({ children }) {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-[#888888] transition-colors hover:border-white hover:text-white shrink-0"
+                className="btn-premium flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-[#888888] transition-colors hover:border-white/40 hover:text-white shrink-0"
                 title="Sign Out"
               >
                 <LogOut size={17} />
@@ -226,7 +229,7 @@ export default function AppLayout({ children }) {
         </header>
 
         {/* Page Content with adjusted top padding for the taller floating navbar */}
-        <main className="flex-1 px-3 sm:px-6 lg:px-8 pt-28 sm:pt-32 md:pt-36 pb-12">
+        <main className="flex-1 px-3 sm:px-6 lg:px-8 pt-28 sm:pt-32 md:pt-36 pb-12 animate-fade-in">
           {children}
         </main>
       </div>
@@ -235,8 +238,8 @@ export default function AppLayout({ children }) {
           CUSTOMIZE HANDLE MODAL (100% Privacy Shield)
       ============================================================ */}
       {showHandleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-[#333333] bg-[#1A1A1A] p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1A1A1A] p-6 shadow-2xl animate-scale-in">
             <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
               <div>
                 <h3 className="text-base font-bold text-white">

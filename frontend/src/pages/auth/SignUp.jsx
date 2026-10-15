@@ -10,59 +10,59 @@ export default function SignUp({
 }) {
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-4">
         <Field
-          label="FULL NAME"
+          label="Full Name"
           icon={User}
-          placeholder="Enter your Full Name"
+          placeholder="Alex Mercer"
           autoComplete="name"
         />
 
         <Field
-          label="EMAIL ADDRESS"
+          label="Email Address"
           icon={Mail}
           type="email"
-          placeholder="Enter your Email Address"
+          placeholder="name@example.com"
           autoComplete="email"
         />
 
         <Field
-          label="PASSWORD"
+          label="Password"
           icon={Lock}
           type="password"
-          placeholder="Enter your password"
+          placeholder="Create a strong password"
           autoComplete="new-password"
         />
 
         <Field
-          label="CONFIRM PASSWORD"
+          label="Confirm Password"
           icon={Lock}
           type="password"
-          placeholder="Confirm password"
+          placeholder="Re-enter password"
           autoComplete="new-password"
         />
 
         {notice && (
-          <div className="rounded-xl border border-[#777777] bg-[#4A4A4A] px-4 py-3 text-sm text-[#B5B5B5]">
+          <div className="rounded-xl border border-white/15 bg-white/[0.04] p-3 text-xs text-neutral-300 leading-relaxed">
             {notice}
           </div>
         )}
 
         <button
           type="submit"
-          className="group flex w-full items-center justify-center gap-3 rounded-xl bg-[#FFFFFF] py-4 text-[15px] font-bold text-[#292929] shadow-[0_8px_25px_rgba(0,0,0,0.3)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#B5B5B5] active:translate-y-0"
+          className="btn-glow group flex w-full items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold uppercase tracking-wider text-black shadow-lg transition-all duration-200 hover:bg-neutral-200"
         >
-          CREATE ACCOUNT
-          <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+          <span>Create Account</span>
+          <ArrowRight size={14} className="transition-transform group-hover:translate-x-1" />
         </button>
       </form>
 
-      <div className="my-7 flex items-center gap-3">
-        <div className="h-px flex-1 bg-[#777777]" />
-        <span className="rounded-full border border-[#777777] bg-[#3A3A3A] px-3 py-1 text-sm text-[#B5B5B5]">
+      <div className="my-5 flex items-center gap-3">
+        <div className="h-px flex-1 bg-white/10" />
+        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
           Or continue with
         </span>
-        <div className="h-px flex-1 bg-[#777777]" />
+        <div className="h-px flex-1 bg-white/10" />
       </div>
 
       <div className="flex w-full justify-center">

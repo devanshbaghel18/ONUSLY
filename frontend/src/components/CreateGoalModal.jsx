@@ -136,24 +136,24 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl border border-[#333333] bg-[#181818] p-6 sm:p-7 shadow-2xl max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#141418]/95 backdrop-blur-2xl p-6 sm:p-7 shadow-[0_25px_60px_rgba(0,0,0,0.9)] max-h-[90vh] overflow-y-auto animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-black shadow-sm">
-              <Lock size={18} />
+        <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black shadow-lg">
+              <Lock size={18} strokeWidth={2.5} />
             </div>
             <div>
               <h3 className="text-base font-bold text-white">
                 New Accountability Lock
               </h3>
-              <p className="text-xs text-[#A3A3A3]">
+              <p className="text-xs text-[#A1A1AA]">
                 Lock distracting apps and websites until approved.
               </p>
             </div>
@@ -163,14 +163,14 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="rounded-lg p-1.5 text-[#737373] hover:text-white hover:bg-[#252525] transition"
+            className="rounded-lg p-1.5 text-neutral-400 hover:text-white hover:bg-white/10 transition"
           >
             <X size={18} />
           </button>
         </div>
 
         {formError && (
-          <div className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
             {formError}
           </div>
         )}
@@ -179,7 +179,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
           {/* 1. Goal / Task Name */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-white mb-1.5">
-              1. Goal Name / Task <span className="text-red-400">*</span>
+              1. Goal Name / Task <span className="text-neutral-500">*</span>
             </label>
             <input
               type="text"
@@ -188,7 +188,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
               placeholder="e.g. Master DSA Graph Algorithms, Complete 5km Run..."
               value={taskDescription}
               onChange={(e) => setTaskDescription(e.target.value)}
-              className="w-full rounded-xl border border-[#333333] bg-[#121212] px-4 py-3 text-sm text-white placeholder-[#737373] focus:border-white focus:outline-none transition"
+              className="w-full rounded-xl border border-white/10 bg-[#0E0E12] px-4 py-3 text-sm text-white placeholder-neutral-500 focus:border-white/40 focus:ring-2 focus:ring-white/10 focus:outline-none transition"
             />
           </div>
 
@@ -202,7 +202,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
               placeholder="Describe what you plan to accomplish, key milestones, or notes..."
               value={taskDetails}
               onChange={(e) => setTaskDetails(e.target.value)}
-              className="w-full rounded-xl border border-[#333333] bg-[#121212] px-4 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none transition resize-none"
+              className="w-full rounded-xl border border-white/10 bg-[#0E0E12] px-4 py-2.5 text-xs text-white placeholder-neutral-500 focus:border-white/40 focus:ring-2 focus:ring-white/10 focus:outline-none transition resize-none"
             />
           </div>
 
@@ -215,12 +215,12 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
               <button
                 type="button"
                 onClick={handleSelectAllCatalog}
-                className="text-[11px] font-semibold text-[#A3A3A3] hover:text-white transition underline"
+                className="text-[11px] font-semibold text-[#A1A1AA] hover:text-white transition underline"
               >
                 {selectedCatalogIds.length === APP_CATALOG.length ? "Deselect All" : "Select All"}
               </button>
             </div>
-            <p className="text-[11px] text-[#737373] mb-3">
+            <p className="text-[11px] text-[#A1A1AA] mb-3">
               Selected apps will be blocked on Android and desktop browser ({selectedCatalogIds.length} catalog items selected):
             </p>
 
@@ -235,11 +235,11 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
                     className={`flex items-center justify-between rounded-xl border p-2.5 text-xs font-semibold transition-all ${
                       isSelected
                         ? "border-white bg-white text-black font-bold shadow-sm"
-                        : "border-[#333333] bg-[#121212] text-[#A3A3A3] hover:border-[#555555] hover:text-white"
+                        : "border-white/10 bg-[#0E0E12] text-[#A1A1AA] hover:border-white/25 hover:text-white"
                     }`}
                   >
                     <span>{item.name}</span>
-                    <Lock size={11} className={isSelected ? "text-black" : "text-[#737373]"} />
+                    <Lock size={11} className={isSelected ? "text-black" : "text-neutral-500"} />
                   </button>
                 );
               })}
@@ -328,15 +328,15 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
                     className="inline-flex items-center gap-1.5 rounded-lg border border-[#3A3A3A] bg-[#1A1A1A] px-2.5 py-1 text-[11px] text-neutral-300"
                   >
                     {ct.type === "app" ? (
-                      <Smartphone size={10} className="text-blue-400" />
+                      <Smartphone size={10} className="text-neutral-400" />
                     ) : (
-                      <Globe size={10} className="text-emerald-400" />
+                      <Globe size={10} className="text-neutral-400" />
                     )}
                     <span>{ct.value}</span>
                     <button
                       type="button"
                       onClick={() => handleRemoveCustomTarget(ct.id)}
-                      className="text-[#737373] hover:text-red-400 transition"
+                      className="text-[#737373] hover:text-white transition"
                     >
                       <Trash2 size={10} />
                     </button>
@@ -352,23 +352,23 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
               type="button"
               onClick={onClose}
               disabled={submitting}
-              className="flex-1 rounded-xl border border-[#3A3A3A] bg-[#222222] py-3 text-xs font-semibold text-white hover:border-white transition"
+              className="btn-premium flex-1 rounded-xl border border-white/10 bg-white/5 py-3 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || !taskDescription.trim()}
-              className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
+              className="btn-glow flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-black uppercase tracking-wider text-black shadow-lg disabled:opacity-40"
             >
               {submitting ? (
                 <>
-                  <Loader2 size={15} className="animate-spin" />
+                  <Loader2 size={15} className="animate-spin text-black" />
                   <span>Activating Lock...</span>
                 </>
               ) : (
                 <>
-                  <Lock size={14} />
+                  <Lock size={14} strokeWidth={2.5} />
                   <span>Start Accountability Lock</span>
                 </>
               )}

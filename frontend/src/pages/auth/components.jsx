@@ -1,18 +1,24 @@
 import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Shield } from "lucide-react";
 
 export function OnuslyLogo() {
   return (
-    <img
-      src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
-      alt="ONUSLY"
-      className="
-        w-[600px]
-        h-auto
-        object-contain
-        drop-shadow-[0_8px_20px_rgba(0,0,0,0.35)]
-      "
-    />
+    <div className="flex flex-col items-center">
+      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/20 bg-gradient-to-b from-white/15 to-white/5 text-white shadow-[0_0_30px_rgba(255,255,255,0.12)]">
+        <Shield size={28} className="stroke-[2.2]" />
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-heading text-3xl font-black tracking-tight text-white">
+          ONUSLY
+        </span>
+        <span className="rounded-full border border-white/20 bg-white/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-neutral-300">
+          v2.4
+        </span>
+      </div>
+      <p className="mt-1 font-mono text-[11px] uppercase tracking-widest text-neutral-400">
+        Accountability & Focus Lockout Engine
+      </p>
+    </div>
   );
 }
 
@@ -27,29 +33,29 @@ export function Field({
   const isPassword = type === "password";
 
   return (
-    <div>
-      <label className="mb-2 block text-sm font-semibold text-[#FFFFFF]">
+    <div className="space-y-1.5">
+      <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-300">
         {label}
       </label>
-      <div className="relative">
+      <div className="relative group">
         <Icon
-          size={20}
-          className="absolute left-4 top-1/2 -translate-y-1/2 text-[#B5B5B5]"
+          size={16}
+          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-white transition-colors"
         />
         <input
           type={isPassword && showPassword ? "text" : type}
           placeholder={placeholder}
           autoComplete={autoComplete}
           required
-          className="w-full rounded-xl border border-[#777777] bg-[#4A4A4A] py-4 pl-12 pr-12 text-[15px] text-[#FFFFFF] placeholder:text-[#B5B5B5] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.25)] transition-all duration-200 focus:border-[#FFFFFF] focus:ring-2 focus:ring-white/10 hover:border-[#B5B5B5]"
+          className="w-full rounded-xl border border-white/10 bg-[#0E0E12] py-2.5 pl-10 pr-10 text-xs text-white placeholder:text-neutral-500 outline-none transition-all duration-200 focus:border-white/40 focus:bg-[#121216] focus:ring-1 focus:ring-white/30 hover:border-white/20"
         />
         {isPassword && (
           <button
             type="button"
             onClick={() => setShowPassword((value) => !value)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[#B5B5B5] transition hover:bg-[#616161] hover:text-[#FFFFFF]"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-neutral-400 hover:text-white hover:bg-white/5 transition"
           >
-            {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+            {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
         )}
       </div>

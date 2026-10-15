@@ -68,57 +68,62 @@ export default function Auth() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#292929]">
+    <div className="relative min-h-screen overflow-hidden bg-[#050505] text-white selection:bg-white/20 selection:text-white flex flex-col justify-between">
       {/* =====================================================
-          SMOKY BACKGROUND
+          AMBIENT OBSIDIAN LIGHTING
       ===================================================== */}
-      <div className="pointer-events-none absolute -left-40 -top-40 h-[600px] w-[600px] rounded-full bg-[#616161]/20 blur-[120px]" />
-      <div className="pointer-events-none absolute -right-40 top-[20%] h-[600px] w-[600px] rounded-full bg-[#777777]/10 blur-[130px]" />
-      <div className="pointer-events-none absolute bottom-[-250px] left-[25%] h-[600px] w-[600px] rounded-full bg-[#3A3A3A] blur-[120px]" />
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 h-[500px] w-[800px] rounded-full bg-gradient-to-b from-white/[0.07] to-transparent blur-[120px]" />
+        <div className="absolute bottom-0 right-1/4 h-[350px] w-[350px] rounded-full bg-white/[0.02] blur-[100px]" />
+      </div>
 
-      {/* subtle texture */}
+      {/* Subtle Grid Pattern Overlay */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-[0.045]"
+        className="pointer-events-none absolute inset-0 z-0 opacity-[0.03]"
         style={{
-          backgroundImage: "radial-gradient(#ffffff 0.7px, transparent 0.7px)",
-          backgroundSize: "5px 5px",
+          backgroundImage: "radial-gradient(#ffffff 1px, transparent 1px)",
+          backgroundSize: "24px 24px",
         }}
       />
 
       {/* =====================================================
-          MAIN PAGE
+          MAIN CONTAINER
       ===================================================== */}
-      <main className="relative z-10 flex min-h-screen flex-col items-center px-4 pb-8 pt-8">
-        {/* LOGO */}
-        <div className="mb-5 flex justify-center">
+      <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4 py-12">
+        {/* BRAND LOGO */}
+        <div className="mb-6 animate-fade-in">
           <OnuslyLogo />
         </div>
 
-        {/* HEADER */}
-        <div className="mb-7 text-center">
-          <h1 className="text-3xl font-bold tracking-[-0.03em] text-[#FFFFFF]">
-            {isLogin ? "Welcome Back" : "Create Your Account"}
-          </h1>
-          <p className="mt-2 text-[15px] text-[#B5B5B5]">
-            {isLogin ? "Sign in to access your goals" : "Create an account and start your journey"}
-          </p>
-        </div>
-
         {/* AUTH CARD */}
-        <div className="w-full max-w-[560px] rounded-[28px] border border-[#777777] bg-[#3A3A3A] p-7 sm:p-9 shadow-[0_25px_70px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.06)]">
-          {/* SIGN IN / SIGN UP SWITCHER */}
-          <div className="mb-7 flex rounded-xl border border-[#777777] bg-[#292929] p-1">
+        <div className="w-full max-w-[480px] rounded-3xl border border-white/10 bg-[#0E0E12]/90 p-6 sm:p-8 backdrop-blur-3xl shadow-[0_30px_80px_-15px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.1)] animate-scale-in">
+          {/* TITLE & SUBTITLE */}
+          <div className="mb-6 text-center">
+            <h2 className="font-heading text-xl sm:text-2xl font-bold tracking-tight text-white">
+              {isLogin ? "Welcome Back" : "Create Account"}
+            </h2>
+            <p className="mt-1 text-xs text-neutral-400">
+              {isLogin
+                ? "Enter your credentials to access your accountability dashboard"
+                : "Set up your profile to start locking in on your targets"}
+            </p>
+          </div>
+
+          {/* SIGN IN / SIGN UP PILL SWITCHER */}
+          <div className="mb-6 flex rounded-xl border border-white/10 bg-[#08080A] p-1">
             <button
               type="button"
               onClick={() => {
                 setIsLogin(true);
                 setNotice("");
               }}
-              className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
-                isLogin ? "bg-[#616161] text-[#FFFFFF] shadow-md" : "text-[#B5B5B5] hover:text-[#FFFFFF]"
+              className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all duration-200 ${
+                isLogin
+                  ? "bg-white text-black shadow-md"
+                  : "text-neutral-400 hover:text-white"
               }`}
             >
-              Sign in
+              Sign In
             </button>
             <button
               type="button"
@@ -126,11 +131,13 @@ export default function Auth() {
                 setIsLogin(false);
                 setNotice("");
               }}
-              className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
-                !isLogin ? "bg-[#616161] text-[#FFFFFF] shadow-md" : "text-[#B5B5B5] hover:text-[#FFFFFF]"
+              className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all duration-200 ${
+                !isLogin
+                  ? "bg-white text-black shadow-md"
+                  : "text-neutral-400 hover:text-white"
               }`}
             >
-              Sign up
+              Sign Up
             </button>
           </div>
 
@@ -152,11 +159,21 @@ export default function Auth() {
               notice={notice}
             />
           )}
+
+          {/* SECURITY TRUST BADGE */}
+          <div className="mt-6 pt-5 border-t border-white/[0.08] flex items-center justify-center gap-3 text-[10px] text-neutral-400 font-mono">
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_6px_rgba(255,255,255,0.8)]" />
+              <span>Encrypted Session</span>
+            </span>
+            <span>•</span>
+            <span>Focus Lockout Engine</span>
+          </div>
         </div>
 
-        {/* Footer */}
-        <p className="mt-8 text-center text-[10px] uppercase tracking-[0.25em] text-[#777777]">
-          ONUSLY · FOCUS · CONSISTENCY · GROWTH
+        {/* FOOTER */}
+        <p className="mt-8 text-center font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-400">
+          ONUSLY · HIGH-STAKES ACCOUNTABILITY ENGINE
         </p>
       </main>
     </div>

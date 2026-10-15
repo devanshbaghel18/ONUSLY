@@ -159,6 +159,14 @@ export async function getChatHistory(peerEmail) {
   return Array.isArray(data) ? data : [];
 }
 
+export async function clearChatHistory(peerEmail) {
+  if (!peerEmail) return false;
+  return request(`/chat/messages?peer=${encodeURIComponent(peerEmail.trim())}`, {
+    method: "DELETE",
+  });
+}
+
+
 export async function lookupUser(handle) {
   if (!handle) return null;
   const clean = handle.trim().replace(/^@/, "");

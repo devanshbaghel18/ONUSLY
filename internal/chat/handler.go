@@ -55,3 +55,32 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(msgs)
 }
+
+func (h *Handler) ClearHistory(w http.ResponseWriter, r *http.Request) {
+	callerEmail, _ := middleware.GetUserEmail(r.Context())
+	callerHandle, _ := middleware.GetUserHandle(r.Context())
+
+	callerKey := strings.TrimSpace(callerEmail)
+	if callerKey == "" && callerHandle != "" {
+		callerKey = "@" + callerHandle
+	}
+	if callerKey == "" {
+		http.Error(w, "unauthorized: email or handle required in token", http.StatusUnauthorized)
+		return
+	}
+
+	peer := strings.TrimSpace(r.URL.Query().Get("peer"))
+	if peer == "" {
+		http.Error(w, "missing required query parameter: peer", http.StatusBadRequest)
+		return
+	}
+
+	_ = h.repo.ClearConversation(r.Context(), callerKey, peer)
+	if callerHandle != "" && callerKey != ("@"+callerHandle) {
+		_ = h.repo.ClearConversation(r.Context(), "@"+callerHandle, peer)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+

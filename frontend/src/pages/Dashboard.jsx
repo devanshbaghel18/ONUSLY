@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   Pin,
   RotateCcw,
+  Clock,
+  Sparkles,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
 import { getGoals, repeatGoal } from "../lib/api";
@@ -194,51 +196,59 @@ export default function Dashboard() {
     <AppLayout>
       <div className="mx-auto w-full max-w-[1720px] space-y-8">
         {/* Welcome Header */}
-        <div className="flex flex-col justify-between gap-4 border-b border-[#2A2A2A] pb-6 sm:flex-row sm:items-center">
+        <div className="flex flex-col justify-between gap-5 border-b border-white/[0.08] pb-7 sm:flex-row sm:items-center">
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                Welcome back, {user?.name?.split(" ")?.[0] || "User"}
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
+                Welcome back,{" "}
+                <span className="bg-gradient-to-r from-white via-neutral-100 to-neutral-400 bg-clip-text text-transparent">
+                  {user?.name?.split(" ")?.[0] || "User"}
+                </span>
               </h1>
               <div
-                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold tracking-wide transition-colors ${
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold tracking-wide transition-all ${
                   isConnected
-                    ? "border-white/30 bg-white/10 text-white"
-                    : "border-neutral-700 bg-neutral-900 text-neutral-400"
+                    ? "border-white/30 bg-white/10 text-white glow-pill-white"
+                    : "border-neutral-700 bg-neutral-900 text-neutral-500"
                 }`}
                 title={isConnected ? "Real-Time WebSocket Connected" : "Connecting to real-time gateway..."}
               >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    isConnected ? "bg-white animate-pulse" : "bg-neutral-500"
-                  }`}
-                />
+                <span className="relative flex h-2 w-2">
+                  {isConnected && (
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-60" />
+                  )}
+                  <span
+                    className={`relative inline-flex h-2 w-2 rounded-full ${
+                      isConnected ? "bg-white" : "bg-neutral-600"
+                    }`}
+                  />
+                </span>
                 <span>{isConnected ? "Live Sync Active" : "Connecting..."}</span>
               </div>
             </div>
-            <p className="mt-1 text-sm text-[#A3A3A3]">
+            <p className="mt-1.5 text-sm text-[#A1A1AA] leading-relaxed">
               Your goals are locked and loaded. Complete tasks to release constraints.
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <button
               type="button"
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black transition-all hover:bg-neutral-200 shadow-sm"
+              className="btn-glow inline-flex items-center gap-2.5 rounded-xl px-5 py-3 text-xs font-black uppercase tracking-wider text-black shadow-lg"
             >
-              <Plus size={16} />
-              New Accountability Lock
+              <Plus size={16} strokeWidth={3} />
+              <span>New Accountability Lock</span>
             </button>
           </div>
         </div>
 
         {/* Real-Time Celebratory Unlock Banner */}
         {unlockBanner && (
-          <div className="relative overflow-hidden rounded-2xl border border-white/30 bg-[#1A1A1A] p-5 shadow-[0_10px_35px_rgba(0,0,0,0.5)] transition-all">
+          <div className="relative overflow-hidden rounded-2xl border border-white/20 bg-white/[0.06] backdrop-blur-xl p-5 shadow-[0_12px_35px_rgba(0,0,0,0.6),0_0_24px_rgba(255,255,255,0.06)] animate-scale-in">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3.5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-white/30 bg-white/10 text-white shadow-inner">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white shadow-inner">
                   <Unlock size={22} className="animate-pulse" />
                 </div>
                 <div>
@@ -246,12 +256,12 @@ export default function Dashboard() {
                     <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-black">
                       Unlocked Live
                     </span>
-                    <span className="text-xs text-neutral-400">{unlockBanner.time}</span>
+                    <span className="text-xs text-neutral-500">{unlockBanner.time}</span>
                   </div>
                   <h3 className="mt-1 text-base font-bold text-white">
                     Goal Unlocked: <span className="text-white font-extrabold">{unlockBanner.title}</span>
                   </h3>
-                  <p className="text-xs text-neutral-300 mt-0.5">
+                  <p className="text-xs text-neutral-400 mt-0.5">
                     Your accountability partner approved your proof. All restrictions and application blocks have been released!
                   </p>
                 </div>
@@ -260,7 +270,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => setUnlockBanner(null)}
-                className="rounded-lg p-1 text-neutral-400 hover:text-white transition hover:bg-neutral-800"
+                className="rounded-lg p-1 text-neutral-500 hover:text-white transition hover:bg-white/5"
                 title="Dismiss"
               >
                 <X size={16} />
@@ -270,59 +280,93 @@ export default function Dashboard() {
         )}
 
         {error && (
-          <div className="rounded-2xl border border-[#444444] bg-[#1E1E1E] p-4 text-xs font-medium text-white">
+          <div className="rounded-2xl border border-[#444444] bg-[#1E1E1E] p-4 text-xs font-medium text-white animate-fade-in">
             {error}
           </div>
         )}
 
-        {/* 4 Summary Stat Cards (Monochrome) */}
+        {/* 4 Summary Stat Cards (World-Class Metric Cards) */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {/* Card 1: Active Goals */}
-          <div className="rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A] p-5 shadow-sm">
-            <span className="text-xs font-semibold text-[#A3A3A3]">Active Goals</span>
-            <div className="mt-3 flex items-baseline justify-between">
-              <span className="text-3xl font-extrabold text-white">
+          <div className="card-stat rounded-2xl p-5 shadow-sm group relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 transition-colors group-hover:text-white">Active Goals</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neutral-300 transition-transform group-hover:scale-110">
+                <Target size={16} />
+              </div>
+            </div>
+            <div className="my-2">
+              <div className="text-4xl font-black tracking-tight sm:text-5xl stat-metric">
                 {loading ? "..." : activeGoals.length}
-              </span>
-              <span className="rounded-full border border-[#444444] bg-[#242424] px-2.5 py-0.5 text-[11px] font-semibold text-white">
-                {activeGoals.length} Active
+              </div>
+            </div>
+            <div className="flex items-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[11px] font-bold text-neutral-300 glow-pill-white">
+                <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+                {activeGoals.length} Active Lockout{activeGoals.length === 1 ? "" : "s"}
               </span>
             </div>
           </div>
 
           {/* Card 2: Pending Approvals */}
-          <div className="rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A] p-5 shadow-sm">
-            <span className="text-xs font-semibold text-[#A3A3A3]">Pending Approvals</span>
-            <div className="mt-3 flex items-baseline justify-between">
-              <span className="text-3xl font-extrabold text-white">
+          <div className="card-stat rounded-2xl p-5 shadow-sm group relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] transition-colors group-hover:text-white">Pending Review</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neutral-300 transition-transform group-hover:scale-110">
+                <Clock size={16} />
+              </div>
+            </div>
+            <div className="my-2">
+              <div className="text-4xl font-black tracking-tight sm:text-5xl stat-metric">
                 {loading ? "..." : pendingApprovals.length}
-              </span>
-              <span className="rounded-full border border-[#444444] bg-[#242424] px-2.5 py-0.5 text-[11px] font-semibold text-white">
-                {pendingApprovals.length > 0 ? "Under Review" : "0 Pending"}
+              </div>
+            </div>
+            <div className="flex items-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-800/90 px-2.5 py-0.5 text-[11px] font-medium text-neutral-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" />
+                {pendingApprovals.length > 0 ? "Under Review" : "No Pending Proofs"}
               </span>
             </div>
           </div>
 
           {/* Card 3: Goals Completed */}
-          <div className="rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A] p-5 shadow-sm">
-            <span className="text-xs font-semibold text-[#A3A3A3]">Goals Completed</span>
-            <div className="mt-3 flex items-baseline justify-between">
-              <span className="text-3xl font-extrabold text-white">
+          <div className="card-stat rounded-2xl p-5 shadow-sm group relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 transition-colors group-hover:text-white">Goals Completed</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neutral-300 transition-transform group-hover:scale-110">
+                <CheckCircle2 size={16} />
+              </div>
+            </div>
+            <div className="my-2">
+              <div className="text-4xl font-black tracking-tight sm:text-5xl stat-metric">
                 {loading ? "..." : completedGoals.length}
-              </span>
-              <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-white">
-                {completedGoals.length} Finished
+              </div>
+            </div>
+            <div className="flex items-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[11px] font-bold text-neutral-300 glow-pill-white">
+                <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                {completedGoals.length} Finished Lockout{completedGoals.length === 1 ? "" : "s"}
               </span>
             </div>
           </div>
 
           {/* Card 4: Reputation Points */}
-          <div className="rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A] p-5 shadow-sm">
-            <span className="text-xs font-semibold text-[#A3A3A3]">Reputation Points</span>
-            <div className="mt-3 flex items-baseline justify-between">
-              <span className="text-3xl font-extrabold text-white">{reputationScore}</span>
-              <span className="rounded-full border border-[#444444] bg-[#242424] px-2.5 py-0.5 text-[11px] font-semibold text-white">
-                {completedGoals.length > 0 ? "Verified" : "New Member"}
+          <div className="card-stat rounded-2xl p-5 shadow-sm group relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] transition-colors group-hover:text-white">Reputation Points</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white transition-transform group-hover:scale-110">
+                <Sparkles size={16} />
+              </div>
+            </div>
+            <div className="my-2">
+              <div className="text-4xl font-black tracking-tight sm:text-5xl stat-metric">
+                {reputationScore}
+              </div>
+            </div>
+            <div className="flex items-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[11px] font-bold text-white glow-pill-white">
+                <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                {completedGoals.length > 0 ? "Verified Consistency" : "New Member"}
               </span>
             </div>
           </div>
@@ -334,32 +378,32 @@ export default function Dashboard() {
         {/* ============================================================
             Your Active & Pinned Lockouts (Dashboard View)
         ============================================================ */}
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2.5">
-                <h2 className="text-lg font-bold text-white">Your Focus Lockouts</h2>
+                <h2 className="text-xl font-black tracking-tight text-white">Your Focus Lockouts</h2>
                 {pinnedIds.length > 0 && (
-                  <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white">
+                  <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white tracking-wide glow-pill-white">
                     📌 {pinnedIds.length}/{MAX_PINNED_GOALS} Pinned
                   </span>
                 )}
               </div>
-              <p className="text-xs text-[#A3A3A3] mt-0.5">
-                Active accountability locks and pinned routines. (Pin up to 6 priority goals to keep them here).
+              <p className="text-xs text-[#A1A1AA] mt-1">
+                Active accountability locks and pinned routines. (Pin up to 6 priority goals to keep them permanently here).
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               {/* Filter Tabs */}
-              <div className="flex items-center rounded-xl border border-[#333333] bg-[#1A1A1A] p-1 text-xs font-semibold">
+              <div className="flex items-center rounded-xl border border-white/10 bg-[#16161A] p-1 text-xs font-semibold shadow-inner">
                 <button
                   type="button"
                   onClick={() => setDashboardFilter("all_active")}
-                  className={`rounded-lg px-3 py-1.5 transition ${
+                  className={`rounded-lg px-3.5 py-1.5 transition-all duration-200 ${
                     dashboardFilter === "all_active"
-                      ? "bg-white text-black font-bold shadow-sm"
-                      : "text-[#A3A3A3] hover:text-white"
+                      ? "bg-white text-black font-extrabold shadow-md"
+                      : "text-[#A1A1AA] hover:text-white"
                   }`}
                 >
                   Active ({activeLockouts.length})
@@ -367,10 +411,10 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={() => setDashboardFilter("pinned")}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${
+                  className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 transition-all duration-200 ${
                     dashboardFilter === "pinned"
-                      ? "bg-white text-black font-bold shadow-sm"
-                      : "text-[#A3A3A3] hover:text-white"
+                      ? "bg-white text-black font-extrabold shadow-md"
+                      : "text-[#A1A1AA] hover:text-white"
                   }`}
                 >
                   <Pin size={12} className={dashboardFilter === "pinned" ? "fill-black" : ""} />
@@ -380,25 +424,25 @@ export default function Dashboard() {
 
               <Link
                 to="/goals"
-                className="flex items-center gap-1 text-xs font-semibold text-white hover:underline shrink-0"
+                className="btn-premium flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/10 transition shrink-0"
               >
-                Manage all goals
-                <ChevronRight size={14} />
+                <span>Manage all goals</span>
+                <ChevronRight size={13} />
               </Link>
             </div>
           </div>
 
           {/* Feedback Notices */}
           {pinNotice && (
-            <div className="flex items-center justify-between rounded-xl border border-white/20 bg-[#1E1E1E] p-3 text-xs font-semibold text-white">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between rounded-xl border border-white/20 bg-[#16161A] p-3.5 text-xs font-semibold text-white animate-fade-in shadow-lg">
+              <div className="flex items-center gap-2.5">
                 <Pin size={14} className="fill-white shrink-0" />
                 <span>{pinNotice}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setPinNotice("")}
-                className="text-neutral-400 hover:text-white transition"
+                className="text-neutral-400 hover:text-white transition p-1"
               >
                 <X size={14} />
               </button>
@@ -406,15 +450,15 @@ export default function Dashboard() {
           )}
 
           {repeatNotice && (
-            <div className="flex items-center justify-between rounded-xl border border-white/20 bg-[#1E1E1E] p-3 text-xs font-semibold text-white">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between rounded-xl border border-white/20 bg-[#16161A] p-3.5 text-xs font-semibold text-white animate-fade-in shadow-lg">
+              <div className="flex items-center gap-2.5">
                 <RotateCcw size={14} className="text-white shrink-0 animate-spin" style={{ animationIterationCount: 1 }} />
                 <span>{repeatNotice}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setRepeatNotice("")}
-                className="text-neutral-400 hover:text-white transition"
+                className="text-neutral-400 hover:text-white transition p-1"
               >
                 <X size={14} />
               </button>
@@ -422,45 +466,49 @@ export default function Dashboard() {
           )}
 
           {loading ? (
-            <div className="flex h-48 items-center justify-center rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A]">
-              <Loader2 size={24} className="animate-spin text-white" />
+            <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-[#141418]/60 backdrop-blur-xl">
+              <Loader2 size={26} className="animate-spin text-white" />
             </div>
           ) : dashboardGoals.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#333333] bg-[#1A1A1A]/30 p-10 text-center">
+            <div className="rounded-2xl border border-dashed border-white/10 bg-[#141418]/40 backdrop-blur-xl p-12 text-center">
               {dashboardFilter === "pinned" ? (
                 <>
-                  <Pin size={32} className="mx-auto text-[#737373] mb-2" />
-                  <p className="text-sm font-semibold text-white">No pinned goals yet</p>
-                  <p className="mt-1 text-xs text-[#A3A3A3]">
-                    Click the "Pin" button on any goal to keep up to 6 favorite routines permanently on your dashboard.
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[#A1A1AA] mb-3">
+                    <Pin size={22} />
+                  </div>
+                  <p className="text-base font-bold text-white">No pinned goals yet</p>
+                  <p className="mt-1.5 text-xs text-[#A1A1AA] max-w-md mx-auto leading-relaxed">
+                    Click the "Pin" button on any priority goal to keep up to 6 routines permanently visible on your dashboard.
                   </p>
                   <button
                     type="button"
                     onClick={() => setDashboardFilter("all_active")}
-                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black transition-all hover:bg-neutral-200"
+                    className="btn-glow mt-5 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-black"
                   >
                     View Active Goals
                   </button>
                 </>
               ) : (
                 <>
-                  <Target size={32} className="mx-auto text-[#737373] mb-2" />
-                  <p className="text-sm font-semibold text-white">No active locks right now</p>
-                  <p className="mt-1 text-xs text-[#A3A3A3]">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[#A1A1AA] mb-3">
+                    <Target size={22} />
+                  </div>
+                  <p className="text-base font-bold text-white">No active locks right now</p>
+                  <p className="mt-1.5 text-xs text-[#A1A1AA] max-w-md mx-auto leading-relaxed">
                     All goals are completed! Start an accountability lock or repeat a routine from past goals.
                   </p>
-                  <div className="mt-4 flex items-center justify-center gap-3">
+                  <div className="mt-5 flex items-center justify-center gap-3">
                     <button
                       type="button"
                       onClick={() => setShowCreateModal(true)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black transition-all hover:bg-neutral-200"
+                      className="btn-glow inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-black"
                     >
-                      <Plus size={14} />
+                      <Plus size={14} strokeWidth={3} />
                       Set Up New Lock
                     </button>
                     <Link
                       to="/goals"
-                      className="inline-flex items-center gap-1 rounded-xl border border-[#444444] bg-[#222222] px-4 py-2 text-xs font-semibold text-white hover:border-white transition"
+                      className="btn-premium inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-semibold text-white hover:bg-white/10 transition"
                     >
                       View Past Goals
                     </Link>
@@ -479,10 +527,10 @@ export default function Dashboard() {
                 return (
                   <div
                     key={g.id}
-                    className={`relative flex flex-col justify-between rounded-2xl border p-6 shadow-sm transition-all hover:border-white ${
+                    className={`card-glass relative flex flex-col justify-between rounded-2xl p-6 shadow-md transition-all duration-300 group ${
                       isPinned
-                        ? "border-white/50 bg-[#1A1A1A]"
-                        : "border-[#2B2B2B] bg-[#1A1A1A]"
+                        ? "border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.04)]"
+                        : "border-white/[0.08]"
                     }`}
                   >
                     <div>
@@ -490,23 +538,26 @@ export default function Dashboard() {
                       <div className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2">
                           {isCompleted ? (
-                            <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white">
-                              Unlocked
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white glow-pill-white">
+                              <CheckCircle2 size={11} className="text-white" />
+                              Unlocked & Verified
                             </span>
                           ) : isPendingReview ? (
-                            <span className="rounded-md border border-[#444444] bg-[#262626] px-2 py-0.5 text-[10px] font-bold text-white">
-                              Pending Review
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300 glow-pill-white">
+                              <Clock size={11} className="text-neutral-400" />
+                              Pending Verification
                             </span>
                           ) : (
-                            <span className="rounded-md border border-[#444444] bg-[#222222] px-2 py-0.5 text-[10px] font-bold text-[#D4D4D4]">
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300">
+                              <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
                               Active Lockout
                             </span>
                           )}
 
                           {isPinned && (
-                            <span className="flex items-center gap-1 rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white">
+                            <span className="flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white">
                               <Pin size={10} className="fill-white" />
-                              <span>Pinned</span>
+                              <span>Pinned Routine</span>
                             </span>
                           )}
                         </div>
@@ -515,10 +566,10 @@ export default function Dashboard() {
                         <button
                           type="button"
                           onClick={() => handleTogglePin(g.id)}
-                          className={`flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                          className={`btn-premium flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
                             isPinned
-                              ? "border-white bg-white text-black font-bold"
-                              : "border-[#333333] bg-[#222222] text-[#A3A3A3] hover:text-white hover:border-[#555555]"
+                              ? "border-white bg-white text-black font-bold shadow-sm"
+                              : "border-white/10 bg-white/5 text-[#A1A1AA] hover:text-white hover:border-white/20 hover:bg-white/10"
                           }`}
                           title={
                             isPinned
@@ -532,11 +583,15 @@ export default function Dashboard() {
                       </div>
 
                       {/* Title & Notes */}
-                      <h3 className="mt-4 text-base font-bold text-white">
-                        {g.title}
-                      </h3>
+                      <Link
+                        to={`/goals/${g.id}`}
+                        className="group/title mt-4 flex items-center justify-between text-base font-bold text-white hover:text-neutral-100 transition-colors"
+                      >
+                        <span className="line-clamp-1">{g.title}</span>
+                        <ChevronRight size={16} className="text-neutral-500 group-hover/title:text-white group-hover/title:translate-x-1 transition-all shrink-0 ml-2" />
+                      </Link>
                       {g.description && (
-                        <p className="mt-1 text-xs text-[#A3A3A3] line-clamp-2">
+                        <p className="mt-1 text-xs text-[#A1A1AA] line-clamp-2 leading-relaxed">
                           {g.description}
                         </p>
                       )}
@@ -545,23 +600,29 @@ export default function Dashboard() {
                     {/* Progress Bar & Actions */}
                     <div className="mt-6 space-y-3">
                       <div className="flex items-center justify-between text-[11px] font-semibold">
-                        <span className="text-[#737373]">Status</span>
-                        <span className="text-white">
-                          {isCompleted ? "Completed" : isPendingReview ? "Proof Submitted" : "In Progress"}
+                        <span className="text-[#A1A1AA]">Status</span>
+                        <span className="text-white font-bold">
+                          {isCompleted ? "Completed & Released" : isPendingReview ? "Proof Submitted" : "In Progress"}
                         </span>
                       </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-[#121212]">
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-[#121214] border border-white/10 p-[1px]">
                         <div
-                          className="h-full rounded-full bg-white transition-all duration-500"
+                          className={`h-full rounded-full transition-all duration-500 ease-out ${
+                            isCompleted
+                              ? "bg-white shadow-[0_0_12px_rgba(255,255,255,0.3)]"
+                              : isPendingReview
+                              ? "bg-gradient-to-r from-neutral-400 to-neutral-300"
+                              : "bg-gradient-to-r from-neutral-600 to-white"
+                          }`}
                           style={{ width: `${progressPct}%` }}
                         />
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#262626]">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">
                         <div className="flex items-center gap-3">
                           <Link
                             to={`/goals/${g.id}`}
-                            className="text-xs font-semibold text-white hover:underline"
+                            className="text-xs font-semibold text-white hover:underline transition-all"
                           >
                             Goal Details →
                           </Link>
@@ -571,10 +632,10 @@ export default function Dashboard() {
                             type="button"
                             disabled={repeatingGoalId === g.id || !isCompleted}
                             onClick={() => handleRepeatGoal(g)}
-                            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                            className={`btn-premium inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
                               isCompleted
-                                ? "border-[#3A3A3A] bg-[#222222] text-white hover:border-white"
-                                : "border-[#262626] bg-[#1A1A1A] text-[#666666] cursor-not-allowed opacity-60"
+                                ? "border-white/15 bg-white/5 text-white hover:border-white/30 hover:bg-white/10"
+                                : "border-white/5 bg-white/[0.02] text-neutral-600 cursor-not-allowed opacity-50"
                             }`}
                             title={
                               isCompleted
@@ -585,7 +646,7 @@ export default function Dashboard() {
                             {repeatingGoalId === g.id ? (
                               <Loader2 size={12} className="animate-spin text-white" />
                             ) : (
-                              <RotateCcw size={12} className={isCompleted ? "text-white" : "text-[#666666]"} />
+                              <RotateCcw size={12} className={isCompleted ? "text-white" : "text-neutral-600"} />
                             )}
                             <span>Repeat Routine</span>
                           </button>
@@ -600,7 +661,7 @@ export default function Dashboard() {
                           <button
                             type="button"
                             onClick={() => setShareGoal(g)}
-                            className="text-xs font-semibold text-white hover:underline flex items-center gap-1 transition"
+                            className="btn-premium inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white hover:bg-white/10 hover:border-white/30 transition"
                             title="Share proof for verification in chat"
                           >
                             <span>Share Proof in Chat</span>

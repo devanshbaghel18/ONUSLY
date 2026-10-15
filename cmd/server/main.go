@@ -169,6 +169,11 @@ func main() {
 		"GET /chat/messages",
 		chatHandler.GetHistory,
 	)
+	goalRoutes.HandleFunc(
+		"DELETE /chat/messages",
+		chatHandler.ClearHistory,
+	)
+
 
 	// Goals
 	goalRoutes.HandleFunc(

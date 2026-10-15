@@ -1,5 +1,28 @@
 const FRIENDS_KEY = "onusly_friends_list";
 const CHATS_KEY = "onusly_friends_chats";
+const CLEARED_AT_KEY = "onusly_friends_chats_cleared_at";
+
+export function getFriendClearedAt(friendId) {
+  try {
+    const raw = localStorage.getItem(CLEARED_AT_KEY);
+    if (!raw) return 0;
+    const map = JSON.parse(raw);
+    return Number(map[friendId]) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function setFriendClearedAt(friendId, timestamp = Date.now()) {
+  try {
+    const raw = localStorage.getItem(CLEARED_AT_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[friendId] = timestamp;
+    localStorage.setItem(CLEARED_AT_KEY, JSON.stringify(map));
+  } catch (err) {
+    console.error("Failed to set friend cleared at:", err);
+  }
+}
 
 export function getStoredFriends() {
   try {
@@ -80,17 +103,24 @@ export function getChatMessages(friendId) {
     if (!raw) return [];
     const allChats = JSON.parse(raw);
     const msgs = allChats[friendId] || [];
-    return msgs.map((m) => {
-      const textMatch = (m.text || "").match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
-      if (textMatch && !m.isProof) {
-        return {
-          ...m,
-          isProof: true,
-          goalTitle: m.goalTitle || textMatch[1].trim(),
-        };
-      }
-      return m;
-    });
+    const clearedAt = getFriendClearedAt(friendId);
+    return msgs
+      .filter((m) => {
+        if (!clearedAt) return true;
+        const msgTime = m.timestamp || (m.time && m.time.includes("T") ? new Date(m.time).getTime() : 0);
+        return !msgTime || msgTime > clearedAt;
+      })
+      .map((m) => {
+        const textMatch = (m.text || "").match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
+        if (textMatch && !m.isProof) {
+          return {
+            ...m,
+            isProof: true,
+            goalTitle: m.goalTitle || textMatch[1].trim(),
+          };
+        }
+        return m;
+      });
   } catch {
     return [];
   }
@@ -118,8 +148,10 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
       files: isDataObj && Array.isArray(messageData.files) ? messageData.files : [],
       externalLink: isDataObj ? (messageData.externalLink || "") : "",
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      timestamp: (isDataObj && messageData.timestamp) || Date.now(),
       replyTo: isDataObj && messageData.replyTo ? messageData.replyTo : null,
     };
+
 
     allChats[friendId] = [...friendMessages, newMsg];
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
@@ -236,6 +268,12 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
       return { friend, messages: allChats[friend.id] };
     }
 
+    const clearedAt = getFriendClearedAt(friend.id);
+    const msgTimestamp = (time && time.includes("T")) ? new Date(time).getTime() : Date.now();
+    if (clearedAt > 0 && msgTimestamp <= clearedAt) {
+      return { friend, messages: friendMessages };
+    }
+
     const finalId = messageId || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
     const newMsg = {
       id: finalId,
@@ -250,11 +288,13 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
       files: Array.isArray(files) ? files : [],
       externalLink: externalLink || "",
       time: time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      timestamp: msgTimestamp,
       replyTo: replyTo || null,
     };
 
     allChats[friend.id] = [...friendMessages, newMsg];
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
+
 
     // Update friend's last message preview and unread count
     const previewText = newMsg.isProof ? `📸 Proof: ${newMsg.goalTitle || "Goal"}` : newMsg.text;
@@ -303,6 +343,8 @@ export function clearFriendChat(friendId) {
     allChats[friendId] = [];
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
 
+    setFriendClearedAt(friendId, Date.now());
+
     const friends = getStoredFriends();
     const updated = friends.map((f) =>
       f.id === friendId
@@ -316,6 +358,7 @@ export function clearFriendChat(friendId) {
     return [];
   }
 }
+
 
 export function toggleFavoriteFriend(friendId) {
   try {
@@ -429,6 +472,7 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail, cur
     const raw = localStorage.getItem(CHATS_KEY);
     const allChats = raw ? JSON.parse(raw) : {};
     const local = allChats[friendId] || [];
+    const clearedAt = getFriendClearedAt(friendId);
 
     const normCurrentEmail = (currentUserEmail || "").toLowerCase();
     const normCurrentHandle = (currentUserHandle || "").toLowerCase().replace(/^@/, "");
@@ -436,6 +480,12 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail, cur
 
     local.forEach((m) => {
       if (m.id) {
+        if (clearedAt > 0) {
+          const msgTime = m.timestamp || (m.time && m.time.includes("T") ? new Date(m.time).getTime() : 0);
+          if (msgTime > 0 && msgTime <= clearedAt) {
+            return;
+          }
+        }
         const textMatch = (m.text || "").match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
         const enriched = (textMatch && !m.isProof)
           ? { ...m, isProof: true, goalTitle: m.goalTitle || textMatch[1].trim() }
@@ -445,6 +495,13 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail, cur
     });
 
     serverMessages.forEach((m) => {
+      if (clearedAt > 0) {
+        const msgTime = m.time ? new Date(m.time).getTime() : 0;
+        if (msgTime > 0 && msgTime <= clearedAt) {
+          return;
+        }
+      }
+
       const senderE = (m.senderEmail || "").toLowerCase();
       const senderH = (m.senderHandle || "").toLowerCase().replace(/^@/, "");
       const isMe = (normCurrentEmail && senderE === normCurrentEmail) ||
@@ -476,6 +533,7 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail, cur
         files,
         externalLink,
         replyTo: m.replyTo || existing.replyTo || null,
+        timestamp: m.time ? new Date(m.time).getTime() : (existing.timestamp || Date.now()),
         time: m.time
           ? (m.time.includes("T") ? new Date(m.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : m.time)
           : (existing.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
@@ -487,6 +545,7 @@ export function mergeChatHistory(friendId, serverMessages, currentUserEmail, cur
     allChats[friendId] = merged;
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
     return merged;
+
   } catch (err) {
     console.error("Failed to merge chat history:", err);
     return getChatMessages(friendId);

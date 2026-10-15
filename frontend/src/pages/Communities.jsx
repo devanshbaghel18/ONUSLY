@@ -61,7 +61,8 @@ import {
   markChatMessageApproved,
   clearUnreadCount,
 } from "../lib/friendsChat";
-import { getChatHistory, lookupUser } from "../lib/api";
+import { getChatHistory, lookupUser, clearChatHistory } from "../lib/api";
+
 import { getUser } from "../lib/auth";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { wsManager } from "../lib/websocket";
@@ -1340,6 +1341,12 @@ export default function Communities() {
       clearFriendChat(activeFriendId);
       setChatMessages([]);
       setFriends(getStoredFriends());
+
+      const f = friends.find((item) => item.id === activeFriendId);
+      const peerKey = f?.handle ? `@${f.handle}` : f?.email || "";
+      if (peerKey) {
+        clearChatHistory(peerKey).catch(() => {});
+      }
     } else if (clearChatModal.type === "community" && selectedCommunity) {
       clearCommunityChat(selectedCommunity.id);
       setCommChatMessages([]);
@@ -1347,6 +1354,7 @@ export default function Communities() {
     }
     setClearChatModal({ isOpen: false, type: "friend", targetName: "" });
   };
+
 
   // Star / Favorite toggle handler
   const handleToggleFavoriteActiveFriend = () => {
@@ -1398,7 +1406,7 @@ export default function Communities() {
         <div
           className={`relative max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 text-xs transition-all duration-300 ${
             isHighlighted
-              ? "ring-2 ring-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.6)] scale-[1.02] bg-emerald-500/15"
+              ? "ring-1 ring-white/40 shadow-[0_0_24px_rgba(255,255,255,0.2)] scale-[1.02] bg-white/10"
               : ""
           } ${
             isMe
@@ -1408,7 +1416,7 @@ export default function Communities() {
         >
           {/* Sender badge for peers */}
           {showSenderBadge && !isMe && (
-            <div className="mb-1 flex items-center gap-1.5 font-bold text-[11px] text-emerald-400">
+            <div className="mb-1 flex items-center gap-1.5 font-bold text-[11px] text-white">
               <span>{msg.senderName || "Member"}</span>
               {msg.senderHandle && (
                 <span className="font-mono text-[10px] text-[#A3A3A3]">
@@ -1429,12 +1437,12 @@ export default function Communities() {
               }}
               className={`mb-2 rounded-lg border-l-4 p-2 text-[11px] select-none cursor-pointer transition-all hover:opacity-90 active:scale-[0.98] ${
                 isMe
-                  ? "border-emerald-600 bg-black/10 hover:bg-black/15 text-neutral-800"
-                  : "border-emerald-400 bg-white/10 hover:bg-white/15 text-neutral-300"
+                  ? "border-black/40 bg-black/10 hover:bg-black/15 text-neutral-900"
+                  : "border-white/40 bg-white/10 hover:bg-white/15 text-neutral-200"
               }`}
               title="Click to jump to quoted message"
             >
-              <div className="flex items-center justify-between font-bold text-[10px] text-emerald-500 mb-0.5">
+              <div className="flex items-center justify-between font-bold text-[10px] text-white mb-0.5">
                 <div className="flex items-center gap-1">
                   <Reply size={10} />
                   <span>{msg.replyTo.senderName || (msg.replyTo.sender === "me" ? "You" : "Message")}</span>
@@ -1455,18 +1463,18 @@ export default function Communities() {
               }`}
             >
               <div className="flex items-center justify-between gap-2 border-b border-current/15 pb-2 mb-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-white">
                   <ShieldCheck size={14} />
                   <span>Goal Verification</span>
                 </div>
                 <div className="flex items-center gap-2">
                   {msg.approved ? (
-                    <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-400">
+                    <span className="flex items-center gap-1 text-[11px] font-bold text-white">
                       <CheckCircle2 size={13} />
                       <span>Approved</span>
                     </span>
                   ) : (
-                    <span className="text-[10px] text-amber-400 font-semibold bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/20">
+                    <span className="text-[10px] text-neutral-300 font-semibold bg-white/10 px-2 py-0.5 rounded-full border border-white/20">
                       Pending
                     </span>
                   )}
@@ -1506,7 +1514,7 @@ export default function Communities() {
                   href={msg.externalLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:underline mb-2"
+                  className="inline-flex items-center gap-1 text-[11px] text-neutral-300 hover:text-white underline underline-offset-2 mb-2"
                 >
                   <ExternalLink size={12} />
                   <span className="truncate max-w-[200px]">{msg.externalLink}</span>
@@ -1530,7 +1538,7 @@ export default function Communities() {
                           : "border border-white/10 bg-white/5 hover:bg-white/10 text-white"
                       }`}
                     >
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 shrink-0">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white border border-white/20 shrink-0">
                         <FileText size={16} />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -1544,7 +1552,7 @@ export default function Communities() {
 
               {/* If approved, show banner. If not approved and not me, show Approve button */}
               {msg.approved ? (
-                <div className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-[11px] font-bold text-emerald-400">
+                <div className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm">
                   <CheckCircle2 size={14} />
                   <span>Verified & Unlocked! Apps are released.</span>
                 </div>
@@ -1553,7 +1561,7 @@ export default function Communities() {
                   type="button"
                   disabled={approvingMsgId === msg.id}
                   onClick={() => handleApproveChatProof({ ...msg, goalTitle: displayGoalTitle })}
-                  className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black px-3.5 py-1.5 text-[11px] font-bold transition disabled:opacity-50 shadow-sm"
+                  className="btn-glow mt-2.5 flex items-center gap-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black px-3.5 py-1.5 text-[11px] font-bold transition disabled:opacity-50 shadow-sm"
                 >
                   {approvingMsgId === msg.id ? (
                     <Loader2 size={13} className="animate-spin" />
@@ -1564,7 +1572,7 @@ export default function Communities() {
                 </button>
               ) : (
                 <div className="mt-2 flex items-center gap-1.5 text-[10px] text-neutral-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-neutral-400 animate-pulse" />
                   <span>Awaiting partner review & verification</span>
                 </div>
               )}
@@ -1592,7 +1600,7 @@ export default function Communities() {
                       : "border border-white/10 bg-white/5 hover:bg-white/10 text-white"
                   }`}
                 >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 shrink-0">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white border border-white/20 shrink-0">
                     <FileText size={16} />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -1610,7 +1618,7 @@ export default function Communities() {
               href={msg.externalLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:underline mb-1"
+              className="inline-flex items-center gap-1 text-[11px] text-neutral-300 hover:text-white underline underline-offset-2 mb-1"
             >
               <ExternalLink size={12} />
               <span className="truncate max-w-[200px]">{msg.externalLink}</span>
@@ -1650,7 +1658,7 @@ export default function Communities() {
             <button
               type="button"
               onClick={() => onDelete && onDelete(msg, isMe)}
-              className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-neutral-400 hover:text-red-500"
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-neutral-400 hover:text-white"
               title="Delete message"
             >
               <Trash2 size={11} />
@@ -1663,27 +1671,27 @@ export default function Communities() {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto w-full max-w-[1720px] space-y-7">
         {/* Top Header & Section Switcher */}
-        <div className="flex flex-col justify-between gap-4 border-b border-[#2A2A2A] pb-6 sm:flex-row sm:items-center">
+        <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-center">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+            <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
               Community & Friends
             </h1>
-            <p className="mt-1 text-sm text-[#A3A3A3]">
+            <p className="mt-1 text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
               Chat, share files, and verify goals with your accountability partners.
             </p>
           </div>
 
           {/* Section Switcher Tabs */}
-          <div className="flex items-center rounded-xl border border-[#333333] bg-[#1A1A1A] p-1 text-xs font-semibold">
+          <div className="flex items-center rounded-xl border border-white/10 bg-[#16161A] p-1 text-xs font-semibold shadow-inner">
             <button
               type="button"
               onClick={() => setMainView("communities")}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 transition-all ${
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 transition-all duration-200 ${
                 mainView === "communities"
-                  ? "bg-white text-black font-bold shadow-sm"
-                  : "text-[#A3A3A3] hover:text-white"
+                  ? "bg-white text-black font-extrabold shadow-md"
+                  : "text-[#A1A1AA] hover:text-white"
               }`}
             >
               <Users size={15} />
@@ -1692,16 +1700,16 @@ export default function Communities() {
             <button
               type="button"
               onClick={() => setMainView("friends")}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 transition-all ${
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 transition-all duration-200 ${
                 mainView === "friends"
-                  ? "bg-white text-black font-bold shadow-sm"
-                  : "text-[#A3A3A3] hover:text-white"
+                  ? "bg-white text-black font-extrabold shadow-md"
+                  : "text-[#A1A1AA] hover:text-white"
               }`}
             >
               <MessageSquare size={15} />
               <span>Friends ({friends.length})</span>
               {totalUnreadFriends > 0 && (
-                <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-emerald-500 px-1 text-[9px] font-black text-black shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse">
+                <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black shadow-[0_0_10px_rgba(255,255,255,0.4)] animate-pulse">
                   {totalUnreadFriends > 99 ? "99+" : totalUnreadFriends}
                 </span>
               )}
@@ -1733,7 +1741,7 @@ export default function Communities() {
                         <h2 className="text-lg font-bold text-white flex items-center gap-2">
                           <span>{selectedCommunity.name}</span>
                           {selectedCommunity.isFavorite && (
-                            <Star size={15} className="fill-amber-400 text-amber-400 shrink-0" title="Favorited Community" />
+                            <Star size={15} className="fill-white text-white shrink-0" title="Favorited Community" />
                           )}
                         </h2>
                         <span className="rounded-full border border-[#444444] px-2 py-0.5 text-[10px] uppercase font-bold text-[#A3A3A3]">
@@ -1775,7 +1783,7 @@ export default function Communities() {
                             onClick={handleToggleFavoriteActiveCommunity}
                             className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
                           >
-                            <Star size={14} className={selectedCommunity.isFavorite ? "fill-amber-400 text-amber-400" : "text-neutral-400"} />
+                            <Star size={14} className={selectedCommunity.isFavorite ? "fill-white text-white" : "text-neutral-400"} />
                             <span>{selectedCommunity.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
                           </button>
                           <button
@@ -1809,9 +1817,9 @@ export default function Communities() {
                                   setShowCommMenu(false);
                                   setCommToDelete(selectedCommunity);
                                 }}
-                                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 text-left transition"
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-300 hover:bg-white/10 hover:text-white text-left transition"
                               >
-                                <Trash2 size={14} className="text-red-400" />
+                                <Trash2 size={14} className="text-neutral-400" />
                                 <span>Delete Community</span>
                               </button>
                             </>
@@ -1884,9 +1892,9 @@ export default function Communities() {
 
                     {/* Quoted Reply banner */}
                     {replyingTo && (
-                      <div className="shrink-0 flex items-center justify-between border-t border-l-4 border-l-emerald-500 border-t-[#2A2A2A] bg-[#1E1E1E] px-4 py-2 text-xs">
+                      <div className="shrink-0 flex items-center justify-between border-t border-l-4 border-l-white border-t-[#2A2A2A] bg-[#1E1E1E] px-4 py-2 text-xs">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400">
+                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-white">
                             <Reply size={12} />
                             <span>Replying to {replyingTo.senderName || "Message"}</span>
                           </div>
@@ -1995,7 +2003,7 @@ export default function Communities() {
                   <button
                     type="button"
                     onClick={() => setShowCreateModal(true)}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition"
+                    className="btn-premium flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black hover:bg-neutral-100 transition shadow-sm"
                   >
                     <Plus size={16} />
                     Create Community
@@ -2003,12 +2011,12 @@ export default function Communities() {
                 </div>
 
                 {codeNotice.error && (
-                  <div className="rounded-xl border border-[#444444] bg-[#222222] p-3 text-xs text-white">
+                  <div className="rounded-xl border border-[#444444] bg-[#222222] p-3 text-xs text-white animate-fade-in">
                     {codeNotice.error}
                   </div>
                 )}
                 {codeNotice.success && (
-                  <div className="rounded-xl border border-white bg-white/10 p-3 text-xs font-semibold text-white">
+                  <div className="rounded-xl border border-white bg-white/10 p-3 text-xs font-semibold text-white animate-fade-in">
                     {codeNotice.success}
                   </div>
                 )}
@@ -2027,18 +2035,18 @@ export default function Communities() {
                       <div
                         key={c.id}
                         onClick={() => setSelectedCommunity(c)}
-                        className="cursor-pointer rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A] p-6 transition-all hover:border-white"
+                        className="card-glass cursor-pointer rounded-2xl p-6 transition-all duration-300 hover:border-white/30 group"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-base font-bold text-white flex items-center gap-1.5">
+                            <h3 className="text-base font-bold text-white flex items-center gap-1.5 group-hover:text-neutral-100 transition-colors">
                               <span>{c.name}</span>
                               {c.isFavorite && (
-                                <Star size={13} className="fill-amber-400 text-amber-400 shrink-0" title="Starred Community" />
+                                <Star size={13} className="fill-white text-white shrink-0" title="Starred Community" />
                               )}
                             </h3>
                             {c.joined && (
-                              <span className="rounded-md border border-emerald-900 bg-emerald-950/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                              <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white">
                                 Joined
                               </span>
                             )}
@@ -2069,17 +2077,17 @@ export default function Communities() {
             VIEW 2: WHATSAPP-STYLE FRIENDS & CHAT SECTION
         ============================================================ */}
         {mainView === "friends" && (
-          <div className="grid grid-cols-1 overflow-hidden rounded-2xl border border-[#2B2B2B] bg-[#181818] shadow-2xl md:grid-cols-12" style={{ height: "calc(100vh - 220px)", minHeight: "520px" }}>
+          <div className="grid grid-cols-1 overflow-hidden rounded-2xl border border-white/10 bg-[#121215]/90 backdrop-blur-2xl shadow-2xl md:grid-cols-12" style={{ height: "calc(100vh - 220px)", minHeight: "520px" }}>
             {/* Left Column: Friends List */}
-            <div className="flex flex-col h-full min-h-0 border-b border-[#2A2A2A] bg-[#141414] p-4 md:col-span-4 md:border-b-0 md:border-r overflow-hidden">
+            <div className="flex flex-col h-full min-h-0 border-b border-white/10 bg-[#0E0E12]/80 backdrop-blur-xl p-4 md:col-span-4 md:border-b-0 md:border-r md:border-white/10 overflow-hidden">
               <div className="shrink-0 flex items-center justify-between pb-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3]">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">
                   Friends ({friends.length})
                 </span>
                 <button
                   type="button"
                   onClick={() => setShowAddFriendModal(true)}
-                  className="flex items-center gap-1.5 rounded-lg border border-[#444444] bg-[#222222] px-2.5 py-1.5 text-xs font-semibold text-white hover:border-white transition"
+                  className="btn-glow inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-black shadow-sm"
                 >
                   <UserPlus size={14} />
                   Add
@@ -2147,7 +2155,7 @@ export default function Communities() {
                                     f.handle.toLowerCase().replace(/^@/, "")
                                   )) ||
                                 (f.email && onlineEmails.has(f.email.trim().toLowerCase()))
-                                  ? "bg-emerald-400"
+                                  ? "bg-white shadow-[0_0_6px_rgba(255,255,255,0.8)]"
                                   : "bg-neutral-600"
                               }`}
                               title={
@@ -2167,7 +2175,7 @@ export default function Communities() {
                                 {f.name}
                               </p>
                               {f.isFavorite && (
-                                <Star size={11} className="fill-amber-400 text-amber-400 shrink-0" title="Starred Friend" />
+                                <Star size={11} className="fill-white text-white shrink-0" title="Starred Friend" />
                               )}
                               {f.handle && (
                                 <span className="font-mono text-[10px] text-[#A3A3A3]">
@@ -2183,12 +2191,12 @@ export default function Communities() {
 
                         <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
                           {f.lastMessageTime && (
-                            <span className={`text-[10px] ${hasUnread ? "font-bold text-emerald-400" : "text-[#737373]"}`}>
+                            <span className={`text-[10px] ${hasUnread ? "font-bold text-white" : "text-[#737373]"}`}>
                               {f.lastMessageTime}
                             </span>
                           )}
                           {hasUnread && (
-                            <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-black text-black shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-in zoom-in-75 duration-200">
+                            <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white px-1.5 text-[10px] font-black text-black shadow-[0_0_10px_rgba(255,255,255,0.4)] animate-in zoom-in-75 duration-200">
                               {f.unreadCount > 99 ? "99+" : f.unreadCount}
                             </span>
                           )}
@@ -2237,7 +2245,7 @@ export default function Communities() {
                               )) ||
                             (activeFriend.email &&
                               onlineEmails.has(activeFriend.email.trim().toLowerCase()))
-                              ? "bg-emerald-400"
+                              ? "bg-white shadow-[0_0_6px_rgba(255,255,255,0.8)]"
                               : "bg-neutral-600"
                           }`}
                         />
@@ -2247,7 +2255,7 @@ export default function Communities() {
                           <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
                             <span>{activeFriend.name}</span>
                             {activeFriend.isFavorite && (
-                              <Star size={13} className="fill-amber-400 text-amber-400 shrink-0" title="Starred Friend" />
+                              <Star size={13} className="fill-white text-white shrink-0" title="Starred Friend" />
                             )}
                           </h3>
                           {activeFriend.handle && (
@@ -2271,12 +2279,12 @@ export default function Communities() {
                             return (
                               <span
                                 className={`flex items-center gap-1 font-medium ${
-                                  isOnline ? "text-emerald-400" : "text-neutral-400"
+                                  isOnline ? "text-white" : "text-neutral-400"
                                 }`}
                               >
                                 <span
                                   className={`h-1.5 w-1.5 rounded-full ${
-                                    isOnline ? "bg-emerald-400 animate-pulse" : "bg-neutral-500"
+                                    isOnline ? "bg-white animate-pulse shadow-[0_0_6px_rgba(255,255,255,0.8)]" : "bg-neutral-500"
                                   }`}
                                 />
                                 {isOnline ? "Online" : "Offline"}
@@ -2306,7 +2314,7 @@ export default function Communities() {
                               onClick={handleToggleFavoriteActiveFriend}
                               className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
                             >
-                              <Star size={14} className={activeFriend.isFavorite ? "fill-amber-400 text-amber-400" : "text-neutral-400"} />
+                              <Star size={14} className={activeFriend.isFavorite ? "fill-white text-white" : "text-neutral-400"} />
                               <span>{activeFriend.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
                             </button>
                             <button
@@ -2327,9 +2335,9 @@ export default function Communities() {
                                 setShowFriendMenu(false);
                                 setFriendToDelete(activeFriend);
                               }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 text-left transition"
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-300 hover:bg-white/10 hover:text-white text-left transition"
                             >
-                              <Trash2 size={14} className="text-red-400" />
+                              <Trash2 size={14} className="text-neutral-400" />
                               <span>Delete Contact</span>
                             </button>
                           </div>
@@ -2373,9 +2381,9 @@ export default function Communities() {
 
                   {/* Quoted Reply banner */}
                   {replyingTo && (
-                    <div className="shrink-0 flex items-center justify-between border-t border-l-4 border-l-emerald-500 border-t-[#2A2A2A] bg-[#1E1E1E] px-4 py-2 text-xs">
+                    <div className="shrink-0 flex items-center justify-between border-t border-l-4 border-l-white border-t-[#2A2A2A] bg-[#1E1E1E] px-4 py-2 text-xs">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400">
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-white">
                           <Reply size={12} />
                           <span>Replying to {replyingTo.senderName || "Message"}</span>
                         </div>
@@ -2458,14 +2466,14 @@ export default function Communities() {
                     </button>
                   ) : (
                     <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-[#2B2B2B] bg-[#181818] px-4 py-1.5 text-xs text-[#8A8A8A]">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse shadow-[0_0_6px_rgba(255,255,255,0.8)]" />
                       <span>Select a friend from the left sidebar to start</span>
                     </div>
                   )}
 
                   {/* WhatsApp-style Security & Verification footer */}
                   <div className="mt-12 flex items-center gap-2 text-[11px] text-[#555555]">
-                    <ShieldCheck size={13} className="text-emerald-500/80" />
+                    <ShieldCheck size={13} className="text-neutral-400" />
                     <span>End-to-end peer verification • Direct live sync</span>
                   </div>
                 </div>
@@ -2549,7 +2557,7 @@ export default function Communities() {
                             />
                           ) : (
                             <div className="flex flex-col items-center justify-center text-center p-1">
-                              <FileText size={20} className="text-red-400 mb-1" />
+                              <FileText size={20} className="text-neutral-300 mb-1" />
                               <span className="text-[9px] text-neutral-300 truncate max-w-full">
                                 {item.name}
                               </span>
@@ -2640,7 +2648,7 @@ export default function Communities() {
               </div>
 
               {createError && (
-                <div className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">
+                <div className="mt-4 rounded-xl border border-white/20 bg-white/[0.04] p-3 text-xs text-neutral-300">
                   {createError}
                 </div>
               )}
@@ -2795,7 +2803,7 @@ export default function Communities() {
               </div>
 
               {friendError && (
-                <div className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">
+                <div className="mt-4 rounded-xl border border-white/20 bg-white/[0.04] p-3 text-xs text-neutral-300">
                   {friendError}
                 </div>
               )}
@@ -2860,7 +2868,7 @@ export default function Communities() {
                         @{verifiedPartner.handle}
                       </p>
                     </div>
-                    <Check size={16} className="text-emerald-400" />
+                    <Check size={16} className="text-white" />
                   </div>
                 )}
 
@@ -2895,7 +2903,7 @@ export default function Communities() {
         ============================================================ */}
         {friendToDelete && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm rounded-2xl border border-red-900/50 bg-[#1A1A1A] p-6 shadow-2xl">
+            <div className="w-full max-w-sm rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl">
               <h3 className="text-sm font-bold text-white">Delete Friend?</h3>
               <p className="mt-2 text-xs text-[#A3A3A3] leading-relaxed">
                 Are you sure you want to remove <strong className="text-white">{friendToDelete.name}</strong> from your friends? All local chat history with this partner will be cleared.
@@ -2911,7 +2919,7 @@ export default function Communities() {
                 <button
                   type="button"
                   onClick={handleConfirmDeleteFriend}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-500 transition"
+                  className="btn-glow rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition"
                 >
                   Confirm Delete
                 </button>
@@ -2955,7 +2963,7 @@ export default function Communities() {
         ============================================================ */}
         {commToDelete && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm rounded-2xl border border-red-900/50 bg-[#1A1A1A] p-6 shadow-2xl">
+            <div className="w-full max-w-sm rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl">
               <h3 className="text-sm font-bold text-white">Delete Community?</h3>
               <p className="mt-2 text-xs text-[#A3A3A3] leading-relaxed">
                 Permanently delete <strong className="text-white">{commToDelete.name}</strong> and all its group chat history? This action cannot be undone.
@@ -2971,7 +2979,7 @@ export default function Communities() {
                 <button
                   type="button"
                   onClick={handleConfirmDeleteCommunity}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-500 transition"
+                  className="btn-glow rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition"
                 >
                   Delete Community
                 </button>
@@ -2987,7 +2995,7 @@ export default function Communities() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
             <div className="w-full max-w-sm rounded-2xl border border-[#333333] bg-[#1A1A1A] p-6 shadow-2xl space-y-4">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500/15 text-red-400 border border-red-500/30">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20">
                   <Trash2 size={16} />
                 </div>
                 <div>
@@ -3009,7 +3017,7 @@ export default function Communities() {
                   <button
                     type="button"
                     onClick={handleConfirmDeleteForEveryone}
-                    className="w-full rounded-xl bg-red-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-500 transition shadow-sm"
+                    className="btn-glow w-full rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-sm"
                   >
                     Delete for everyone
                   </button>
@@ -3020,7 +3028,7 @@ export default function Communities() {
                   className={`w-full rounded-xl px-4 py-2.5 text-xs font-bold transition ${
                     deleteMsgModal.isMe
                       ? "border border-[#444444] bg-[#222222] text-white hover:border-white"
-                      : "bg-red-600 text-white hover:bg-red-500"
+                      : "bg-white text-black hover:bg-neutral-200"
                   }`}
                 >
                   Delete for me
@@ -3041,10 +3049,10 @@ export default function Communities() {
             WHATSAPP-STYLE CLEAR CHAT MODAL
         ============================================================ */}
         {clearChatModal.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm rounded-2xl border border-red-900/40 bg-[#1A1A1A] p-6 shadow-2xl space-y-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4">
+            <div className="w-full max-w-sm rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl space-y-4 animate-scale-in">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500/15 text-red-400 border border-red-500/30">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20">
                   <RotateCcw size={16} />
                 </div>
                 <div>
@@ -3063,14 +3071,14 @@ export default function Communities() {
                 <button
                   type="button"
                   onClick={() => setClearChatModal({ isOpen: false, type: "friend", targetName: "" })}
-                  className="rounded-xl border border-[#444444] px-4 py-2 text-xs font-semibold text-white hover:border-white transition"
+                  className="btn-premium rounded-xl border border-[#444444] px-4 py-2 text-xs font-semibold text-white hover:border-white transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmClearChat}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-500 transition"
+                  className="btn-glow rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-sm"
                 >
                   Clear Chat
                 </button>

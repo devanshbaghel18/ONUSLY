@@ -41,20 +41,20 @@ export default function Sidebar({ isOpen, onClose }) {
       {/* Drawer Backdrop */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm transition-opacity"
+          className="fixed inset-0 z-40 modal-backdrop"
           onClick={onClose}
         />
       )}
 
       {/* Hamburger Drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col justify-between border-r border-[#333333] bg-[#141414] p-5 shadow-2xl transition-transform duration-300 ease-in-out ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col justify-between border-r border-white/10 bg-[#0E0E12]/95 backdrop-blur-2xl p-5 shadow-2xl transition-transform duration-300 ease-in-out ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         {/* Top Header */}
         <div>
-          <div className="flex items-center justify-between border-b border-[#2B2B2B] pb-5">
+          <div className="flex items-center justify-between border-b border-white/[0.08] pb-5">
             <Link
               to="/dashboard"
               className="flex items-center pl-1"
@@ -69,7 +69,7 @@ export default function Sidebar({ isOpen, onClose }) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-[#333333] bg-[#1F1F1F] p-1.5 text-[#A3A3A3] transition-colors hover:border-white hover:text-white"
+              className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-neutral-400 transition-colors hover:border-white hover:text-white"
             >
               <X size={18} />
             </button>
@@ -91,13 +91,13 @@ export default function Sidebar({ isOpen, onClose }) {
                   onClick={onClose}
                   className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition-all ${
                     isActive
-                      ? "border border-white bg-white text-black font-semibold shadow-sm"
-                      : "border border-transparent text-[#A3A3A3] hover:border-[#333333] hover:bg-[#1E1E1E] hover:text-white"
+                      ? "border border-white bg-white text-black font-extrabold shadow-sm"
+                      : "border border-transparent text-neutral-400 hover:border-white/10 hover:bg-white/5 hover:text-white"
                   }`}
                 >
                   <Icon
                     size={18}
-                    className={isActive ? "text-black" : "text-[#737373]"}
+                    className={isActive ? "text-black" : "text-neutral-400"}
                   />
                   <span>{item.name}</span>
                 </Link>
@@ -107,8 +107,8 @@ export default function Sidebar({ isOpen, onClose }) {
         </div>
 
         {/* Bottom User Profile Section (No Yellow box, No Email display) */}
-        <div className="border-t border-[#2B2B2B] pt-4">
-          <div className="flex items-center justify-between rounded-xl border border-[#333333] bg-[#1A1A1A] p-3">
+        <div className="border-t border-white/[0.08] pt-4">
+          <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.04] p-3">
             <div className="flex items-center gap-2.5 min-w-0">
               {user?.picture ? (
                 <img

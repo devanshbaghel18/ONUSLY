@@ -246,24 +246,24 @@ export default function ShareProofModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="share-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-[#333333] bg-[#181818] p-6 shadow-2xl"
+        className="w-full max-w-md rounded-2xl border border-white/10 bg-[#141418]/95 backdrop-blur-2xl p-6 shadow-[0_25px_60px_rgba(0,0,0,0.9)] animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+        <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 border border-white/20 text-white shadow-inner">
               <Share2 size={18} />
             </div>
             <div>
-              <h3 id="share-modal-title" className="text-sm font-bold text-white">
+              <h3 id="share-modal-title" className="text-base font-bold text-white">
                 Share for Verification
               </h3>
-              <p className="text-[11px] text-[#A3A3A3] truncate max-w-[260px]">
+              <p className="text-xs text-[#A1A1AA] truncate max-w-[260px]">
                 Send "{goal.title}" to be verified in chat
               </p>
             </div>
@@ -272,14 +272,14 @@ export default function ShareProofModal({
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="rounded-lg p-1.5 text-[#737373] hover:text-white hover:bg-[#252525] transition"
+            className="rounded-lg p-1.5 text-neutral-400 hover:text-white hover:bg-white/10 transition"
           >
             <X size={18} />
           </button>
         </div>
 
         {shareError && (
-          <div className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
             {shareError}
           </div>
         )}
@@ -375,7 +375,7 @@ export default function ShareProofModal({
                         {isSelected && (
                           <CheckCircle2
                             size={16}
-                            className="text-emerald-400 flex-shrink-0"
+                            className="text-white flex-shrink-0"
                           />
                         )}
                       </button>
@@ -429,7 +429,7 @@ export default function ShareProofModal({
                         {isSelected && (
                           <CheckCircle2
                             size={16}
-                            className="text-emerald-400 flex-shrink-0"
+                            className="text-white flex-shrink-0"
                           />
                         )}
                       </button>
@@ -446,7 +446,7 @@ export default function ShareProofModal({
               type="button"
               onClick={onClose}
               disabled={sharingProof}
-              className="flex-1 rounded-xl border border-[#3A3A3A] bg-[#222222] py-3 text-xs font-semibold text-white hover:border-white transition"
+              className="btn-premium flex-1 rounded-xl border border-white/10 bg-white/5 py-3 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition"
             >
               Cancel
             </button>
@@ -460,11 +460,11 @@ export default function ShareProofModal({
                 (shareTarget === "community" &&
                   (!selectedCommunityId || communities.length === 0))
               }
-              className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
+              className="btn-glow flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-black uppercase tracking-wider text-black shadow-lg disabled:opacity-40"
             >
               {sharingProof ? (
                 <>
-                  <Loader2 size={15} className="animate-spin" />
+                  <Loader2 size={15} className="animate-spin text-black" />
                   <span>Sending...</span>
                 </>
               ) : (

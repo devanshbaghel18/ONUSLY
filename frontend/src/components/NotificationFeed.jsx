@@ -144,16 +144,16 @@ export default function NotificationFeed() {
         onClick={handleToggle}
         aria-label="Notifications"
         aria-expanded={isOpen}
-        className={`relative flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded-full border transition-all ${
+        className={`btn-premium relative flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded-full border transition-all ${
           isOpen
             ? "border-white bg-[#252525] text-white shadow-inner"
-            : "border-[#2D2D2D] bg-[#1E1E1E] text-neutral-300 hover:border-white hover:text-white"
+            : "border-white/10 bg-[#16161A] text-neutral-300 hover:border-white hover:text-white"
         }`}
         title="Notifications"
       >
         <Bell size={17} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black shadow-lg animate-in zoom-in-50">
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black shadow-[0_0_10px_rgba(255,255,255,0.5)] animate-pulse">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -161,9 +161,9 @@ export default function NotificationFeed() {
 
       {/* Notification Dropdown Panel */}
       {isOpen && (
-        <div className="absolute right-0 top-12 z-50 w-80 sm:w-96 rounded-2xl border border-[#2F2F2F] bg-[#161616]/98 p-0 shadow-[0_20px_50px_rgba(0,0,0,0.85)] backdrop-blur-2xl animate-in fade-in-0 slide-in-from-top-2">
+        <div className="absolute right-0 top-12 sm:top-14 z-50 w-80 sm:w-96 rounded-2xl border border-white/10 bg-[#141418]/98 p-0 shadow-[0_25px_60px_rgba(0,0,0,0.9)] backdrop-blur-2xl animate-scale-in">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-[#262626] px-4 py-3">
+          <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-neutral-200">
                 Notifications
