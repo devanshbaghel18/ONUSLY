@@ -76,8 +76,6 @@ async function renderState() {
         "com.twitter.android": ["x.com", "twitter.com"],
         "twitter": ["x.com", "twitter.com"],
         "x": ["x.com", "twitter.com"],
-        "com.zhiliaoapp.musically": ["tiktok.com"],
-        "tiktok": ["tiktok.com"],
         "com.reddit.frontpage": ["reddit.com"],
         "reddit": ["reddit.com"],
         "com.netflix.mediaclient": ["netflix.com"],

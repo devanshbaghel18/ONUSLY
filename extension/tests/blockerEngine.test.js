@@ -218,10 +218,10 @@ describe("Blocker Engine Suite", () => {
     const unrelatedCache = {
       targets: [
         {
-          goalId: "g_tiktok",
+          goalId: "g_reddit",
           status: "active",
-          apps: ["com.zhiliaoapp.musically"],
-          domains: ["tiktok.com"],
+          apps: ["com.reddit.frontpage"],
+          domains: ["reddit.com"],
         },
       ],
     };

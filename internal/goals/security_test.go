@@ -79,9 +79,9 @@ func TestTargetMutationSecurity_TargetLocking(t *testing.T) {
 		}
 	}
 
-	// 4. Attempt to add a target (add com.tiktok.android) -> MUST SUCCEED (add-only)
+	// 4. Attempt to add a target (add com.reddit.frontpage) -> MUST SUCCEED (add-only)
 	{
-		patchBody := `{"blockedApps":["com.instagram.android", "com.twitter.android", "com.zhiliaoapp.musically"]}`
+		patchBody := `{"blockedApps":["com.instagram.android", "com.twitter.android", "com.reddit.frontpage"]}`
 		req := httptest.NewRequest("PATCH", targetURL, strings.NewReader(patchBody))
 		req.SetPathValue("id", g.ID)
 		req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
