@@ -18,6 +18,15 @@ type Goal struct {
 	BlockedDomains []string `dynamodbav:"BlockedDomains,omitempty" json:"blockedDomains,omitempty"`
 }
 
+type CreateGoalInput struct {
+	Title          string   `json:"title"`
+	Description    string   `json:"description"`
+	ApprovalType   *string  `json:"approvalType"`
+	ApproverEmail  *string  `json:"approverEmail"`
+	BlockedApps    []string `json:"blockedApps"`
+	BlockedDomains []string `json:"blockedDomains"`
+}
+
 type UpdateGoalInput struct {
 	Title          *string
 	Description    *string

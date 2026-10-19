@@ -22,6 +22,8 @@ func NewHandler(service *Service) *Handler {
 type createGoalRequest struct {
 	Title          string   `json:"title"`
 	Description    string   `json:"description"`
+	ApprovalType   *string  `json:"approvalType"`
+	ApproverEmail  *string  `json:"approverEmail"`
 	BlockedApps    []string `json:"blockedApps"`
 	BlockedDomains []string `json:"blockedDomains"`
 }
@@ -40,16 +42,24 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goal, err := h.service.Create(
+	goal, err := h.service.CreateWithInput(
 		r.Context(),
 		userID,
-		req.Title,
-		req.Description,
-		req.BlockedApps,
-		req.BlockedDomains,
+		CreateGoalInput{
+			Title:          req.Title,
+			Description:    req.Description,
+			ApprovalType:   req.ApprovalType,
+			ApproverEmail:  req.ApproverEmail,
+			BlockedApps:    req.BlockedApps,
+			BlockedDomains: req.BlockedDomains,
+		},
 	)
 
 	if err != nil {
+		if errors.Is(err, ErrAccountabilityRequired) || strings.Contains(err.Error(), "accountability_required") {
+			http.Error(w, "accountability_required", http.StatusBadRequest)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -182,8 +192,8 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	input := UpdateGoalInput{
 		Title:          req.Title,
 		Description:    req.Description,
-		ApprovalType:  req.ApprovalType,
-		ApproverEmail: req.ApproverEmail,
+		ApprovalType:   req.ApprovalType,
+		ApproverEmail:  req.ApproverEmail,
 		BlockedApps:    req.BlockedApps,
 		BlockedDomains: req.BlockedDomains,
 	}
@@ -204,8 +214,12 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "goal_locked", http.StatusConflict)
 			return
 		}
+		if errors.Is(err, ErrAccountabilityRequired) || strings.Contains(err.Error(), "accountability_required") {
+			http.Error(w, "accountability_required", http.StatusBadRequest)
+			return
+		}
 		if errors.Is(err, ErrAccountabilityLocked) || strings.Contains(err.Error(), "cannot change accountability") {
-			http.Error(w, "cannot change accountability to none while targets are locked", http.StatusConflict)
+			http.Error(w, "accountability_required", http.StatusBadRequest)
 			return
 		}
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {

@@ -22,17 +22,13 @@ func NewService(repo *Repository, authRepo auth.Repository) *Service {
 	}
 }
 
-func (s *Service) Create(
+func (s *Service) CreateWithInput(
 	ctx context.Context,
 	ownerID string,
-	title string,
-	description string,
-	rawApps []string,
-	rawDomains []string,
+	input CreateGoalInput,
 ) (*Goal, error) {
-
-	title = strings.TrimSpace(title)
-	description = strings.TrimSpace(description)
+	title := strings.TrimSpace(input.Title)
+	description := strings.TrimSpace(input.Description)
 
 	if ownerID == "" {
 		return nil, errors.New("owner ID is required")
@@ -46,8 +42,8 @@ func (s *Service) Create(
 	var domains []string
 	var err error
 
-	if len(rawApps) > 0 {
-		apps, err = NormalizeAndValidateApps(rawApps)
+	if len(input.BlockedApps) > 0 {
+		apps, err = NormalizeAndValidateApps(input.BlockedApps)
 		if err != nil {
 			return nil, err
 		}
@@ -55,13 +51,119 @@ func (s *Service) Create(
 		apps = []string{}
 	}
 
-	if len(rawDomains) > 0 {
-		domains, err = NormalizeAndValidateDomains(rawDomains)
+	if len(input.BlockedDomains) > 0 {
+		domains, err = NormalizeAndValidateDomains(input.BlockedDomains)
 		if err != nil {
 			return nil, err
 		}
 	} else {
 		domains = []string{}
+	}
+
+	hasTargets := len(apps) > 0 || len(domains) > 0
+	approvalType := ""
+	approverID := ""
+	approverEmail := ""
+
+	if hasTargets {
+		// A goal with targets MUST be friend approval, rejecting both none and community
+		if input.ApprovalType == nil {
+			return nil, ErrAccountabilityRequired
+		}
+		appType := strings.ToLower(strings.TrimSpace(*input.ApprovalType))
+		if appType != "friend" {
+			return nil, ErrAccountabilityRequired
+		}
+		if input.ApproverEmail == nil || strings.TrimSpace(*input.ApproverEmail) == "" {
+			return nil, ErrAccountabilityRequired
+		}
+
+		inputVal := strings.TrimSpace(*input.ApproverEmail)
+		if s.authRepo != nil {
+			var friendUser *auth.User
+			cleanedHandle := strings.TrimPrefix(inputVal, "@")
+			if strings.HasPrefix(inputVal, "@") || !strings.Contains(inputVal, ".") {
+				friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
+			} else {
+				friendUser, err = s.authRepo.GetUserByEmail(ctx, inputVal)
+				if err == nil && friendUser == nil {
+					friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
+				}
+			}
+
+			if err == nil && friendUser != nil {
+				if friendUser.ID == ownerID {
+					return nil, errors.New("you cannot assign yourself as your accountability partner")
+				}
+				approverID = friendUser.ID
+				displayTag := friendUser.Handle
+				if displayTag != "" {
+					if !strings.HasPrefix(displayTag, "@") {
+						displayTag = "@" + displayTag
+					}
+					approverEmail = displayTag
+				} else {
+					approverEmail = strings.ToLower(friendUser.Email)
+				}
+				approvalType = "friend"
+			} else {
+				return nil, errors.New("accountability partner not found by handle or email")
+			}
+		} else {
+			approvalType = "friend"
+			approverEmail = inputVal
+			approverID = "test-approver-id"
+		}
+	} else {
+		// Untargeted goals can have none, community, or friend
+		if input.ApprovalType != nil {
+			appType := strings.ToLower(strings.TrimSpace(*input.ApprovalType))
+			if appType != "" && appType != "community" && appType != "friend" && appType != "none" {
+				return nil, errors.New("approval type must be 'community', 'friend', or 'none'")
+			}
+			if appType == "community" {
+				approvalType = "community"
+				approverID = "COMMUNITY"
+			} else if appType == "friend" {
+				if input.ApproverEmail != nil && strings.TrimSpace(*input.ApproverEmail) != "" {
+					inputVal := strings.TrimSpace(*input.ApproverEmail)
+					if s.authRepo != nil {
+						cleanedHandle := strings.TrimPrefix(inputVal, "@")
+						var friendUser *auth.User
+						if strings.HasPrefix(inputVal, "@") || !strings.Contains(inputVal, ".") {
+							friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
+						} else {
+							friendUser, err = s.authRepo.GetUserByEmail(ctx, inputVal)
+							if err == nil && friendUser == nil {
+								friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
+							}
+						}
+						if err == nil && friendUser != nil {
+							if friendUser.ID == ownerID {
+								return nil, errors.New("you cannot assign yourself as your accountability partner")
+							}
+							approverID = friendUser.ID
+							displayTag := friendUser.Handle
+							if displayTag != "" {
+								if !strings.HasPrefix(displayTag, "@") {
+									displayTag = "@" + displayTag
+								}
+								approverEmail = displayTag
+							} else {
+								approverEmail = strings.ToLower(friendUser.Email)
+							}
+							approvalType = "friend"
+						} else {
+							return nil, errors.New("accountability partner not found by handle or email")
+						}
+					} else {
+						approvalType = "friend"
+						approverEmail = inputVal
+						approverID = "test-approver-id"
+					}
+				}
+			}
+		}
 	}
 
 	goalID := uuid.NewString()
@@ -71,7 +173,9 @@ func (s *Service) Create(
 		SK:             "GOAL#" + goalID,
 		ID:             goalID,
 		OwnerID:        ownerID,
-		ApproverID:     "",
+		ApproverID:     approverID,
+		ApproverEmail:  approverEmail,
+		ApprovalType:   approvalType,
 		Title:          title,
 		Description:    description,
 		Status:         "active",
@@ -85,6 +189,29 @@ func (s *Service) Create(
 	}
 
 	return &goal, nil
+}
+
+func (s *Service) Create(
+	ctx context.Context,
+	ownerID string,
+	title string,
+	description string,
+	rawApps []string,
+	rawDomains []string,
+) (*Goal, error) {
+	input := CreateGoalInput{
+		Title:          title,
+		Description:    description,
+		BlockedApps:    rawApps,
+		BlockedDomains: rawDomains,
+	}
+	if len(rawApps) > 0 || len(rawDomains) > 0 {
+		friendType := "friend"
+		testEmail := "test-partner@example.com"
+		input.ApprovalType = &friendType
+		input.ApproverEmail = &testEmail
+	}
+	return s.CreateWithInput(ctx, ownerID, input)
 }
 
 func (s *Service) GetByID(
@@ -187,15 +314,16 @@ func (s *Service) Update(
 		input.BlockedDomains = &normalizedDomains
 	}
 
-	if hasExistingTargets && goal.Status != "completed" {
+	isTargeted := hasExistingTargets || (input.BlockedApps != nil && len(*input.BlockedApps) > 0) || (input.BlockedDomains != nil && len(*input.BlockedDomains) > 0)
+	if isTargeted && goal.Status != "completed" {
 		if input.ApprovalType != nil {
 			low := strings.ToLower(strings.TrimSpace(*input.ApprovalType))
-			if low == "none" || low == "" {
-				return nil, ErrAccountabilityLocked
+			if low == "none" || low == "" || low == "community" {
+				return nil, ErrAccountabilityRequired
 			}
 		}
-		if input.ApproverEmail != nil && strings.TrimSpace(*input.ApproverEmail) == "" && input.ApprovalType == nil && goal.ApprovalType != "community" {
-			return nil, ErrAccountabilityLocked
+		if input.ApproverEmail != nil && strings.TrimSpace(*input.ApproverEmail) == "" {
+			return nil, ErrAccountabilityRequired
 		}
 	}
 

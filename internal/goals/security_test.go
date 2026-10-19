@@ -101,7 +101,7 @@ func TestTargetMutationSecurity_TargetLocking(t *testing.T) {
 		}
 	}
 
-	// 5. Attempt to change accountability to "none" -> MUST FAIL WITH 409
+	// 5. Attempt to change accountability to "none" or "community" -> MUST FAIL WITH 400 accountability_required
 	{
 		patchBody := `{"approvalType":"none"}`
 		req := httptest.NewRequest("PATCH", targetURL, strings.NewReader(patchBody))
@@ -110,8 +110,26 @@ func TestTargetMutationSecurity_TargetLocking(t *testing.T) {
 		rec := httptest.NewRecorder()
 
 		handler.Update(rec, req)
-		if rec.Code != http.StatusConflict {
-			t.Fatalf("expected 409 Conflict when changing accountability to none, got %d (body: %s)", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request when changing accountability to none, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "accountability_required") {
+			t.Fatalf("expected body to contain 'accountability_required', got %s", rec.Body.String())
+		}
+	}
+	{
+		patchBody := `{"approvalType":"community"}`
+		req := httptest.NewRequest("PATCH", targetURL, strings.NewReader(patchBody))
+		req.SetPathValue("id", g.ID)
+		req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
+		rec := httptest.NewRecorder()
+
+		handler.Update(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request when changing accountability to community, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "accountability_required") {
+			t.Fatalf("expected body to contain 'accountability_required', got %s", rec.Body.String())
 		}
 	}
 
@@ -202,6 +220,79 @@ func TestGoal_CreateWithInvalidTargetsReturns400(t *testing.T) {
 		}
 		if !strings.Contains(rec.Body.String(), "192.168.1.1") {
 			t.Errorf("expected error message to identify bad domain value, got %q", rec.Body.String())
+		}
+	}
+}
+
+// TestGoal_CreateTargetedGoalRequiresFriendAccountability verifies that creating a targeted
+// goal requires friend approval and rejects none, community, or missing approver with 400 accountability_required.
+func TestGoal_CreateTargetedGoalRequiresFriendAccountability(t *testing.T) {
+	db, tableName := getTestDynamoClient(t)
+
+	repo := goals.NewRepository(db, tableName)
+	service := goals.NewService(repo, nil)
+	handler := goals.NewHandler(service)
+
+	ownerID := "test-owner-" + uuid.NewString()
+
+	// 1. Missing approvalType entirely on targeted goal -> 400 accountability_required
+	{
+		body := `{"title":"Targeted Goal","blockedApps":["com.instagram.android"]}`
+		req := httptest.NewRequest("POST", "/goals", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
+		rec := httptest.NewRecorder()
+
+		handler.Create(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request, got %d", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "accountability_required") {
+			t.Errorf("expected 'accountability_required', got %q", rec.Body.String())
+		}
+	}
+
+	// 2. approvalType: "none" on targeted goal -> 400 accountability_required
+	{
+		body := `{"title":"Targeted Goal","blockedApps":["com.instagram.android"],"approvalType":"none"}`
+		req := httptest.NewRequest("POST", "/goals", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
+		rec := httptest.NewRecorder()
+
+		handler.Create(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request, got %d", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "accountability_required") {
+			t.Errorf("expected 'accountability_required', got %q", rec.Body.String())
+		}
+	}
+
+	// 3. approvalType: "community" on targeted goal -> 400 accountability_required
+	{
+		body := `{"title":"Targeted Goal","blockedDomains":["instagram.com"],"approvalType":"community"}`
+		req := httptest.NewRequest("POST", "/goals", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
+		rec := httptest.NewRecorder()
+
+		handler.Create(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request, got %d", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "accountability_required") {
+			t.Errorf("expected 'accountability_required', got %q", rec.Body.String())
+		}
+	}
+
+	// 4. approvalType: "friend" with valid approverEmail -> 201 Created
+	{
+		body := `{"title":"Targeted Goal","blockedApps":["com.instagram.android"],"approvalType":"friend","approverEmail":"friend@example.com"}`
+		req := httptest.NewRequest("POST", "/goals", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
+		rec := httptest.NewRecorder()
+
+		handler.Create(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201 Created, got %d (body: %s)", rec.Code, rec.Body.String())
 		}
 	}
 }

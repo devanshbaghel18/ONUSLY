@@ -21,10 +21,10 @@ var (
 )
 
 const (
-	MaxAppsCount     = 20
-	MaxDomainsCount  = 20
-	MaxAppLength     = 255
-	MaxDomainLength  = 253
+	MaxAppsCount      = 20
+	MaxDomainsCount   = 20
+	MaxAppLength      = 255
+	MaxDomainLength   = 253
 	MaxDNSLabelLength = 63
 )
 
@@ -227,7 +227,8 @@ func CheckTargetsSubset(existing, updated []string) bool {
 
 // Errors for target and goal mutation locking
 var (
-	ErrGoalLocked           = errors.New("goal_locked")
-	ErrTargetsLocked        = errors.New("targets_locked")
-	ErrAccountabilityLocked = errors.New("cannot change accountability to none while targets are locked")
+	ErrGoalLocked             = errors.New("goal_locked")
+	ErrTargetsLocked          = errors.New("targets_locked")
+	ErrAccountabilityLocked   = errors.New("cannot change accountability to none while targets are locked")
+	ErrAccountabilityRequired = errors.New("accountability_required")
 )
