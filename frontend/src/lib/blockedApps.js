@@ -24,12 +24,6 @@ export const APP_CATALOG = [
     domains: ["x.com", "twitter.com"],
   },
   {
-    id: "tiktok",
-    name: "TikTok",
-    packageName: "com.zhiliaoapp.musically",
-    domains: ["tiktok.com"],
-  },
-  {
     id: "reddit",
     name: "Reddit",
     packageName: "com.reddit.frontpage",

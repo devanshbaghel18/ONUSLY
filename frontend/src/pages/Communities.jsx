@@ -1671,14 +1671,14 @@ export default function Communities() {
 
   return (
     <AppLayout>
-      <div className="mx-auto w-full max-w-[1720px] space-y-7">
+      <div className="mx-auto w-full max-w-[1720px] flex-1 flex flex-col min-h-0 h-full">
         {/* Top Header & Section Switcher */}
-        <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-center">
+        <div className="shrink-0 flex flex-col justify-between gap-3 border-b border-white/[0.08] pb-3 sm:flex-row sm:items-center">
           <div>
-            <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
               Community & Friends
             </h1>
-            <p className="mt-1 text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
+            <p className="mt-0.5 text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
               Chat, share files, and verify goals with your accountability partners.
             </p>
           </div>
@@ -1721,252 +1721,239 @@ export default function Communities() {
             VIEW 1: COMMUNITIES SECTION
         ============================================================ */}
         {mainView === "communities" && (
-          <div>
+          <div className="flex-1 min-h-0 flex flex-col mt-3">
             {selectedCommunity ? (
               /* Selected Community: Group Chat or Rules Preview */
-              <div className="space-y-4">
-                {/* Community Chat Header */}
-                <div className="flex flex-col gap-3 rounded-2xl border border-[#2B2B2B] bg-[#181818] p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCommunity(null)}
-                      className="rounded-xl border border-[#333333] bg-[#141414] p-2 text-white hover:border-white transition"
-                      title="Back to communities"
-                    >
-                      <ArrowLeft size={16} />
-                    </button>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                          <span>{selectedCommunity.name}</span>
-                          {selectedCommunity.isFavorite && (
-                            <Star size={15} className="fill-white text-white shrink-0" title="Favorited Community" />
-                          )}
-                        </h2>
-                        <span className="rounded-full border border-[#444444] px-2 py-0.5 text-[10px] uppercase font-bold text-[#A3A3A3]">
-                          {selectedCommunity.category}
-                        </span>
+              selectedCommunity.joined ? (
+                <div className="flex-1 min-h-0 flex flex-col rounded-2xl border border-white/10 bg-[#121215]/90 backdrop-blur-2xl shadow-2xl overflow-hidden">
+                  {/* Integrated Community Chat Header */}
+                  <div className="shrink-0 flex flex-col gap-3 border-b border-[#2A2A2A] bg-[#181818] p-3 sm:p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCommunity(null)}
+                        className="rounded-xl border border-[#333333] bg-[#141414] p-2 text-white hover:border-white transition"
+                        title="Back to communities"
+                      >
+                        <ArrowLeft size={16} />
+                      </button>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                            <span>{selectedCommunity.name}</span>
+                            {selectedCommunity.isFavorite && (
+                              <Star size={15} className="fill-white text-white shrink-0" title="Favorited Community" />
+                            )}
+                          </h2>
+                          <span className="rounded-full border border-[#444444] px-2 py-0.5 text-[10px] uppercase font-bold text-[#A3A3A3]">
+                            {selectedCommunity.category}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#A3A3A3] mt-0.5">
+                          {selectedCommunity.membersCount} Members • {selectedCommunity.requiredApprovals} Approvals Required
+                        </p>
                       </div>
-                      <p className="text-xs text-[#A3A3A3] mt-0.5">
-                        {selectedCommunity.membersCount} Members • {selectedCommunity.requiredApprovals} Approvals Required
-                      </p>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => handleCopyCode(selectedCommunity.code)}
-                      className="flex items-center gap-1.5 rounded-xl border border-[#333333] bg-[#222222] px-3 py-1.5 text-xs font-semibold text-white hover:border-white transition"
-                      title="Share Invite Code"
-                    >
-                      <Copy size={13} />
-                      {copiedCode ? "Copied" : selectedCommunity.code}
-                    </button>
-
-                    {/* WhatsApp-style 3-Dot Menu */}
-                    <div className="relative" ref={commMenuRef}>
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
-                        onClick={() => setShowCommMenu((prev) => !prev)}
-                        className="rounded-xl border border-[#333333] bg-[#222222] p-2 text-neutral-300 hover:text-white hover:border-white transition"
-                        title="More options"
+                        onClick={() => handleCopyCode(selectedCommunity.code)}
+                        className="flex items-center gap-1.5 rounded-xl border border-[#333333] bg-[#222222] px-3 py-1.5 text-xs font-semibold text-white hover:border-white transition"
+                        title="Share Invite Code"
                       >
-                        <MoreVertical size={16} />
+                        <Copy size={13} />
+                        {copiedCode ? "Copied" : selectedCommunity.code}
                       </button>
 
-                      {showCommMenu && (
-                        <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#333333] bg-[#1E1E1E] py-1 shadow-2xl z-40 backdrop-blur-md">
-                          <button
-                            type="button"
-                            onClick={handleToggleFavoriteActiveCommunity}
-                            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
-                          >
-                            <Star size={14} className={selectedCommunity.isFavorite ? "fill-white text-white" : "text-neutral-400"} />
-                            <span>{selectedCommunity.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowCommMenu(false);
-                              setClearChatModal({ isOpen: true, type: "community", targetName: selectedCommunity.name });
-                            }}
-                            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
-                          >
-                            <RotateCcw size={14} className="text-neutral-400" />
-                            <span>Clear Chat</span>
-                          </button>
-                          {selectedCommunity.joined && (
-                            <>
-                              <div className="my-1 border-t border-[#333333]" />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowCommMenu(false);
-                                  setCommToLeave(selectedCommunity);
-                                }}
-                                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
-                              >
-                                <ArrowLeft size={14} className="text-neutral-400" />
-                                <span>Leave Community</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowCommMenu(false);
-                                  setCommToDelete(selectedCommunity);
-                                }}
-                                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-300 hover:bg-white/10 hover:text-white text-left transition"
-                              >
-                                <Trash2 size={14} className="text-neutral-400" />
-                                <span>Delete Community</span>
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {!selectedCommunity.joined && (
-                      <button
-                        type="button"
-                        onClick={(e) => handleJoin(selectedCommunity.id, e)}
-                        className="rounded-xl bg-white px-4 py-1.5 text-xs font-bold text-black hover:bg-neutral-200 transition"
-                      >
-                        Join Community
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* If joined, show full Community Group Chat */}
-                {selectedCommunity.joined ? (
-                  <div className="flex flex-col rounded-2xl border border-[#2B2B2B] bg-[#121212] overflow-hidden" style={{ height: "calc(100vh - 320px)", minHeight: "480px" }}>
-                    {/* Community Description Banner */}
-                    <div className="shrink-0 border-b border-[#222222] bg-[#161616] px-5 py-2.5 flex items-center justify-between text-xs text-[#A3A3A3]">
-                      <span className="truncate max-w-xl">
-                        📌 {selectedCommunity.description}
-                      </span>
-                      <span className="font-mono text-[11px] text-[#737373]">
-                        Code: {selectedCommunity.code}
-                      </span>
-                    </div>
-
-                    {/* Community Chat Stream */}
-                    <div
-                      ref={commChatContainerRef}
-                      onScroll={(e) => {
-                        const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-                        isCommAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
-                      }}
-                      className="flex-1 min-h-0 space-y-3 overflow-y-auto no-scrollbar p-4 overscroll-contain"
-                    >
-                      {commChatMessages.length === 0 ? (
-                        <div className="flex h-full flex-col items-center justify-center py-16 text-center">
-                          <Users size={36} className="text-[#444444] mb-2" />
-                          <p className="text-xs font-semibold text-white">
-                            Community Chat Active
-                          </p>
-                          <p className="mt-1 text-xs text-[#737373] max-w-sm">
-                            Share messages, photos, or files with your community using the 📎 icon.
-                          </p>
-                        </div>
-                      ) : (
-                        commChatMessages.map((msg) => (
-                          <ChatBubble
-                            key={msg.id}
-                            msg={msg}
-                            isMe={msg.sender === "me"}
-                            onDelete={(m, isMe) => requestDeleteMessage(m, isMe, "community")}
-                            onReply={(replyContext) => setReplyingTo(replyContext)}
-                            onJumpToMessage={handleJumpToMessage}
-                            isHighlighted={highlightedMsgId === msg.id}
-                            onImageClick={setLightboxImage}
-                            showSenderBadge={true}
-                          />
-                        ))
-                      )}
-                      <div ref={commChatEndRef} />
-                    </div>
-
-                    {/* Quoted Reply banner */}
-                    {replyingTo && (
-                      <div className="shrink-0 flex items-center justify-between border-t border-l-4 border-l-white border-t-[#2A2A2A] bg-[#1E1E1E] px-4 py-2 text-xs">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-white">
-                            <Reply size={12} />
-                            <span>Replying to {replyingTo.senderName || "Message"}</span>
-                          </div>
-                          <p className="truncate text-[11px] text-neutral-300 italic mt-0.5">
-                            {replyingTo.text}
-                          </p>
-                        </div>
+                      {/* WhatsApp-style 3-Dot Menu */}
+                      <div className="relative" ref={commMenuRef}>
                         <button
                           type="button"
-                          onClick={() => setReplyingTo(null)}
-                          className="ml-3 rounded-full p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition"
-                          title="Cancel reply"
+                          onClick={() => setShowCommMenu((prev) => !prev)}
+                          className="rounded-xl border border-[#333333] bg-[#222222] p-2 text-neutral-300 hover:text-white hover:border-white transition"
+                          title="More options"
                         >
-                          <X size={14} />
+                          <MoreVertical size={16} />
                         </button>
+
+                        {showCommMenu && (
+                          <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#333333] bg-[#1E1E1E] py-1 shadow-2xl z-40 backdrop-blur-md">
+                            <button
+                              type="button"
+                              onClick={handleToggleFavoriteActiveCommunity}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                            >
+                              <Star size={14} className={selectedCommunity.isFavorite ? "fill-white text-white" : "text-neutral-400"} />
+                              <span>{selectedCommunity.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowCommMenu(false);
+                                setClearChatModal({ isOpen: true, type: "community", targetName: selectedCommunity.name });
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                            >
+                              <RotateCcw size={14} className="text-neutral-400" />
+                              <span>Clear Chat</span>
+                            </button>
+                            {selectedCommunity.joined && (
+                              <>
+                                <div className="my-1 border-t border-[#333333]" />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowCommMenu(false);
+                                    setCommToLeave(selectedCommunity);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                                >
+                                  <ArrowLeft size={14} className="text-neutral-400" />
+                                  <span>Leave Community</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowCommMenu(false);
+                                    setCommToDelete(selectedCommunity);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-300 hover:bg-white/10 hover:text-white text-left transition"
+                                >
+                                  <Trash2 size={14} className="text-neutral-400" />
+                                  <span>Delete Community</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    )}
-
-                    {/* Community Chat Input - WhatsApp style */}
-                    <form
-                      onSubmit={handleSendCommMessage}
-                      className="shrink-0 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => openAttachModal("community")}
-                        title="Attach photos, files or links"
-                        className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-[#A3A3A3] hover:border-white hover:text-white hover:bg-[#2C2C2C] transition"
-                      >
-                        <Paperclip size={18} />
-                      </button>
-
-                      <input
-                        type="text"
-                        placeholder="Type a message..."
-                        value={commMessageInput}
-                        onChange={(e) => setCommMessageInput(e.target.value)}
-                        className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-4 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
-                      />
-
-                      <button
-                        type="submit"
-                        disabled={!commMessageInput.trim()}
-                        className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
-                      >
-                        <Send size={15} />
-                      </button>
-                    </form>
-                  </div>
-                ) : (
-                  /* Not joined preview */
-                  <div className="rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A] p-8 text-center space-y-4">
-                    <Users size={40} className="mx-auto text-[#737373]" />
-                    <h3 className="text-lg font-bold text-white">Join {selectedCommunity.name}</h3>
-                    <p className="text-xs text-[#A3A3A3] max-w-md mx-auto leading-relaxed">
-                      {selectedCommunity.description}
-                    </p>
-                    <div className="pt-2">
-                      <button
-                        type="button"
-                        onClick={(e) => handleJoin(selectedCommunity.id, e)}
-                        className="rounded-xl bg-white px-6 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition"
-                      >
-                        Join Community to Enter Chat
-                      </button>
                     </div>
                   </div>
-                )}
-              </div>
+
+                  {/* Community Description Banner */}
+                  <div className="shrink-0 border-b border-[#222222] bg-[#161616] px-5 py-2.5 flex items-center justify-between text-xs text-[#A3A3A3]">
+                    <span className="truncate max-w-xl">
+                      📌 {selectedCommunity.description}
+                    </span>
+                    <span className="font-mono text-[11px] text-[#737373]">
+                      Code: {selectedCommunity.code}
+                    </span>
+                  </div>
+
+                  {/* Community Chat Stream */}
+                  <div
+                    ref={commChatContainerRef}
+                    onScroll={(e) => {
+                      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                      isCommAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
+                    }}
+                    className="flex-1 min-h-0 space-y-3 overflow-y-auto no-scrollbar p-4 overscroll-contain"
+                  >
+                    {commChatMessages.length === 0 ? (
+                      <div className="flex h-full flex-col items-center justify-center py-16 text-center">
+                        <Users size={36} className="text-[#444444] mb-2" />
+                        <p className="text-xs font-semibold text-white">
+                          Community Chat Active
+                        </p>
+                        <p className="mt-1 text-xs text-[#737373] max-w-sm">
+                          Share messages, photos, or files with your community using the 📎 icon.
+                        </p>
+                      </div>
+                    ) : (
+                      commChatMessages.map((msg) => (
+                        <ChatBubble
+                          key={msg.id}
+                          msg={msg}
+                          isMe={msg.sender === "me"}
+                          onDelete={(m, isMe) => requestDeleteMessage(m, isMe, "community")}
+                          onReply={(replyContext) => setReplyingTo(replyContext)}
+                          onJumpToMessage={handleJumpToMessage}
+                          isHighlighted={highlightedMsgId === msg.id}
+                          onImageClick={setLightboxImage}
+                          showSenderBadge={true}
+                        />
+                      ))
+                    )}
+                    <div ref={commChatEndRef} />
+                  </div>
+
+                  {/* Quoted Reply banner */}
+                  {replyingTo && (
+                    <div className="shrink-0 flex items-center justify-between border-t border-l-4 border-l-white border-t-[#2A2A2A] bg-[#1E1E1E] px-4 py-2 text-xs">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-white">
+                          <Reply size={12} />
+                          <span>Replying to {replyingTo.senderName || "Message"}</span>
+                        </div>
+                        <p className="truncate text-[11px] text-neutral-300 italic mt-0.5">
+                          {replyingTo.text}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setReplyingTo(null)}
+                        className="ml-3 rounded-full p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition"
+                        title="Cancel reply"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Community Chat Input - WhatsApp style (PINNED STATIC AT BOTTOM) */}
+                  <form
+                    onSubmit={handleSendCommMessage}
+                    className="shrink-0 sticky bottom-0 z-20 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => openAttachModal("community")}
+                      title="Attach photos, files or links"
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-[#A3A3A3] hover:border-white hover:text-white hover:bg-[#2C2C2C] transition"
+                    >
+                      <Paperclip size={18} />
+                    </button>
+
+                    <input
+                      type="text"
+                      placeholder="Type a message..."
+                      value={commMessageInput}
+                      onChange={(e) => setCommMessageInput(e.target.value)}
+                      className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-4 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                    />
+
+                    <button
+                      type="submit"
+                      disabled={!commMessageInput.trim()}
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
+                    >
+                      <Send size={15} />
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                /* Not joined preview */
+                <div className="flex-1 min-h-0 flex flex-col justify-center rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A] p-8 text-center space-y-4">
+                  <Users size={40} className="mx-auto text-[#737373]" />
+                  <h3 className="text-lg font-bold text-white">Join {selectedCommunity.name}</h3>
+                  <p className="text-xs text-[#A3A3A3] max-w-md mx-auto leading-relaxed">
+                    {selectedCommunity.description}
+                  </p>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={(e) => handleJoin(selectedCommunity.id, e)}
+                      className="rounded-xl bg-white px-6 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition"
+                    >
+                      Join Community to Enter Chat
+                    </button>
+                  </div>
+                </div>
+              )
             ) : (
               /* Communities Explorer */
-              <div className="space-y-6">
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="relative w-64">
@@ -2077,9 +2064,9 @@ export default function Communities() {
             VIEW 2: WHATSAPP-STYLE FRIENDS & CHAT SECTION
         ============================================================ */}
         {mainView === "friends" && (
-          <div className="grid grid-cols-1 overflow-hidden rounded-2xl border border-white/10 bg-[#121215]/90 backdrop-blur-2xl shadow-2xl md:grid-cols-12" style={{ height: "calc(100vh - 220px)", minHeight: "520px" }}>
+          <div className="flex-1 min-h-0 grid grid-cols-1 overflow-hidden rounded-2xl border border-white/10 bg-[#121215]/90 backdrop-blur-2xl shadow-2xl md:grid-cols-12 mt-3">
             {/* Left Column: Friends List */}
-            <div className="flex flex-col h-full min-h-0 border-b border-white/10 bg-[#0E0E12]/80 backdrop-blur-xl p-4 md:col-span-4 md:border-b-0 md:border-r md:border-white/10 overflow-hidden">
+            <div className={`${activeFriend ? "hidden md:flex" : "flex"} flex-col h-full min-h-0 border-b border-white/10 bg-[#0E0E12]/80 backdrop-blur-xl p-4 md:col-span-4 md:border-b-0 md:border-r md:border-white/10 overflow-hidden`}>
               <div className="shrink-0 flex items-center justify-between pb-3">
                 <span className="text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">
                   Friends ({friends.length})
@@ -2209,7 +2196,7 @@ export default function Communities() {
             </div>
 
             {/* Right Column: 1-on-1 Chat Box */}
-            <div className="flex flex-col h-full min-h-0 overflow-hidden bg-[#121212] md:col-span-8">
+            <div className={`${activeFriend ? "flex" : "hidden md:flex"} flex-col h-full min-h-0 overflow-hidden bg-[#121212] md:col-span-8`}>
               {activeFriend ? (
                 <>
                   {/* Chat Header */}
@@ -2402,10 +2389,10 @@ export default function Communities() {
                     </div>
                   )}
 
-                  {/* Chat Input - WhatsApp style with paperclip */}
+                  {/* Chat Input - WhatsApp style with paperclip (STATIC PINNED AT BOTTOM) */}
                   <form
                     onSubmit={handleSendMessage}
-                    className="shrink-0 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
+                    className="shrink-0 sticky bottom-0 z-20 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
                   >
                     <button
                       type="button"

@@ -123,8 +123,12 @@ export default function AppLayout({ children }) {
     ? (user.handle.startsWith("@") ? user.handle : `@${user.handle}`)
     : (user?.name ? `@${user.name.toLowerCase().replace(/\s+/g, "")}` : "@user");
 
+  const isChatPage =
+    location.pathname === "/community-friends" ||
+    location.pathname === "/communities";
+
   return (
-    <div className="relative min-h-screen bg-[#0D0D0E] text-[#FFFFFF] antialiased selection:bg-white/20 selection:text-white">
+    <div className={`relative ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} bg-[#0D0D0E] text-[#FFFFFF] antialiased selection:bg-white/20 selection:text-white`}>
       {/* Ambient Top Glow Mesh */}
       <div className="ambient-mesh" />
 
@@ -141,7 +145,7 @@ export default function AppLayout({ children }) {
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       {/* Main Container */}
-      <div className="relative z-10 flex min-h-screen flex-col">
+      <div className={`relative z-10 flex ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} flex-col`}>
         {/* Floating Centered Pill Navbar with Auto-Hide Slide-Up */}
         <header
           className={`fixed top-3 sm:top-5 left-0 right-0 z-40 mx-auto w-[98%] 2xl:w-[96%] max-w-[1720px] px-1 sm:px-4 transition-all duration-300 ease-in-out ${
@@ -229,7 +233,13 @@ export default function AppLayout({ children }) {
         </header>
 
         {/* Page Content with adjusted top padding for the taller floating navbar */}
-        <main className="flex-1 px-3 sm:px-6 lg:px-8 pt-28 sm:pt-32 md:pt-36 pb-12 animate-fade-in">
+        <main
+          className={`flex-1 px-3 sm:px-6 lg:px-8 animate-fade-in flex flex-col min-h-0 ${
+            isChatPage
+              ? "pt-20 sm:pt-24 pb-2 sm:pb-3 overflow-hidden"
+              : "pt-28 sm:pt-32 md:pt-36 pb-12"
+          }`}
+        >
           {children}
         </main>
       </div>
