@@ -270,6 +270,12 @@ func (r *Repository) Update(
 		}
 	}
 
+	if input.RequireFriendAccountability {
+		conditionParts = append(conditionParts, "#approvalType = :friendType")
+		names["#approvalType"] = "ApprovalType"
+		values[":friendType"] = &types.AttributeValueMemberS{Value: "friend"}
+	}
+
 	updateExpression := "SET " + strings.Join(setParts, ", ")
 	conditionExpression := strings.Join(conditionParts, " AND ")
 
@@ -293,8 +299,8 @@ func (r *Repository) Update(
 	if err != nil {
 		var condFailed *types.ConditionalCheckFailedException
 		if errors.As(err, &condFailed) || strings.Contains(err.Error(), "ConditionalCheckFailed") {
-			if input.DisallowNoneIfLocked {
-				return nil, ErrAccountabilityLocked
+			if input.DisallowNoneIfLocked || input.RequireFriendAccountability {
+				return nil, ErrAccountabilityRequired
 			}
 			if input.CheckTargetsUnchanged {
 				return nil, ErrTargetsLocked

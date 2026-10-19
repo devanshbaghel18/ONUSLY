@@ -38,8 +38,9 @@ type UpdateGoalInput struct {
 	BlockedDomains *[]string
 
 	// Expected targets and conditions for atomic DynamoDB ConditionExpressions
-	ExpectedBlockedApps    []string
-	ExpectedBlockedDomains []string
-	CheckTargetsUnchanged  bool
-	DisallowNoneIfLocked   bool
+	ExpectedBlockedApps         []string
+	ExpectedBlockedDomains      []string
+	CheckTargetsUnchanged       bool
+	DisallowNoneIfLocked        bool
+	RequireFriendAccountability bool
 }

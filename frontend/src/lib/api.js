@@ -76,11 +76,24 @@ export async function getGoal(goalId, ownerId = "") {
   });
 }
 
-export async function createGoal({ title, description = "", blockedApps = [], blockedDomains = [] }) {
+export async function createGoal({
+  title,
+  description = "",
+  approvalType,
+  approverEmail,
+  blockedApps = [],
+  blockedDomains = [],
+}) {
   const payload = {
     title: title.trim(),
     description: description.trim(),
   };
+  if (approvalType !== undefined && approvalType !== null) {
+    payload.approvalType = approvalType;
+  }
+  if (approverEmail !== undefined && approverEmail !== null) {
+    payload.approverEmail = approverEmail.trim();
+  }
   if (blockedApps && blockedApps.length > 0) payload.blockedApps = blockedApps;
   if (blockedDomains && blockedDomains.length > 0) payload.blockedDomains = blockedDomains;
 
@@ -223,22 +236,11 @@ export async function repeatGoal(originalGoal) {
   const newGoal = await createGoal({
     title: originalGoal.title,
     description: originalGoal.description || "",
+    approvalType: originalGoal.approvalType || "friend",
+    approverEmail: originalGoal.approverEmail || "",
     blockedApps: originalGoal.blockedApps || [],
     blockedDomains: originalGoal.blockedDomains || [],
   });
-
-  if (originalGoal.approverEmail || originalGoal.approvalType) {
-    try {
-      await updateGoal(newGoal.id, {
-        approverEmail: originalGoal.approverEmail,
-        approvalType: originalGoal.approvalType || "friend",
-      });
-      newGoal.approverEmail = originalGoal.approverEmail;
-      newGoal.approvalType = originalGoal.approvalType || "friend";
-    } catch (err) {
-      console.warn("Could not copy approver to repeated goal:", err);
-    }
-  }
 
   return newGoal;
 }

@@ -332,7 +332,10 @@ func (s *Service) Update(
 	input.CheckTargetsUnchanged = (input.BlockedApps != nil || input.BlockedDomains != nil) && hasExistingTargets
 	if input.ApprovalType != nil {
 		low := strings.ToLower(strings.TrimSpace(*input.ApprovalType))
-		input.DisallowNoneIfLocked = (low == "none" || low == "")
+		input.DisallowNoneIfLocked = (low == "none" || low == "" || low == "community")
+	}
+	if isTargeted && goal.Status != "completed" && (input.ApprovalType == nil || strings.ToLower(strings.TrimSpace(*input.ApprovalType)) != "friend") {
+		input.RequireFriendAccountability = true
 	}
 
 	if (input.ApprovalType != nil || input.ApproverEmail != nil) && goal.Status != "active" {

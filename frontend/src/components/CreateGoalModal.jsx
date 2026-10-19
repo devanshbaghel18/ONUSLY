@@ -12,8 +12,12 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
   const [customInput, setCustomInput] = useState("");
   const [customType, setCustomType] = useState("app"); // "app" or "domain"
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const [approvalType, setApprovalType] = useState("friend");
+  const [approverEmail, setApproverEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+
+  const hasTargets = selectedCatalogIds.length > 0 || customTargets.length > 0;
 
   useEffect(() => {
     if (isOpen) {
@@ -24,6 +28,8 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
         setCustomTargets([]);
         setCustomInput("");
         setShowCustomInput(false);
+        setApprovalType("friend");
+        setApproverEmail("");
         setFormError("");
       }, 0);
       return () => clearTimeout(timer);
@@ -112,11 +118,27 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
       }
     });
 
+    const isTargeted = appsSet.size > 0 || domainsSet.size > 0;
+    const finalApprovalType = isTargeted ? "friend" : approvalType;
+    const trimmedApprover = approverEmail.trim();
+
+    if (isTargeted && !trimmedApprover) {
+      setFormError("Accountability partner (@handle or email) is required when apps or websites are locked.");
+      return;
+    }
+
+    if (finalApprovalType === "friend" && !trimmedApprover) {
+      setFormError("Accountability partner (@handle or email) is required for friend verification.");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const created = await createGoal({
         title: taskDescription.trim(),
         description: taskDetails.trim(),
+        approvalType: finalApprovalType,
+        approverEmail: trimmedApprover,
         blockedApps: Array.from(appsSet),
         blockedDomains: Array.from(domainsSet),
       });
@@ -128,7 +150,11 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
       onClose();
     } catch (err) {
       console.error("Failed to create goal:", err);
-      setFormError(err.message || "Failed to start accountability lock");
+      if (err.message && err.message.includes("accountability_required")) {
+        setFormError("Accountability required: Goals with app or domain locks require an assigned accountability partner (friend approval).");
+      } else {
+        setFormError(err.message || "Failed to start accountability lock");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -342,6 +368,85 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
                     </button>
                   </span>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* 5. Accountability Verification */}
+          <div className="rounded-xl border border-white/10 bg-[#0E0E12] p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold uppercase tracking-wider text-white">
+                5. Accountability Verification
+              </label>
+              {hasTargets ? (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-white text-black font-mono">
+                  Locked: Friend Only
+                </span>
+              ) : (
+                <span className="text-[10px] text-[#A1A1AA]">
+                  Choose verification mode
+                </span>
+              )}
+            </div>
+
+            {hasTargets ? (
+              <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+                Goals with distraction locks require friend verification. Only an assigned accountability partner can review your proof and unlock your targets.
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setApprovalType("friend")}
+                  className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                    approvalType === "friend"
+                      ? "border-white bg-white text-black font-bold shadow-sm"
+                      : "border-white/10 bg-[#161618] text-[#A1A1AA] hover:text-white"
+                  }`}
+                >
+                  Friend
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApprovalType("community")}
+                  className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                    approvalType === "community"
+                      ? "border-white bg-white text-black font-bold shadow-sm"
+                      : "border-white/10 bg-[#161618] text-[#A1A1AA] hover:text-white"
+                  }`}
+                >
+                  Community
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApprovalType("none")}
+                  className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                    approvalType === "none"
+                      ? "border-white bg-white text-black font-bold shadow-sm"
+                      : "border-white/10 bg-[#161618] text-[#A1A1AA] hover:text-white"
+                  }`}
+                >
+                  None
+                </button>
+              </div>
+            )}
+
+            {(hasTargets || approvalType === "friend") && (
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-xs font-semibold text-neutral-300">
+                  Accountability Partner (@handle or email) <span className="text-white">*</span>
+                </label>
+                <input
+                  type="text"
+                  required={hasTargets || approvalType === "friend"}
+                  placeholder="e.g. @partner or friend@example.com"
+                  value={approverEmail}
+                  onChange={(e) => setApproverEmail(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-[#141418] px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:border-white/40 focus:ring-2 focus:ring-white/10 focus:outline-none transition"
+                />
+                <p className="text-[10px] text-neutral-400">
+                  Your partner must verify your proof submission to lift distraction locks.
+                </p>
               </div>
             )}
           </div>

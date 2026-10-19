@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -294,5 +295,103 @@ func TestGoal_CreateTargetedGoalRequiresFriendAccountability(t *testing.T) {
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("expected 201 Created, got %d (body: %s)", rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// TestGoal_ConcurrentTargetAndCommunityRaceCondition verifies that concurrent PATCH
+// requests attempting to add targets while another switches approval to community
+// cannot bypass accountability rules. The DynamoDB conditional checks guarantee that
+// targets and community/none can never coexist.
+func TestGoal_ConcurrentTargetAndCommunityRaceCondition(t *testing.T) {
+	db, tableName := getTestDynamoClient(t)
+
+	repo := goals.NewRepository(db, tableName)
+	service := goals.NewService(repo, nil)
+	handler := goals.NewHandler(service)
+
+	for iter := 0; iter < 3; iter++ {
+		ownerID := "test-race-owner-" + uuid.NewString()
+		friendType := "friend"
+		friendEmail := "partner@example.com"
+
+		// 1. Create an active goal without targets and with friend approval
+		g, err := service.CreateWithInput(context.Background(), ownerID, goals.CreateGoalInput{
+			Title:         fmt.Sprintf("Race Test Goal %d", iter),
+			Description:   "Testing concurrent race-safety between targets and community",
+			ApprovalType:  &friendType,
+			ApproverEmail: &friendEmail,
+		})
+		if err != nil {
+			t.Fatalf("failed to create race test goal: %v", err)
+		}
+		cleanupGoal(t, db, tableName, ownerID, g.ID)
+
+		targetURL := fmt.Sprintf("/goals/%s", g.ID)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		var codeTargets, codeCommunity int
+		var bodyTargets, bodyCommunity string
+
+		startGate := make(chan struct{})
+
+		// Goroutine 1: Adds targets
+		go func() {
+			defer wg.Done()
+			<-startGate
+			patchBody := `{"blockedApps":["com.instagram.android"]}`
+			req := httptest.NewRequest("PATCH", targetURL, strings.NewReader(patchBody))
+			req.SetPathValue("id", g.ID)
+			req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
+			rec := httptest.NewRecorder()
+
+			handler.Update(rec, req)
+			codeTargets = rec.Code
+			bodyTargets = rec.Body.String()
+		}()
+
+		// Goroutine 2: Switches approval to community
+		go func() {
+			defer wg.Done()
+			<-startGate
+			patchBody := `{"approvalType":"community"}`
+			req := httptest.NewRequest("PATCH", targetURL, strings.NewReader(patchBody))
+			req.SetPathValue("id", g.ID)
+			req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
+			rec := httptest.NewRecorder()
+
+			handler.Update(rec, req)
+			codeCommunity = rec.Code
+			bodyCommunity = rec.Body.String()
+		}()
+
+		// Release both goroutines simultaneously
+		close(startGate)
+		wg.Wait()
+
+		// Fetch the final persisted state from DynamoDB
+		finalGoal, err := repo.GetByID(context.Background(), ownerID, g.ID)
+		if err != nil {
+			t.Fatalf("failed to fetch final goal state: %v", err)
+		}
+
+		hasTargets := len(finalGoal.BlockedApps) > 0 || len(finalGoal.BlockedDomains) > 0
+		isCommunity := strings.EqualFold(finalGoal.ApprovalType, "community")
+
+		// CRITICAL INVARIANT: A goal must NEVER have targets and community approval simultaneously
+		if hasTargets && isCommunity {
+			t.Fatalf("RACE CONDITION BYPASS DETECTED: Goal has targets (%v) and community approval! (codeTargets=%d body=%s, codeCommunity=%d body=%s)",
+				finalGoal.BlockedApps, codeTargets, bodyTargets, codeCommunity, bodyCommunity)
+		}
+
+		// At least one of the conflicting operations should have failed if both raced
+		if codeTargets == http.StatusOK && codeCommunity == http.StatusOK {
+			t.Fatalf("Both concurrent updates succeeded with 200 OK! State: apps=%v, approvalType=%s",
+				finalGoal.BlockedApps, finalGoal.ApprovalType)
+		}
+
+		t.Logf("Iteration %d passed: final approvalType=%s, targets=%v (codeTargets=%d, codeCommunity=%d)",
+			iter, finalGoal.ApprovalType, finalGoal.BlockedApps, codeTargets, codeCommunity)
 	}
 }

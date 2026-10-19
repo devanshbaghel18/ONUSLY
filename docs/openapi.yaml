@@ -78,6 +78,13 @@ paths:
                 description:
                   type: string
                   example: Read and solve exercises
+                approvalType:
+                  type: string
+                  enum: [friend, community, none]
+                  description: Type of verification required. If blockedApps or blockedDomains are present, approvalType MUST be "friend".
+                approverEmail:
+                  type: string
+                  description: Accountability partner's email or @handle. Required when approvalType is "friend" (mandatory if targets are provided).
                 blockedApps:
                   type: array
                   items:
@@ -96,7 +103,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Goal'
         '400':
-          description: Title is required, invalid package name or domain, or exceeding 20 items.
+          description: |
+            Validation error: Title is required, invalid package name or domain, exceeding 20 items,
+            or `accountability_required` (when targets are provided without friend approval or missing approver).
         '401':
           description: Missing or invalid JWT.
 
@@ -187,7 +196,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Goal'
         '400':
-          description: Validation error or goal not active.
+          description: |
+            Validation error, goal not active, or `accountability_required` (attempting to set approvalType
+            to none or community on a targeted goal, or adding targets when approvalType is not friend).
         '401':
           description: Missing or invalid JWT.
         '404':
