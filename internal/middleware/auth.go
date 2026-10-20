@@ -98,4 +98,3 @@ func GetUserHandle(ctx context.Context) (string, bool) {
 	handle, ok := ctx.Value(UserHandleKey).(string)
 	return handle, ok
 }
-

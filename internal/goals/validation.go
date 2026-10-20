@@ -231,4 +231,5 @@ var (
 	ErrTargetsLocked          = errors.New("targets_locked")
 	ErrAccountabilityLocked   = errors.New("cannot change accountability to none while targets are locked")
 	ErrAccountabilityRequired = errors.New("accountability_required")
+	ErrGoalInReview           = errors.New("goal_in_review")
 )

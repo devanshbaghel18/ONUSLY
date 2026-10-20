@@ -3,9 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/approval"
@@ -14,6 +19,7 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
 	"github.com/devanshbaghel18/ONUSLY/internal/enforcement"
 	"github.com/devanshbaghel18/ONUSLY/internal/events"
+	"github.com/devanshbaghel18/ONUSLY/internal/friends"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/notifications"
@@ -55,6 +61,9 @@ func cors(next http.Handler) http.Handler {
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
 
 	mux := http.NewServeMux()
 
@@ -144,8 +153,18 @@ func main() {
 
 	// Chat Repository, Store & Handler
 	chatRepo := chat.NewRepository(db, "Onusly")
+	chatResolver := &serverUserResolver{authRepo: authRepo}
 	chatHandler := chat.NewHandler(chatRepo)
+	chatHandler.SetUserResolver(chatResolver)
+	chatHandler.SetBroadcaster(wsHub)
 	wsHub.SetMessageStore(chatRepo)
+	wsHub.SetGoalVerifier(&serverGoalVerifier{goalService: goalService})
+	wsHub.SetUserResolver(chatResolver)
+
+	// Friends & Communities Repository, Service & Handler
+	friendsRepo := friends.NewRepository(db, "Onusly")
+	friendsService := friends.NewService(friendsRepo, chatResolver, wsHub)
+	friendsHandler := friends.NewHandler(friendsService)
 
 	// Protected routes
 	goalRoutes := http.NewServeMux()
@@ -170,10 +189,53 @@ func main() {
 		chatHandler.GetHistory,
 	)
 	goalRoutes.HandleFunc(
+		"POST /chat/messages",
+		chatHandler.SendMessage,
+	)
+	goalRoutes.HandleFunc(
 		"DELETE /chat/messages",
 		chatHandler.ClearHistory,
 	)
 
+	// Friends
+	goalRoutes.HandleFunc(
+		"POST /friends/request",
+		friendsHandler.SendRequest,
+	)
+	goalRoutes.HandleFunc(
+		"GET /friends/requests",
+		friendsHandler.GetRequests,
+	)
+	goalRoutes.HandleFunc(
+		"POST /friends/request/respond",
+		friendsHandler.RespondRequest,
+	)
+	goalRoutes.HandleFunc(
+		"GET /friends",
+		friendsHandler.GetFriends,
+	)
+	goalRoutes.HandleFunc(
+		"DELETE /friends/",
+		friendsHandler.DeleteFriend,
+	)
+
+	// Communities Discovery & Membership
+	goalRoutes.HandleFunc(
+		"GET /communities/trending",
+		friendsHandler.GetTrendingCommunities,
+	)
+	goalRoutes.HandleFunc(
+		"GET /communities/joined",
+		friendsHandler.GetJoinedCommunities,
+	)
+	goalRoutes.HandleFunc(
+		"POST /communities/join",
+		friendsHandler.JoinCommunity,
+	)
+	goalRoutes.HandleFunc(
+		"POST /communities/leave",
+		friendsHandler.LeaveCommunity,
+	)
 
 	// Goals
 	goalRoutes.HandleFunc(
@@ -266,15 +328,114 @@ func main() {
 	mux.Handle("/users/", protectedRoutes)
 	mux.Handle("/notifications", protectedRoutes)
 	mux.Handle("/notifications/", protectedRoutes)
+	mux.Handle("/friends", protectedRoutes)
+	mux.Handle("/friends/", protectedRoutes)
+	mux.Handle("/communities", protectedRoutes)
+	mux.Handle("/communities/", protectedRoutes)
 	mux.Handle("/enforcement", protectedRoutes)
 	mux.Handle("/enforcement/", protectedRoutes)
 
-	log.Println("Server running on :8080")
+	server := &http.Server{
+		Addr:         ":8080",
+		Handler:      cors(mux),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
 
-	log.Fatal(
-		http.ListenAndServe(
-			":8080",
-			cors(mux),
-		),
-	)
+	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Println("Server running on :8080")
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server listen error: %v", err)
+		}
+	}()
+
+	<-stopCtx.Done()
+	log.Println("Gracefully stopping server...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+	log.Println("Server stopped cleanly.")
+}
+
+type serverGoalVerifier struct {
+	goalService *goals.Service
+}
+
+func (v *serverGoalVerifier) VerifyApprovedGoal(ctx context.Context, callerID, callerEmail, callerHandle, goalID string) (string, string, bool, error) {
+	goal, err := v.goalService.GetByID(ctx, "", goalID)
+	if err != nil || goal == nil {
+		return "", "", false, err
+	}
+	if !goal.IsApprover(callerID, callerEmail, callerHandle) {
+		return "", "", false, nil
+	}
+	if goal.Status != "completed" {
+		return "", "", false, nil
+	}
+	return goal.OwnerID, goal.Title, true, nil
+}
+
+type serverUserResolver struct {
+	authRepo auth.Repository
+}
+
+func (r *serverUserResolver) ResolveUser(ctx context.Context, identifier string) (string, string, string, error) {
+	clean := strings.TrimSpace(identifier)
+	if clean == "" {
+		return "", "", "", errors.New("empty user identifier")
+	}
+
+	// 0. If community identifier, return directly
+	if strings.HasPrefix(clean, "comm-") || strings.HasPrefix(clean, "comm_") {
+		return clean, "", "", nil
+	}
+
+	// 1. If starts with @, resolve by handle
+	if strings.HasPrefix(clean, "@") {
+		h := strings.TrimPrefix(clean, "@")
+		u, err := r.authRepo.GetUserByHandle(ctx, h)
+		if err == nil && u != nil {
+			return u.ID, u.Email, u.Handle, nil
+		}
+		return "", "", "", fmt.Errorf("user with handle %s not found", clean)
+	}
+
+	// 2. If contains @ and ., resolve by email
+	if strings.Contains(clean, "@") && strings.Contains(clean, ".") {
+		u, err := r.authRepo.GetUserByEmail(ctx, clean)
+		if err == nil && u != nil {
+			return u.ID, u.Email, u.Handle, nil
+		}
+		uH, errH := r.authRepo.GetUserByHandle(ctx, clean)
+		if errH == nil && uH != nil {
+			return uH.ID, uH.Email, uH.Handle, nil
+		}
+		return "", "", "", fmt.Errorf("user with email %s not found", clean)
+	}
+
+	// 3. Otherwise try ID first, then handle, then email
+	u, err := r.authRepo.GetUserByID(ctx, clean)
+	if err == nil && u != nil {
+		return u.ID, u.Email, u.Handle, nil
+	}
+
+	uH, errH := r.authRepo.GetUserByHandle(ctx, clean)
+	if errH == nil && uH != nil {
+		return uH.ID, uH.Email, uH.Handle, nil
+	}
+
+	uE, errE := r.authRepo.GetUserByEmail(ctx, clean)
+	if errE == nil && uE != nil {
+		return uE.ID, uE.Email, uE.Handle, nil
+	}
+
+	return "", "", "", fmt.Errorf("user %s not found", clean)
 }

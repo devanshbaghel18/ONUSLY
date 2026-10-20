@@ -395,3 +395,64 @@ func TestGoal_ConcurrentTargetAndCommunityRaceCondition(t *testing.T) {
 			iter, finalGoal.ApprovalType, finalGoal.BlockedApps, codeTargets, codeCommunity)
 	}
 }
+
+// TestGoal_DeleteWhileProofSubmittedBlocked ensures that a goal owner cannot delete a goal
+// while it is in the "proof_submitted" state waiting for an approver decision.
+func TestGoal_DeleteWhileProofSubmittedBlocked(t *testing.T) {
+	db, tableName := getTestDynamoClient(t)
+	repo := goals.NewRepository(db, tableName)
+	service := goals.NewService(repo, nil)
+	handler := goals.NewHandler(service)
+
+	ownerID := "test-owner-delete-guard-" + uuid.NewString()[:8]
+
+	g, err := service.CreateWithInput(context.Background(), ownerID, goals.CreateGoalInput{
+		Title:       "Goal under review",
+		Description: "Should not be deletable during review",
+	})
+	if err != nil {
+		t.Fatalf("failed to create goal: %v", err)
+	}
+	t.Cleanup(func() {
+		// Clean up DynamoDB entry after test
+		_ = repo.Delete(context.Background(), ownerID, g.ID)
+	})
+
+	// Transition to proof_submitted
+	_, err = repo.UpdateStatus(context.Background(), ownerID, g.ID, "proof_submitted")
+	if err != nil {
+		t.Fatalf("failed to transition to proof_submitted: %v", err)
+	}
+
+	// Attempt DELETE via HTTP handler
+	req := httptest.NewRequest("DELETE", "/goals/"+g.ID, nil)
+	req.SetPathValue("id", g.ID)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
+	rec := httptest.NewRecorder()
+
+	handler.Delete(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict when deleting goal in review, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// Verify goal is still present in database
+	persisted, err := service.GetByID(context.Background(), ownerID, g.ID)
+	if err != nil || persisted == nil {
+		t.Fatalf("goal was deleted while under review!")
+	}
+	if persisted.Status != "proof_submitted" {
+		t.Fatalf("expected status proof_submitted, got %s", persisted.Status)
+	}
+
+	// Transition back to active -> delete should now succeed for an untargeted goal
+	_, err = repo.UpdateStatus(context.Background(), ownerID, g.ID, "active")
+	if err != nil {
+		t.Fatalf("failed to update status: %v", err)
+	}
+
+	rec2 := httptest.NewRecorder()
+	handler.Delete(rec2, req)
+	if rec2.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content when deleting active untargeted goal, got %d", rec2.Code)
+	}
+}

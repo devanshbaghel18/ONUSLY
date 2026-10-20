@@ -79,7 +79,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListByGoal(w http.ResponseWriter, r *http.Request) {
-	_, ok := middleware.GetUserID(r.Context())
+	callerID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -90,15 +90,26 @@ func (h *Handler) ListByGoal(w http.ResponseWriter, r *http.Request) {
 		goalID = extractGoalID(r.URL.Path)
 	}
 
-	targetOwnerID := strings.TrimSpace(r.URL.Query().Get("ownerId"))
+	callerEmail, _ := middleware.GetUserEmail(r.Context())
+	callerHandle, _ := middleware.GetUserHandle(r.Context())
 
-	proofs, err := h.service.ListByGoal(
+	proofs, err := h.service.ListByGoalAuthorized(
 		r.Context(),
-		targetOwnerID,
+		callerID,
+		callerEmail,
+		callerHandle,
 		goalID,
 	)
 
 	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			http.Error(w, "forbidden: you are not authorized to view proofs for this goal", http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, ErrGoalNotFound) {
+			http.Error(w, "goal not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "failed to fetch proofs", http.StatusInternalServerError)
 		return
 	}
@@ -109,7 +120,7 @@ func (h *Handler) ListByGoal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
-	userID, ok := middleware.GetUserID(r.Context())
+	callerID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -127,15 +138,28 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	proof, err := h.service.GetByID(
+	callerEmail, _ := middleware.GetUserEmail(r.Context())
+	callerHandle, _ := middleware.GetUserHandle(r.Context())
+
+	proof, err := h.service.GetByIDAuthorized(
 		r.Context(),
-		userID,
+		callerID,
+		callerEmail,
+		callerHandle,
 		goalID,
 		proofID,
 	)
 
 	if err != nil {
-		http.Error(w, "proof not found", http.StatusNotFound)
+		if errors.Is(err, ErrUnauthorized) {
+			http.Error(w, "forbidden: you are not authorized to view this proof", http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, ErrGoalNotFound) || errors.Is(err, ErrProofNotFound) {
+			http.Error(w, "proof not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to fetch proof", http.StatusInternalServerError)
 		return
 	}
 

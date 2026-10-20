@@ -119,13 +119,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 	// Security: caller must be either the goal owner or the designated approver
 	callerEmail, _ := middleware.GetUserEmail(r.Context())
 	callerHandle, _ := middleware.GetUserHandle(r.Context())
-	isApprover := (goal.ApproverID == "COMMUNITY") ||
-		(goal.ApprovalType == "community") ||
-		(goal.ApproverID != "" && goal.ApproverID == callerID) ||
-		(goal.ApproverEmail != "" && callerEmail != "" && strings.EqualFold(goal.ApproverEmail, callerEmail)) ||
-		(goal.ApproverEmail != "" && callerHandle != "" && (strings.EqualFold(goal.ApproverEmail, "@"+callerHandle) || strings.EqualFold(goal.ApproverEmail, callerHandle)))
-
-	if goal.OwnerID != callerID && !isApprover {
+	if !goal.CanAccess(callerID, callerEmail, callerHandle) {
 		http.Error(w, "forbidden: you are not authorized to view this goal", http.StatusForbidden)
 		return
 	}
@@ -152,8 +146,16 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		userID,
 		goalID,
 	); err != nil {
+		if errors.Is(err, ErrGoalInReview) || strings.Contains(err.Error(), "goal_in_review") {
+			http.Error(w, "cannot delete goal while proof is pending review", http.StatusConflict)
+			return
+		}
 		if errors.Is(err, ErrGoalLocked) || strings.Contains(err.Error(), "goal_locked") {
 			http.Error(w, "goal_locked", http.StatusConflict)
+			return
+		}
+		if strings.Contains(err.Error(), "goal not found") {
+			http.Error(w, "goal not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, "failed to delete goal", http.StatusInternalServerError)

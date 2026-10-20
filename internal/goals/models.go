@@ -1,5 +1,7 @@
 package goals
 
+import "strings"
+
 type Goal struct {
 	PK string `dynamodbav:"PK" json:"-"`
 	SK string `dynamodbav:"SK" json:"-"`
@@ -43,4 +45,40 @@ type UpdateGoalInput struct {
 	CheckTargetsUnchanged       bool
 	DisallowNoneIfLocked        bool
 	RequireFriendAccountability bool
+}
+
+// IsApprover returns true if caller matches the goal's configured approver.
+func (g *Goal) IsApprover(callerID, callerEmail, callerHandle string) bool {
+	if g == nil {
+		return false
+	}
+	if g.ApproverID == "COMMUNITY" || g.ApprovalType == "community" {
+		return true
+	}
+	if g.ApproverID != "" && g.ApproverID == callerID {
+		return true
+	}
+	if g.ApproverEmail != "" {
+		if callerEmail != "" && strings.EqualFold(g.ApproverEmail, callerEmail) {
+			return true
+		}
+		cleanHandle := strings.TrimPrefix(strings.TrimSpace(callerHandle), "@")
+		if cleanHandle != "" {
+			if strings.EqualFold(g.ApproverEmail, cleanHandle) || strings.EqualFold(g.ApproverEmail, "@"+cleanHandle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// CanAccess returns true if the caller is either the owner or the designated approver.
+func (g *Goal) CanAccess(callerID, callerEmail, callerHandle string) bool {
+	if g == nil {
+		return false
+	}
+	if g.OwnerID == callerID {
+		return true
+	}
+	return g.IsApprover(callerID, callerEmail, callerHandle)
 }

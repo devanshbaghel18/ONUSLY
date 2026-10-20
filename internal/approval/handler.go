@@ -99,20 +99,36 @@ func (h *Handler) Decide(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListByGoal(w http.ResponseWriter, r *http.Request) {
-	userID, ok := middleware.GetUserID(r.Context())
+	callerID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	goalID := extractGoalID(r.URL.Path)
+	goalID := r.PathValue("id")
+	if goalID == "" {
+		goalID = extractGoalID(r.URL.Path)
+	}
 
-	approvals, err := h.service.ListByGoal(
+	callerEmail, _ := middleware.GetUserEmail(r.Context())
+	callerHandle, _ := middleware.GetUserHandle(r.Context())
+
+	approvals, err := h.service.ListByGoalAuthorized(
 		r.Context(),
-		userID,
+		callerID,
+		callerEmail,
+		callerHandle,
 		goalID,
 	)
 	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			http.Error(w, "forbidden: you are not authorized to view approvals for this goal", http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, ErrGoalNotFound) {
+			http.Error(w, "goal not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "failed to fetch approvals", http.StatusInternalServerError)
 		return
 	}
@@ -122,22 +138,45 @@ func (h *Handler) ListByGoal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
-	userID, ok := middleware.GetUserID(r.Context())
+	callerID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	goalID, approvalID := extractGoalAndApprovalID(r.URL.Path)
+	goalID := r.PathValue("id")
+	approvalID := r.PathValue("approvalId")
+	if goalID == "" || approvalID == "" {
+		g, a := extractGoalAndApprovalID(r.URL.Path)
+		if goalID == "" {
+			goalID = g
+		}
+		if approvalID == "" {
+			approvalID = a
+		}
+	}
 
-	approval, err := h.service.GetByID(
+	callerEmail, _ := middleware.GetUserEmail(r.Context())
+	callerHandle, _ := middleware.GetUserHandle(r.Context())
+
+	approval, err := h.service.GetByIDAuthorized(
 		r.Context(),
-		userID,
+		callerID,
+		callerEmail,
+		callerHandle,
 		goalID,
 		approvalID,
 	)
 	if err != nil {
-		http.Error(w, "approval not found", http.StatusNotFound)
+		if errors.Is(err, ErrUnauthorized) {
+			http.Error(w, "forbidden: you are not authorized to view this approval", http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, ErrGoalNotFound) || errors.Is(err, ErrApprovalNotFound) {
+			http.Error(w, "approval not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to fetch approval", http.StatusInternalServerError)
 		return
 	}
 

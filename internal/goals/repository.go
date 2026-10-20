@@ -135,9 +135,11 @@ func (r *Repository) Delete(ctx context.Context, ownerID, goalID string) error {
 			"SK": &types.AttributeValueMemberS{Value: "GOAL#" + goalID},
 		},
 		ConditionExpression: aws.String(
-			"attribute_not_exists(PK) OR #status = :completedStatus OR " +
+			"attribute_not_exists(PK) OR (" +
+				"#status <> :submittedStatus AND (" +
+				"#status = :completedStatus OR " +
 				"((attribute_not_exists(#blockedApps) OR size(#blockedApps) = :zero) AND " +
-				"(attribute_not_exists(#blockedDomains) OR size(#blockedDomains) = :zero))",
+				"(attribute_not_exists(#blockedDomains) OR size(#blockedDomains) = :zero))))",
 		),
 		ExpressionAttributeNames: map[string]string{
 			"#status":         "Status",
@@ -146,6 +148,7 @@ func (r *Repository) Delete(ctx context.Context, ownerID, goalID string) error {
 		},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":completedStatus": &types.AttributeValueMemberS{Value: "completed"},
+			":submittedStatus": &types.AttributeValueMemberS{Value: "proof_submitted"},
 			":zero":            &types.AttributeValueMemberN{Value: "0"},
 		},
 	})

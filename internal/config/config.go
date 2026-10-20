@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -33,4 +35,16 @@ func Load() Config {
 	}
 
 	return cfg
+}
+
+// Validate checks that required security secrets are configured.
+func (c Config) Validate() error {
+	jwtSec := strings.TrimSpace(c.JWTSecret)
+	if jwtSec == "" {
+		return errors.New("critical security error: JWT_SECRET is not set")
+	}
+	if len(jwtSec) < 16 {
+		return errors.New("critical security error: JWT_SECRET must be at least 16 characters")
+	}
+	return nil
 }

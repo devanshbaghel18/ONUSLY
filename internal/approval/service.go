@@ -3,6 +3,7 @@ package approval
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -14,13 +15,14 @@ import (
 )
 
 var (
-	ErrInvalidDecision = errors.New("invalid approval decision")
-	ErrUnauthorized    = errors.New("user is not the assigned approver")
-	ErrSelfApproval    = errors.New("goal owner cannot approve their own goal")
-	ErrGoalNotFound    = errors.New("goal not found")
-	ErrProofNotFound   = errors.New("proof not found")
-	ErrInvalidProof    = errors.New("invalid proof")
-	ErrAlreadyDecided  = errors.New("proof has already been decided")
+	ErrInvalidDecision  = errors.New("invalid approval decision")
+	ErrUnauthorized     = errors.New("user is not the assigned approver")
+	ErrSelfApproval     = errors.New("goal owner cannot approve their own goal")
+	ErrGoalNotFound     = errors.New("goal not found")
+	ErrProofNotFound    = errors.New("proof not found")
+	ErrInvalidProof     = errors.New("invalid proof")
+	ErrAlreadyDecided   = errors.New("proof has already been decided")
+	ErrApprovalNotFound = errors.New("approval not found")
 )
 
 type Service struct {
@@ -75,7 +77,7 @@ func (s *Service) Decide(
 	status = strings.TrimSpace(status)
 	comment = strings.TrimSpace(comment)
 
-	if approverID == "" || ownerID == "" || goalID == "" || proofID == "" {
+	if approverID == "" || goalID == "" || proofID == "" {
 		return nil, errors.New("invalid approval request")
 	}
 
@@ -88,8 +90,11 @@ func (s *Service) Decide(
 	}
 
 	goal, err := s.goalService.GetByID(ctx, ownerID, goalID)
-	if err != nil {
-		return nil, ErrGoalNotFound
+	if err != nil || goal == nil {
+		goal, err = s.goalService.GetByID(ctx, "", goalID)
+		if err != nil || goal == nil {
+			return nil, ErrGoalNotFound
+		}
 	}
 
 	// 1. Goal owner must NEVER be able to approve their own goal.
@@ -100,21 +105,15 @@ func (s *Service) Decide(
 	// 2. Goal must have a valid configured approver and caller must match.
 	callerEmail, _ := middleware.GetUserEmail(ctx)
 	callerHandle, _ := middleware.GetUserHandle(ctx)
-	isAuthorized := (goal.ApproverID == "COMMUNITY") ||
-		(goal.ApprovalType == "community") ||
-		(goal.ApproverID == "" && goal.ApproverEmail == "") ||
-		(goal.ApproverID != "" && goal.ApproverID == approverID) ||
-		(goal.ApproverEmail != "" && callerEmail != "" && strings.EqualFold(goal.ApproverEmail, callerEmail)) ||
-		(goal.ApproverEmail != "" && callerHandle != "" && (strings.EqualFold(goal.ApproverEmail, "@"+callerHandle) || strings.EqualFold(goal.ApproverEmail, callerHandle)))
-
-	if !isAuthorized {
+	if !goal.IsApprover(approverID, callerEmail, callerHandle) {
 		return nil, ErrUnauthorized
 	}
 
-	// 3. Goal must belong to the specified owner.
-	if goal.OwnerID != ownerID {
+	// 3. Goal must belong to the specified owner (if provided by caller, must not be forged).
+	if ownerID != "" && goal.OwnerID != ownerID {
 		return nil, ErrUnauthorized
 	}
+	ownerID = goal.OwnerID
 
 	// 4. Goal must currently be in proof_submitted state.
 	if goal.Status != "proof_submitted" {
@@ -170,7 +169,14 @@ func (s *Service) Decide(
 	}
 
 	for _, listener := range s.listeners {
-		listener.OnDecision(ctx, &approval, goal)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Approval] Recovered from listener panic: %v", r)
+				}
+			}()
+			listener.OnDecision(ctx, &approval, goal)
+		}()
 	}
 
 	if s.publisher != nil {
@@ -217,6 +223,51 @@ func (s *Service) GetByID(
 	}
 
 	return approval, nil
+}
+
+// ListByGoalAuthorized validates that caller is goal owner or assigned approver before listing approvals.
+func (s *Service) ListByGoalAuthorized(
+	ctx context.Context,
+	callerID, callerEmail, callerHandle, goalID string,
+) ([]Approval, error) {
+	goal, err := s.goalService.GetByID(ctx, "", goalID)
+	if err != nil || goal == nil {
+		return nil, ErrGoalNotFound
+	}
+
+	if !goal.CanAccess(callerID, callerEmail, callerHandle) {
+		return nil, ErrUnauthorized
+	}
+
+	return s.repo.ListByGoal(ctx, goal.OwnerID, goalID)
+}
+
+// GetByIDAuthorized validates that caller is goal owner or assigned approver before returning approval details.
+func (s *Service) GetByIDAuthorized(
+	ctx context.Context,
+	callerID, callerEmail, callerHandle, goalID, approvalID string,
+) (*Approval, error) {
+	goal, err := s.goalService.GetByID(ctx, "", goalID)
+	if err != nil || goal == nil {
+		return nil, ErrGoalNotFound
+	}
+
+	if !goal.CanAccess(callerID, callerEmail, callerHandle) {
+		return nil, ErrUnauthorized
+	}
+
+	app, err := s.repo.GetByID(ctx, goal.OwnerID, goalID, approvalID)
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, ErrApprovalNotFound
+	}
+	if app.GoalID != goalID || app.OwnerID != goal.OwnerID {
+		return nil, ErrApprovalNotFound
+	}
+
+	return app, nil
 }
 
 func (s *Service) ListByGoal(

@@ -9,9 +9,9 @@ import (
 
 // QueuePublisher implements Publisher by publishing serialized events to a Queue (SQS or MemoryQueue).
 type QueuePublisher struct {
-	q                  queue.Queue
-	proofQueueName     string
-	approvalQueueName  string
+	q                 queue.Queue
+	proofQueueName    string
+	approvalQueueName string
 }
 
 // NewQueuePublisher creates a new QueuePublisher.

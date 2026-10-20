@@ -38,6 +38,14 @@ func (s *Service) CreateWithInput(
 		return nil, errors.New("title is required")
 	}
 
+	if len(title) > 200 {
+		return nil, errors.New("title exceeds maximum allowed length of 200 characters")
+	}
+
+	if len(description) > 2000 {
+		return nil, errors.New("description exceeds maximum allowed length of 2000 characters")
+	}
+
 	var apps []string
 	var domains []string
 	var err error
@@ -256,6 +264,15 @@ func (s *Service) Delete(
 		return errors.New("goal ID is required")
 	}
 
+	goal, err := s.repo.GetByID(ctx, ownerID, goalID)
+	if err != nil {
+		return err
+	}
+
+	if goal.Status == "proof_submitted" {
+		return ErrGoalInReview
+	}
+
 	return s.repo.Delete(ctx, ownerID, goalID)
 }
 
@@ -347,11 +364,17 @@ func (s *Service) Update(
 		if trimmed == "" {
 			return nil, errors.New("title is required")
 		}
+		if len(trimmed) > 200 {
+			return nil, errors.New("title exceeds maximum allowed length of 200 characters")
+		}
 		input.Title = &trimmed
 	}
 
 	if input.Description != nil {
 		trimmed := strings.TrimSpace(*input.Description)
+		if len(trimmed) > 2000 {
+			return nil, errors.New("description exceeds maximum allowed length of 2000 characters")
+		}
 		input.Description = &trimmed
 	}
 

@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -64,9 +65,16 @@ func (c *CompositePublisher) Add(p Publisher) {
 func (c *CompositePublisher) PublishProofSubmitted(ctx context.Context, event ProofSubmittedEvent) error {
 	var errs []error
 	for _, p := range c.publishers {
-		if err := p.PublishProofSubmitted(ctx, event); err != nil {
-			errs = append(errs, err)
-		}
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					errs = append(errs, fmt.Errorf("panic in event publisher: %v", r))
+				}
+			}()
+			if err := p.PublishProofSubmitted(ctx, event); err != nil {
+				errs = append(errs, err)
+			}
+		}()
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -78,9 +86,16 @@ func (c *CompositePublisher) PublishProofSubmitted(ctx context.Context, event Pr
 func (c *CompositePublisher) PublishApprovalDecided(ctx context.Context, event ApprovalDecidedEvent) error {
 	var errs []error
 	for _, p := range c.publishers {
-		if err := p.PublishApprovalDecided(ctx, event); err != nil {
-			errs = append(errs, err)
-		}
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					errs = append(errs, fmt.Errorf("panic in event publisher: %v", r))
+				}
+			}()
+			if err := p.PublishApprovalDecided(ctx, event); err != nil {
+				errs = append(errs, err)
+			}
+		}()
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)

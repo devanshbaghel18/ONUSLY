@@ -18,6 +18,7 @@ var (
 	ErrGoalNotFound          = errors.New("goal not found")
 	ErrProofAlreadySubmitted = errors.New("proof has already been submitted for this goal")
 	ErrGoalNotActive         = errors.New("goal is not active")
+	ErrUnauthorized          = errors.New("forbidden: you are not authorized to access proofs for this goal")
 )
 
 type Service struct {
@@ -67,18 +68,36 @@ func (s *Service) Submit(
 		return nil, ErrInvalidProofType
 	}
 
+	textExplanation = strings.TrimSpace(textExplanation)
+	externalLink = strings.TrimSpace(externalLink)
+	photoURL = strings.TrimSpace(photoURL)
+
+	if len(textExplanation) > 5000 {
+		return nil, errors.New("proof explanation exceeds maximum length of 5000 characters")
+	}
+
 	switch proofType {
 	case "text":
-		if strings.TrimSpace(textExplanation) == "" {
+		if textExplanation == "" {
 			return nil, ErrInvalidProof
 		}
 	case "link":
-		if strings.TrimSpace(externalLink) == "" {
+		if externalLink == "" {
 			return nil, ErrInvalidProof
 		}
+		lower := strings.ToLower(externalLink)
+		if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+			return nil, errors.New("external link must start with http:// or https://")
+		}
 	case "photo", "document":
-		if strings.TrimSpace(photoURL) == "" && strings.TrimSpace(textExplanation) == "" {
+		if photoURL == "" && textExplanation == "" {
 			return nil, ErrInvalidProof
+		}
+		if photoURL != "" {
+			lower := strings.ToLower(photoURL)
+			if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "data:image/") {
+				return nil, errors.New("photo URL must be an http(s) URL or image data URI")
+			}
 		}
 	}
 
@@ -158,6 +177,58 @@ func (s *Service) GetByID(
 	}
 
 	return p, nil
+}
+
+// GetByIDAuthorized enforces that only the goal owner or designated approver can view a proof.
+func (s *Service) GetByIDAuthorized(
+	ctx context.Context,
+	callerID string,
+	callerEmail string,
+	callerHandle string,
+	goalID string,
+	proofID string,
+) (*Proof, error) {
+	goal, err := s.goalService.GetByID(ctx, "", goalID)
+	if err != nil || goal == nil {
+		return nil, ErrGoalNotFound
+	}
+
+	if !goal.CanAccess(callerID, callerEmail, callerHandle) {
+		return nil, ErrUnauthorized
+	}
+
+	p, err := s.repo.GetByID(ctx, goal.OwnerID, goalID, proofID)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, ErrProofNotFound
+	}
+	if p.GoalID != goalID || p.OwnerID != goal.OwnerID {
+		return nil, ErrProofNotFound
+	}
+
+	return p, nil
+}
+
+// ListByGoalAuthorized enforces that only the goal owner or designated approver can list proofs.
+func (s *Service) ListByGoalAuthorized(
+	ctx context.Context,
+	callerID string,
+	callerEmail string,
+	callerHandle string,
+	goalID string,
+) ([]Proof, error) {
+	goal, err := s.goalService.GetByID(ctx, "", goalID)
+	if err != nil || goal == nil {
+		return nil, ErrGoalNotFound
+	}
+
+	if !goal.CanAccess(callerID, callerEmail, callerHandle) {
+		return nil, ErrUnauthorized
+	}
+
+	return s.repo.ListByGoal(ctx, goal.OwnerID, goalID)
 }
 
 func (s *Service) ListByGoal(
