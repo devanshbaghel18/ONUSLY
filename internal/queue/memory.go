@@ -15,10 +15,10 @@ type memoryItem struct {
 
 // MemoryQueue is a thread-safe, in-memory implementation of Queue for local dev and deterministic outage testing.
 type MemoryQueue struct {
-	mu       sync.RWMutex
-	queues   map[string][]*memoryItem
-	paused   map[string]bool
-	counter  uint64
+	mu      sync.RWMutex
+	queues  map[string][]*memoryItem
+	paused  map[string]bool
+	counter uint64
 }
 
 // NewMemoryQueue initializes an empty MemoryQueue.

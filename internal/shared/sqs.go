@@ -27,4 +27,3 @@ func NewSQSClient() *sqs.Client {
 
 	return sqs.NewFromConfig(cfg)
 }
-

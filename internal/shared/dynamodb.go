@@ -24,4 +24,4 @@ func NewDynamoClient() *dynamodb.Client {
 	}
 
 	return dynamodb.NewFromConfig(cfg)
-}
+}

@@ -2,6 +2,8 @@ package realtime
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,17 +19,18 @@ var (
 
 // StoredMessage represents a chat message persisted in storage.
 type StoredMessage struct {
-	ID              string   `json:"id" dynamodbav:"ID"`
-	SenderEmail     string   `json:"senderEmail" dynamodbav:"SenderEmail"`
-	SenderHandle    string   `json:"senderHandle,omitempty" dynamodbav:"SenderHandle,omitempty"`
-	SenderID        string   `json:"senderId" dynamodbav:"SenderID"`
-	RecipientEmail  string   `json:"recipientEmail" dynamodbav:"RecipientEmail"`
-	RecipientHandle string   `json:"recipientHandle,omitempty" dynamodbav:"RecipientHandle,omitempty"`
-	Text            string   `json:"text" dynamodbav:"Text"`
-	IsProof         bool     `json:"isProof,omitempty" dynamodbav:"IsProof,omitempty"`
-	GoalID          string   `json:"goalId,omitempty" dynamodbav:"GoalID,omitempty"`
-	GoalTitle       string   `json:"goalTitle,omitempty" dynamodbav:"GoalTitle,omitempty"`
-	OwnerID         string   `json:"ownerId,omitempty" dynamodbav:"OwnerID,omitempty"`
+	ID              string      `json:"id" dynamodbav:"ID"`
+	SenderEmail     string      `json:"senderEmail" dynamodbav:"SenderEmail"`
+	SenderHandle    string      `json:"senderHandle,omitempty" dynamodbav:"SenderHandle,omitempty"`
+	SenderID        string      `json:"senderId" dynamodbav:"SenderID"`
+	RecipientEmail  string      `json:"recipientEmail" dynamodbav:"RecipientEmail"`
+	RecipientHandle string      `json:"recipientHandle,omitempty" dynamodbav:"RecipientHandle,omitempty"`
+	RecipientID     string      `json:"recipientId,omitempty" dynamodbav:"RecipientID,omitempty"`
+	Text            string      `json:"text" dynamodbav:"Text"`
+	IsProof         bool        `json:"isProof,omitempty" dynamodbav:"IsProof,omitempty"`
+	GoalID          string      `json:"goalId,omitempty" dynamodbav:"GoalID,omitempty"`
+	GoalTitle       string      `json:"goalTitle,omitempty" dynamodbav:"GoalTitle,omitempty"`
+	OwnerID         string      `json:"ownerId,omitempty" dynamodbav:"OwnerID,omitempty"`
 	Images          []string    `json:"images,omitempty" dynamodbav:"Images,omitempty"`
 	Files           interface{} `json:"files,omitempty" dynamodbav:"Files,omitempty"`
 	ExternalLink    string      `json:"externalLink,omitempty" dynamodbav:"ExternalLink,omitempty"`
@@ -37,12 +40,22 @@ type StoredMessage struct {
 	Delivered       bool        `json:"delivered" dynamodbav:"Delivered"`
 }
 
+// UserResolver resolves user identifiers (ID, email, handle) to an immutable UserID.
+type UserResolver interface {
+	ResolveUser(ctx context.Context, identifier string) (userID, email, handle string, err error)
+}
+
 // MessageStore is an optional persistent storage layer for chat messages.
 type MessageStore interface {
 	SaveMessage(ctx context.Context, msg StoredMessage, isRecipientOnline bool) error
 	GetPendingMessages(ctx context.Context, recipientEmail string) ([]StoredMessage, error)
 	MarkMessagesDelivered(ctx context.Context, recipientEmail string, msgIDs []string) error
-	DeleteMessage(ctx context.Context, msgID string) error
+	DeleteMessage(ctx context.Context, callerEmail, callerHandle, callerID, msgID string) error
+}
+
+// GoalVerifier validates whether a goal has been legitimately approved by the backend.
+type GoalVerifier interface {
+	VerifyApprovedGoal(ctx context.Context, callerID, callerEmail, callerHandle, goalID string) (ownerID, goalTitle string, ok bool, err error)
 }
 
 // Event represents a standard real-time message payload sent to clients.
@@ -86,19 +99,44 @@ type Hub struct {
 	// commByCode maps uppercase code -> communityID
 	commByCode map[string]string
 
+	// commMsgAuthors maps "communityID#messageID" -> author userID
+	commMsgAuthors map[string]string
+
 	// msgStore is an optional persistent message store for offline delivery
 	msgStore MessageStore
+
+	// goalVerifier validates goal approval authority against backend state
+	goalVerifier GoalVerifier
+
+	// userResolver resolves handles/emails to immutable UserID
+	userResolver UserResolver
 }
 
 // NewHub initializes and returns a new Hub instance.
 func NewHub() *Hub {
 	return &Hub{
-		users:       make(map[string]map[*Client]bool),
-		emails:      make(map[string]map[*Client]bool),
-		handles:     make(map[string]map[*Client]bool),
-		communities: make(map[string]map[*Client]bool),
-		commRecords: make(map[string]*CommunityRecord),
-		commByCode:  make(map[string]string),
+		users:          make(map[string]map[*Client]bool),
+		emails:         make(map[string]map[*Client]bool),
+		handles:        make(map[string]map[*Client]bool),
+		communities:    make(map[string]map[*Client]bool),
+		commRecords:    make(map[string]*CommunityRecord),
+		commByCode:     make(map[string]string),
+		commMsgAuthors: make(map[string]string),
+	}
+}
+
+func generateCommunityMessageID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("comm-msg-%d-%s", time.Now().UnixNano(), hex.EncodeToString(b))
+}
+
+func isPublicTrendingCommunity(id string) bool {
+	switch id {
+	case "comm-early-risers", "comm-leetcode", "comm-fitness", "comm-deep-work", "comm-book-reading":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -107,6 +145,20 @@ func (h *Hub) SetMessageStore(store MessageStore) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.msgStore = store
+}
+
+// SetGoalVerifier attaches a GoalVerifier to the Hub for validating approval broadcasts.
+func (h *Hub) SetGoalVerifier(verifier GoalVerifier) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.goalVerifier = verifier
+}
+
+// SetUserResolver attaches a UserResolver to the Hub for resolving handles/emails to immutable IDs.
+func (h *Hub) SetUserResolver(resolver UserResolver) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.userResolver = resolver
 }
 
 // Register adds a client connection under its authenticated UserID, Email, and Handle.
@@ -389,161 +441,143 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			Email  string `json:"email"`
 			Handle string `json:"handle"`
 		}
-		if err := json.Unmarshal(base.Payload, &req); err == nil {
-			normalizedEmail := strings.TrimSpace(strings.ToLower(req.Email))
-			cleanHandle := strings.TrimPrefix(strings.TrimSpace(strings.ToLower(req.Handle)), "@")
+		_ = json.Unmarshal(base.Payload, &req)
 
-			h.mu.Lock()
-			changed := false
-			if normalizedEmail != "" && c.email != normalizedEmail {
-				c.email = normalizedEmail
-				emailConns, exists := h.emails[normalizedEmail]
-				if !exists {
-					emailConns = make(map[*Client]bool)
-					h.emails[normalizedEmail] = emailConns
-				}
-				emailConns[c] = true
-				changed = true
-			}
+		// Security: NEVER overwrite c.email or c.handle from unverified client payload.
+		// Identity is bound exclusively from the validated JWT token claims on the connection.
+		// If client supplies an email or handle that does not match authenticated identity, log and ignore it.
+		clientEmail := strings.TrimSpace(strings.ToLower(req.Email))
+		clientHandle := strings.TrimPrefix(strings.TrimSpace(strings.ToLower(req.Handle)), "@")
+		if (clientEmail != "" && clientEmail != c.email) || (clientHandle != "" && clientHandle != c.handle) {
+			log.Printf("[WebSocket] user.online: rejected spoofed identity from user %s (payload: email=%q, handle=%q; authenticated: email=%q, handle=%q)",
+				c.userID, clientEmail, clientHandle, c.email, c.handle)
+		}
 
-			if cleanHandle != "" && c.handle != cleanHandle {
-				if c.handle != "" {
-					if oldConns, exists := h.handles[c.handle]; exists {
-						delete(oldConns, c)
-						if len(oldConns) == 0 {
-							delete(h.handles, c.handle)
-						}
-					}
-				}
-				c.handle = cleanHandle
-				handleConns, exists := h.handles[cleanHandle]
-				if !exists {
-					handleConns = make(map[*Client]bool)
-					h.handles[cleanHandle] = handleConns
-				}
-				handleConns[c] = true
-				changed = true
-			}
-			store := h.msgStore
-			h.mu.Unlock()
+		c.mu.Lock()
+		store := h.msgStore
+		shouldDeliver := !c.deliveredOffline && store != nil
+		if shouldDeliver {
+			c.deliveredOffline = true
+		}
+		c.mu.Unlock()
 
-			c.mu.Lock()
-			shouldDeliver := !c.deliveredOffline && store != nil
-			if shouldDeliver {
-				c.deliveredOffline = true
-			}
-			c.mu.Unlock()
+		if shouldDeliver {
+			log.Printf("[WebSocket] Presence confirmed: user %s registered email=%s handle=@%s", c.userID, c.email, c.handle)
 
-			if changed || shouldDeliver {
-				log.Printf("[WebSocket] Presence confirmed: user %s registered email=%s handle=@%s", c.userID, c.email, c.handle)
-			}
+			// Deliver any stored offline messages to this user once per connection.
+			// Security: Offline messages are retrieved exclusively by the authenticated user's
+			// immutable user ID (and provable email when configured), NEVER by mutable handle aliases.
+			go func(targetUserID, targetEmail string, cl *Client, s MessageStore) {
+				var allPending []StoredMessage
+				seen := make(map[string]bool)
 
-			// Deliver any stored offline messages to this user once per connection
-			if shouldDeliver {
-				go func(targetEmail, targetHandle string, cl *Client, s MessageStore) {
-					var allPending []StoredMessage
-					if targetEmail != "" {
-						if pending, err := s.GetPendingMessages(context.Background(), targetEmail); err == nil {
-							allPending = append(allPending, pending...)
-						}
-					}
-					if targetHandle != "" {
-						if pendingH, err := s.GetPendingMessages(context.Background(), "@"+targetHandle); err == nil {
-							allPending = append(allPending, pendingH...)
-						}
-					}
-
-					if len(allPending) > 0 {
-						var deliveredIDs []string
-						seen := make(map[string]bool)
-						for _, m := range allPending {
-							if seen[m.ID] {
-								continue
+				if targetUserID != "" {
+					if pending, err := s.GetPendingMessages(context.Background(), targetUserID); err == nil {
+						for _, m := range pending {
+							if !seen[m.ID] {
+								seen[m.ID] = true
+								allPending = append(allPending, m)
 							}
-							seen[m.ID] = true
-							cl.SendEvent(Event{
-								Type: "chat.message",
-								Payload: map[string]interface{}{
-									"id":              m.ID,
-									"senderEmail":     m.SenderEmail,
-									"senderHandle":    m.SenderHandle,
-									"senderId":        m.SenderID,
-									"recipientEmail":  m.RecipientEmail,
-									"recipientHandle": m.RecipientHandle,
-									"text":            m.Text,
-									"isProof":         m.IsProof,
-									"goalId":          m.GoalID,
-									"goalTitle":       m.GoalTitle,
-									"ownerId":         m.OwnerID,
-									"images":          m.Images,
-									"externalLink":    m.ExternalLink,
-									"approved":        m.Approved,
-									"time":            m.Time,
-									"isOffline":       true,
-								},
-							})
-							deliveredIDs = append(deliveredIDs, m.ID)
 						}
-						if targetEmail != "" {
-							_ = s.MarkMessagesDelivered(context.Background(), targetEmail, deliveredIDs)
-						}
-						if targetHandle != "" {
-							_ = s.MarkMessagesDelivered(context.Background(), "@"+targetHandle, deliveredIDs)
-						}
-						log.Printf("[WebSocket] Delivered %d offline messages to user (email=%s, handle=@%s)", len(deliveredIDs), targetEmail, targetHandle)
 					}
-				}(c.email, c.handle, c, store)
-			}
-
-			// Sync all communities the connecting user is registered in
-			h.mu.RLock()
-			var userCommunities []map[string]interface{}
-			for _, rec := range h.commRecords {
-				isMember := (c.handle != "" && rec.Members[strings.ToLower(c.handle)]) ||
-					(c.email != "" && rec.Members[strings.ToLower(c.email)]) ||
-					rec.CreatorID == c.userID
-				if isMember && rec.Data != nil {
-					userCommunities = append(userCommunities, rec.Data)
 				}
-			}
-			h.mu.RUnlock()
-
-			for _, commData := range userCommunities {
-				commID, _ := commData["id"].(string)
-				if commID != "" {
-					h.JoinCommunity(commID, c)
+				if targetEmail != "" {
+					if pending, err := s.GetPendingMessages(context.Background(), targetEmail); err == nil {
+						for _, m := range pending {
+							if !seen[m.ID] {
+								seen[m.ID] = true
+								allPending = append(allPending, m)
+							}
+						}
+					}
 				}
-				c.SendEvent(Event{
-					Type: "community.sync",
-					Payload: map[string]interface{}{
-						"community": commData,
-					},
-				})
+
+				if len(allPending) > 0 {
+					var deliveredIDs []string
+					for _, m := range allPending {
+						cl.SendEvent(Event{
+							Type: "chat.message",
+							Payload: map[string]interface{}{
+								"id":              m.ID,
+								"senderEmail":     m.SenderEmail,
+								"senderHandle":    m.SenderHandle,
+								"senderId":        m.SenderID,
+								"recipientEmail":  m.RecipientEmail,
+								"recipientHandle": m.RecipientHandle,
+								"recipientId":     m.RecipientID,
+								"text":            m.Text,
+								"isProof":         m.IsProof,
+								"goalId":          m.GoalID,
+								"goalTitle":       m.GoalTitle,
+								"ownerId":         m.OwnerID,
+								"images":          m.Images,
+								"externalLink":    m.ExternalLink,
+								"approved":        m.Approved,
+								"time":            m.Time,
+								"isOffline":       true,
+							},
+						})
+						deliveredIDs = append(deliveredIDs, m.ID)
+					}
+					if targetUserID != "" {
+						_ = s.MarkMessagesDelivered(context.Background(), targetUserID, deliveredIDs)
+					}
+					if targetEmail != "" {
+						_ = s.MarkMessagesDelivered(context.Background(), targetEmail, deliveredIDs)
+					}
+					log.Printf("[WebSocket] Delivered %d offline messages to user (userID=%s, email=%s)", len(deliveredIDs), targetUserID, targetEmail)
+				}
+			}(c.userID, c.email, c, store)
+		}
+
+		// Sync all communities the connecting user is registered in
+		h.mu.RLock()
+		var userCommunities []map[string]interface{}
+		for _, rec := range h.commRecords {
+			isMember := (c.handle != "" && rec.Members[strings.ToLower(c.handle)]) ||
+				(c.email != "" && rec.Members[strings.ToLower(c.email)]) ||
+				rec.CreatorID == c.userID
+			if isMember && rec.Data != nil {
+				userCommunities = append(userCommunities, rec.Data)
 			}
+		}
+		h.mu.RUnlock()
+
+		for _, commData := range userCommunities {
+			commID, _ := commData["id"].(string)
+			if commID != "" {
+				h.JoinCommunity(commID, c)
+			}
+			c.SendEvent(Event{
+				Type: "community.sync",
+				Payload: map[string]interface{}{
+					"community": commData,
+				},
+			})
 		}
 
 	case "presence.query":
 		c.SendEvent(Event{
 			Type: "presence.list",
 			Payload: map[string]interface{}{
-				"onlineEmails":  h.GetOnlineEmails(),
 				"onlineHandles": h.GetOnlineHandles(),
 			},
 		})
 
 	case "chat.message":
 		var req struct {
-			ID              string   `json:"id"`
-			RecipientEmail  string   `json:"recipientEmail"`
-			RecipientHandle string   `json:"recipientHandle"`
-			SenderEmail     string   `json:"senderEmail"`
-			SenderHandle    string   `json:"senderHandle"`
-			SenderName      string   `json:"senderName"`
-			Text            string   `json:"text"`
-			IsProof         bool     `json:"isProof"`
-			GoalID          string   `json:"goalId"`
-			GoalTitle       string   `json:"goalTitle"`
-			OwnerID         string   `json:"ownerId"`
+			ID              string      `json:"id"`
+			RecipientEmail  string      `json:"recipientEmail"`
+			RecipientHandle string      `json:"recipientHandle"`
+			RecipientID     string      `json:"recipientId"`
+			SenderEmail     string      `json:"senderEmail"`
+			SenderHandle    string      `json:"senderHandle"`
+			SenderName      string      `json:"senderName"`
+			Text            string      `json:"text"`
+			IsProof         bool        `json:"isProof"`
+			GoalID          string      `json:"goalId"`
+			GoalTitle       string      `json:"goalTitle"`
+			OwnerID         string      `json:"ownerId"`
 			Images          []string    `json:"images"`
 			Files           interface{} `json:"files"`
 			ExternalLink    string      `json:"externalLink"`
@@ -556,6 +590,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 
 		req.RecipientEmail = strings.TrimSpace(strings.ToLower(req.RecipientEmail))
 		req.RecipientHandle = strings.TrimPrefix(strings.TrimSpace(strings.ToLower(req.RecipientHandle)), "@")
+		req.RecipientID = strings.TrimSpace(req.RecipientID)
 		req.SenderEmail = strings.TrimSpace(strings.ToLower(req.SenderEmail))
 		req.SenderHandle = strings.TrimPrefix(strings.TrimSpace(strings.ToLower(req.SenderHandle)), "@")
 		req.SenderName = strings.TrimSpace(req.SenderName)
@@ -566,41 +601,98 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			req.RecipientHandle = strings.TrimPrefix(req.RecipientEmail, "@")
 		}
 
+		// Security: Sender identity is bound strictly to the authenticated client connection.
+		// NEVER trust client-supplied senderEmail, senderHandle, or senderId.
 		senderEmail := c.email
-		if senderEmail == "" {
-			senderEmail = req.SenderEmail
-		}
-
 		senderHandle := c.handle
-		if req.SenderHandle != "" {
-			senderHandle = req.SenderHandle
-			if c.handle != senderHandle {
-				h.mu.Lock()
-				c.handle = senderHandle
-				handleConns, exists := h.handles[senderHandle]
-				if !exists {
-					handleConns = make(map[*Client]bool)
-					h.handles[senderHandle] = handleConns
-				}
-				handleConns[c] = true
-				h.mu.Unlock()
-			}
-		}
-
-		senderName := req.SenderName
+		senderName := c.name
 		if senderName == "" {
-			senderName = senderHandle
-			if senderName == "" {
+			if senderHandle != "" {
+				senderName = "@" + senderHandle
+			} else {
 				senderName = senderEmail
 			}
 		}
 
-		if (req.RecipientEmail == "" && req.RecipientHandle == "") || (req.Text == "" && !req.IsProof && len(req.Images) == 0) {
-			log.Printf("[WebSocket] Invalid chat message: recipientEmail=%q, recipientHandle=%q, text=%q", req.RecipientEmail, req.RecipientHandle, req.Text)
+		// Resolve recipient to immutable UserID if resolver is available
+		h.mu.RLock()
+		resolver := h.userResolver
+		h.mu.RUnlock()
+
+		recipientID := req.RecipientID
+		resolvedEmail := req.RecipientEmail
+		resolvedHandle := req.RecipientHandle
+
+		if resolver != nil {
+			if req.RecipientID != "" {
+				if rID, rEmail, rHandle, err := resolver.ResolveUser(context.Background(), req.RecipientID); err == nil && rID != "" {
+					recipientID = rID
+					resolvedEmail = rEmail
+					resolvedHandle = rHandle
+				}
+			}
+			if recipientID == "" && req.RecipientHandle != "" {
+				if rID, rEmail, rHandle, err := resolver.ResolveUser(context.Background(), req.RecipientHandle); err == nil && rID != "" {
+					recipientID = rID
+					resolvedEmail = rEmail
+					resolvedHandle = rHandle
+				}
+			}
+			if recipientID == "" && req.RecipientEmail != "" {
+				if rID, rEmail, rHandle, err := resolver.ResolveUser(context.Background(), req.RecipientEmail); err == nil && rID != "" {
+					recipientID = rID
+					resolvedEmail = rEmail
+					resolvedHandle = rHandle
+				}
+			}
+		}
+
+		// Fallback: check connected clients by handle or email if still unresolved
+		if recipientID == "" {
+			h.mu.RLock()
+			if req.RecipientHandle != "" {
+				cleanH := strings.TrimPrefix(strings.ToLower(req.RecipientHandle), "@")
+				for cl := range h.handles[cleanH] {
+					if cl.userID != "" {
+						recipientID = cl.userID
+						resolvedEmail = cl.email
+						resolvedHandle = cl.handle
+						break
+					}
+				}
+			}
+			if recipientID == "" && req.RecipientEmail != "" {
+				for cl := range h.emails[strings.ToLower(req.RecipientEmail)] {
+					if cl.userID != "" {
+						recipientID = cl.userID
+						resolvedEmail = cl.email
+						resolvedHandle = cl.handle
+						break
+					}
+				}
+			}
+			h.mu.RUnlock()
+		}
+
+		// Fail closed: if recipient cannot be resolved, reject cleanly
+		if recipientID == "" {
+			log.Printf("[WebSocket] chat.message: unresolvable recipient (email=%q, handle=%q, id=%q) from sender %s",
+				req.RecipientEmail, req.RecipientHandle, req.RecipientID, c.userID)
 			return
 		}
 
-		log.Printf("[WebSocket] Chat from (%s/@%s/%s) to (%s/@%s): %q (proof=%v)", senderEmail, senderHandle, senderName, req.RecipientEmail, req.RecipientHandle, req.Text, req.IsProof)
+		// If this is a proof submission, ensure ownerId is bound to the authenticated user ID
+		ownerID := req.OwnerID
+		if req.IsProof {
+			ownerID = c.userID
+		}
+
+		if (resolvedEmail == "" && resolvedHandle == "" && recipientID == "") || (req.Text == "" && !req.IsProof && len(req.Images) == 0) {
+			log.Printf("[WebSocket] Invalid chat message: recipientID=%q, recipientEmail=%q, recipientHandle=%q, text=%q", recipientID, resolvedEmail, resolvedHandle, req.Text)
+			return
+		}
+
+		log.Printf("[WebSocket] Chat from (%s/@%s/%s) to (%s/@%s/%s): %q (proof=%v)", senderEmail, senderHandle, senderName, resolvedEmail, resolvedHandle, recipientID, req.Text, req.IsProof)
 
 		now := time.Now().UTC().Format(time.RFC3339)
 		msgID := strings.TrimSpace(req.ID)
@@ -616,13 +708,14 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 				"senderHandle":    senderHandle,
 				"senderName":      senderName,
 				"senderId":        c.userID,
-				"recipientEmail":  req.RecipientEmail,
-				"recipientHandle": req.RecipientHandle,
+				"recipientEmail":  resolvedEmail,
+				"recipientHandle": resolvedHandle,
+				"recipientId":     recipientID,
 				"text":            req.Text,
 				"isProof":         req.IsProof,
 				"goalId":          req.GoalID,
 				"goalTitle":       req.GoalTitle,
-				"ownerId":         req.OwnerID,
+				"ownerId":         ownerID,
 				"images":          req.Images,
 				"files":           req.Files,
 				"externalLink":    req.ExternalLink,
@@ -632,18 +725,25 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		}
 
 		// Forward directly to recipient's active live connection across all tabs/devices
+		// Bound to immutable recipientID when available to prevent delivery to recycled handles.
 		delivered := false
 		targetClients := make(map[*Client]bool)
 
 		h.mu.RLock()
-		if req.RecipientHandle != "" {
-			for client := range h.handles[req.RecipientHandle] {
+		if recipientID != "" {
+			for client := range h.users[recipientID] {
 				targetClients[client] = true
 			}
-		}
-		if req.RecipientEmail != "" {
-			for client := range h.emails[req.RecipientEmail] {
-				targetClients[client] = true
+		} else {
+			if resolvedHandle != "" {
+				for client := range h.handles[resolvedHandle] {
+					targetClients[client] = true
+				}
+			}
+			if resolvedEmail != "" {
+				for client := range h.emails[resolvedEmail] {
+					targetClients[client] = true
+				}
 			}
 		}
 		h.mu.RUnlock()
@@ -661,7 +761,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		}
 
 		if delivered {
-			log.Printf("[WebSocket] Live delivered message to recipient (%s/@%s) on %d active connection(s)", req.RecipientEmail, req.RecipientHandle, len(targetClients))
+			log.Printf("[WebSocket] Live delivered message to recipient (%s/@%s/%s) on %d active connection(s)", resolvedEmail, resolvedHandle, recipientID, len(targetClients))
 		}
 
 		// Persist message in store if configured
@@ -675,13 +775,14 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 				SenderEmail:     senderEmail,
 				SenderHandle:    senderHandle,
 				SenderID:        c.userID,
-				RecipientEmail:  req.RecipientEmail,
-				RecipientHandle: req.RecipientHandle,
+				RecipientEmail:  resolvedEmail,
+				RecipientHandle: resolvedHandle,
+				RecipientID:     recipientID,
 				Text:            req.Text,
 				IsProof:         req.IsProof,
 				GoalID:          req.GoalID,
 				GoalTitle:       req.GoalTitle,
-				OwnerID:         req.OwnerID,
+				OwnerID:         ownerID,
 				Images:          req.Images,
 				Files:           req.Files,
 				ExternalLink:    req.ExternalLink,
@@ -695,9 +796,12 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		}
 
 		if !delivered {
-			target := req.RecipientHandle
+			target := resolvedHandle
 			if target == "" {
-				target = req.RecipientEmail
+				target = resolvedEmail
+			}
+			if target == "" {
+				target = recipientID
 			}
 			log.Printf("[WebSocket] Recipient %s is offline. Message saved in DynamoDB for delivery on login.", target)
 		}
@@ -707,53 +811,119 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			ID              string `json:"id"`
 			RecipientEmail  string `json:"recipientEmail"`
 			RecipientHandle string `json:"recipientHandle"`
+			RecipientID     string `json:"recipientId"`
 		}
 		if err := json.Unmarshal(base.Payload, &req); err == nil && req.ID != "" {
 			req.RecipientEmail = strings.TrimSpace(strings.ToLower(req.RecipientEmail))
 			req.RecipientHandle = strings.TrimPrefix(strings.TrimSpace(strings.ToLower(req.RecipientHandle)), "@")
+			req.RecipientID = strings.TrimSpace(req.RecipientID)
 			if req.RecipientHandle == "" && strings.HasPrefix(req.RecipientEmail, "@") {
 				req.RecipientHandle = strings.TrimPrefix(req.RecipientEmail, "@")
 			}
+
+			// Security: Require sender authorization for message deletion against persistent store
+			h.mu.RLock()
+			store := h.msgStore
+			resolver := h.userResolver
+			h.mu.RUnlock()
+
+			if store != nil {
+				if err := store.DeleteMessage(context.Background(), c.email, c.handle, c.userID, req.ID); err != nil {
+					log.Printf("[WebSocket] User %s unauthorized to delete chat message %s: %v", c.userID, req.ID, err)
+					c.SendEvent(Event{
+						Type: "chat.error",
+						Payload: map[string]interface{}{
+							"error": "unauthorized: cannot delete this message",
+							"id":    req.ID,
+						},
+					})
+					return
+				}
+			}
+
+			// Resolve recipient ID if not directly provided
+			if req.RecipientID == "" && resolver != nil {
+				target := req.RecipientHandle
+				if target == "" {
+					target = req.RecipientEmail
+				}
+				if target != "" {
+					if rID, _, _, err := resolver.ResolveUser(context.Background(), target); err == nil {
+						req.RecipientID = rID
+					}
+				}
+			}
+
 			delEvent := Event{
 				Type: "chat.delete",
 				Payload: map[string]interface{}{
 					"id": req.ID,
 				},
 			}
-			if req.RecipientHandle != "" {
-				_ = h.SendToHandle(req.RecipientHandle, delEvent)
-			}
-			if req.RecipientEmail != "" {
-				_ = h.SendToEmail(req.RecipientEmail, delEvent)
+			if req.RecipientID != "" {
+				_ = h.SendToUser(req.RecipientID, delEvent)
 			}
 
-			// Also delete from persistent store if configured
-			h.mu.RLock()
-			store := h.msgStore
-			h.mu.RUnlock()
-			if store != nil {
-				go func(msgID string, s MessageStore) {
-					_ = s.DeleteMessage(context.Background(), msgID)
-				}(req.ID, store)
-			}
-			log.Printf("[WebSocket] Chat message deleted: id=%s (notified recipient @%s / %s)", req.ID, req.RecipientHandle, req.RecipientEmail)
+			log.Printf("[WebSocket] Chat message deleted: id=%s by sender %s (notified recipient %s)", req.ID, c.userID, req.RecipientID)
 		}
 
 	case "chat.message.approved":
 		var req struct {
-			MessageID    string `json:"messageId"`
-			GoalID       string `json:"goalId"`
-			GoalTitle    string `json:"goalTitle"`
-			ApproverName string `json:"approverName"`
+			MessageID string `json:"messageId"`
+			GoalID    string `json:"goalId"`
+			GoalTitle string `json:"goalTitle"`
 		}
-		if err := json.Unmarshal(base.Payload, &req); err == nil {
+		if err := json.Unmarshal(base.Payload, &req); err == nil && req.GoalID != "" {
+			h.mu.RLock()
+			verifier := h.goalVerifier
+			h.mu.RUnlock()
+
+			if verifier == nil {
+				c.SendEvent(Event{
+					Type: "approval.error",
+					Payload: map[string]interface{}{
+						"error":  "unauthorized: approval broadcast requires server verification",
+						"goalId": req.GoalID,
+					},
+				})
+				log.Printf("[WebSocket] Client %s attempted approval broadcast without goal verifier configured", c.userID)
+				return
+			}
+
+			ownerID, goalTitle, ok, err := verifier.VerifyApprovedGoal(context.Background(), c.userID, c.email, c.handle, req.GoalID)
+			if err != nil || !ok {
+				c.SendEvent(Event{
+					Type: "approval.error",
+					Payload: map[string]interface{}{
+						"error":  "forbidden: you are not authorized to broadcast approval for this goal",
+						"goalId": req.GoalID,
+					},
+				})
+				log.Printf("[WebSocket] User %s blocked from broadcasting unverified approval for goal %s (ok=%v, err=%v)", c.userID, req.GoalID, ok, err)
+				return
+			}
+
+			approverName := c.name
+			if approverName == "" {
+				if c.handle != "" {
+					approverName = "@" + c.handle
+				} else {
+					approverName = c.email
+				}
+			}
+			if goalTitle == "" {
+				goalTitle = req.GoalTitle
+			}
+
 			approveEvent := Event{
 				Type: "chat.message.approved",
 				Payload: map[string]interface{}{
 					"messageId":    req.MessageID,
 					"goalId":       req.GoalID,
-					"goalTitle":    req.GoalTitle,
-					"approverName": req.ApproverName,
+					"goalTitle":    goalTitle,
+					"ownerId":      ownerID,
+					"approverName": approverName,
+					"approverId":   c.userID,
 				},
 			}
 			h.Broadcast(approveEvent)
@@ -778,7 +948,22 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			if cleanID != "" {
 				h.mu.Lock()
 				rec, exists := h.commRecords[cleanID]
-				if !exists {
+				if exists {
+					// Security: Only the original creator can update community metadata or invited members
+					if rec.CreatorID != "" && rec.CreatorID != c.userID {
+						h.mu.Unlock()
+						c.SendEvent(Event{
+							Type: "community.error",
+							Payload: map[string]interface{}{
+								"error":       "unauthorized: only the creator can update community settings",
+								"communityId": cleanID,
+							},
+						})
+						log.Printf("[WebSocket] User %s blocked from overwriting community %s created by %s", c.userID, cleanID, rec.CreatorID)
+						return
+					}
+					rec.Data = req.Community
+				} else {
 					rec = &CommunityRecord{
 						ID:        cleanID,
 						Name:      commName,
@@ -788,8 +973,6 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 						Members:   make(map[string]bool),
 					}
 					h.commRecords[cleanID] = rec
-				} else {
-					rec.Data = req.Community
 				}
 
 				if cleanCode != "" {
@@ -889,7 +1072,58 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			CommunityID string `json:"communityId"`
 		}
 		if err := json.Unmarshal(base.Payload, &req); err == nil && req.CommunityID != "" {
-			h.JoinCommunity(req.CommunityID, c)
+			cleanID := strings.TrimSpace(req.CommunityID)
+			h.mu.RLock()
+			rec, recExists := h.commRecords[cleanID]
+			h.mu.RUnlock()
+
+			if !recExists {
+				c.SendEvent(Event{
+					Type: "community.error",
+					Payload: map[string]interface{}{
+						"error":       "community not found or unauthorized",
+						"communityId": cleanID,
+					},
+				})
+				log.Printf("[WebSocket] User %s blocked from joining nonexistent/unregistered community %s", c.userID, cleanID)
+				return
+			}
+
+			cleanH := strings.TrimPrefix(strings.ToLower(c.handle), "@")
+			cleanE := strings.ToLower(c.email)
+
+			// Allow any authenticated user to join public/trending communities
+			if isPublicTrendingCommunity(cleanID) || rec.CreatorID == "" {
+				h.mu.Lock()
+				if cleanH != "" {
+					rec.Members[cleanH] = true
+					rec.Members["@"+cleanH] = true
+				}
+				if cleanE != "" {
+					rec.Members[cleanE] = true
+				}
+				h.mu.Unlock()
+			}
+
+			isMember := c.userID == rec.CreatorID ||
+				rec.CreatorID == "" ||
+				isPublicTrendingCommunity(cleanID) ||
+				(cleanH != "" && (rec.Members[cleanH] || rec.Members["@"+cleanH])) ||
+				(cleanE != "" && rec.Members[cleanE])
+
+			if !isMember {
+				c.SendEvent(Event{
+					Type: "community.error",
+					Payload: map[string]interface{}{
+						"error":       "unauthorized: not a member of this community",
+						"communityId": cleanID,
+					},
+				})
+				log.Printf("[WebSocket] User %s blocked from joining unauthorized community %s", c.userID, cleanID)
+				return
+			}
+
+			h.JoinCommunity(cleanID, c)
 		}
 
 	case "community.leave_room":
@@ -902,17 +1136,17 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 
 	case "community.message":
 		var req struct {
-			ID            string   `json:"id"`
-			CommunityID   string   `json:"communityId"`
-			CommunityName string   `json:"communityName"`
-			CommunityCode string   `json:"communityCode"`
-			SenderName    string   `json:"senderName"`
-			SenderEmail   string   `json:"senderEmail"`
-			SenderHandle  string   `json:"senderHandle"`
-			Text          string   `json:"text"`
-			IsProof       bool     `json:"isProof"`
-			GoalID        string   `json:"goalId"`
-			GoalTitle     string   `json:"goalTitle"`
+			ID            string      `json:"id"`
+			CommunityID   string      `json:"communityId"`
+			CommunityName string      `json:"communityName"`
+			CommunityCode string      `json:"communityCode"`
+			SenderName    string      `json:"senderName"`
+			SenderEmail   string      `json:"senderEmail"`
+			SenderHandle  string      `json:"senderHandle"`
+			Text          string      `json:"text"`
+			IsProof       bool        `json:"isProof"`
+			GoalID        string      `json:"goalId"`
+			GoalTitle     string      `json:"goalTitle"`
 			Images        []string    `json:"images"`
 			Files         interface{} `json:"files"`
 			ExternalLink  string      `json:"externalLink"`
@@ -925,30 +1159,104 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		}
 
 		cleanCommID := strings.TrimSpace(req.CommunityID)
+
+		// Verify sender is authorized for this community before broadcasting
+		h.mu.RLock()
+		rec, recExists := h.commRecords[cleanCommID]
+		h.mu.RUnlock()
+
+		if !recExists {
+			c.SendEvent(Event{
+				Type: "community.error",
+				Payload: map[string]interface{}{
+					"error":       "community not found or unauthorized",
+					"communityId": cleanCommID,
+				},
+			})
+			log.Printf("[WebSocket] User %s blocked from broadcasting to nonexistent/unregistered community %s", c.userID, cleanCommID)
+			return
+		}
+
+		cleanH := strings.TrimPrefix(strings.ToLower(c.handle), "@")
+		cleanE := strings.ToLower(c.email)
+		isMember := c.userID == rec.CreatorID ||
+			(cleanH != "" && (rec.Members[cleanH] || rec.Members["@"+cleanH])) ||
+			(cleanE != "" && rec.Members[cleanE])
+
+		if !isMember {
+			c.SendEvent(Event{
+				Type: "community.error",
+				Payload: map[string]interface{}{
+					"error":       "unauthorized: cannot broadcast to a community you are not a member of",
+					"communityId": cleanCommID,
+				},
+			})
+			log.Printf("[WebSocket] User %s blocked from broadcasting to unauthorized community %s", c.userID, cleanCommID)
+			return
+		}
+		// Security: Derive sender identity strictly from the authenticated connection
 		senderEmail := c.email
-		if senderEmail == "" {
-			senderEmail = req.SenderEmail
-		}
 		senderHandle := c.handle
-		if senderHandle == "" {
-			senderHandle = req.SenderHandle
-		}
-		senderName := req.SenderName
+		senderName := c.name
 		if senderName == "" {
-			senderName = senderHandle
-			if senderName == "" {
+			if senderHandle != "" {
+				senderName = "@" + senderHandle
+			} else {
 				senderName = senderEmail
 			}
+		}
+
+		cleanText := strings.TrimSpace(req.Text)
+		if cleanText == "" && !req.IsProof && len(req.Images) == 0 {
+			c.SendEvent(Event{
+				Type: "community.error",
+				Payload: map[string]interface{}{
+					"error":       "empty message content",
+					"communityId": cleanCommID,
+				},
+			})
+			return
 		}
 
 		now := time.Now().UTC().Format(time.RFC3339)
 		if req.Time != "" {
 			now = req.Time
 		}
-		msgID := strings.TrimSpace(req.ID)
-		if msgID == "" {
-			msgID = fmt.Sprintf("comm-msg-%d", time.Now().UnixNano())
+
+		rawID := strings.TrimSpace(req.ID)
+		var msgID string
+
+		h.mu.Lock()
+		if rawID == "" {
+			// Generate server-side unique ID
+			for {
+				candidate := generateCommunityMessageID()
+				if _, exists := h.commMsgAuthors[cleanCommID+"#"+candidate]; !exists {
+					msgID = candidate
+					break
+				}
+			}
+		} else {
+			// Client provided an ID: check for collision and reject duplicate IDs
+			key := cleanCommID + "#" + rawID
+			if _, exists := h.commMsgAuthors[key]; exists {
+				h.mu.Unlock()
+				c.SendEvent(Event{
+					Type: "community.error",
+					Payload: map[string]interface{}{
+						"error":       "duplicate or colliding message ID",
+						"communityId": cleanCommID,
+						"messageId":   rawID,
+					},
+				})
+				log.Printf("[WebSocket] Rejected colliding community.message with ID %q from user %s in community %s", rawID, c.userID, cleanCommID)
+				return
+			}
+			msgID = rawID
 		}
+
+		h.commMsgAuthors[cleanCommID+"#"+msgID] = c.userID
+		h.mu.Unlock()
 
 		outEvent := Event{
 			Type: "community.message",
@@ -981,7 +1289,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		cleanCEmail := strings.ToLower(senderEmail)
 
 		h.mu.RLock()
-		rec := h.commRecords[cleanCommID]
+		rec = h.commRecords[cleanCommID]
 		var memberTargets []string
 		if rec != nil {
 			for target := range rec.Members {
@@ -1007,10 +1315,87 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			MessageID   string `json:"messageId"`
 		}
 		if err := json.Unmarshal(base.Payload, &req); err == nil && req.CommunityID != "" && req.MessageID != "" {
-			_ = h.SendToCommunity(strings.TrimSpace(req.CommunityID), Event{
+			cleanCommID := strings.TrimSpace(req.CommunityID)
+
+			// Authorization: Verify caller is a member of the community
+			h.mu.RLock()
+			rec, recExists := h.commRecords[cleanCommID]
+			h.mu.RUnlock()
+
+			if !recExists {
+				c.SendEvent(Event{
+					Type: "community.error",
+					Payload: map[string]interface{}{
+						"error":       "community not found or unauthorized",
+						"communityId": cleanCommID,
+					},
+				})
+				log.Printf("[WebSocket] User %s blocked from deleting message in nonexistent/unregistered community %s", c.userID, cleanCommID)
+				return
+			}
+
+			cleanH := strings.TrimPrefix(strings.ToLower(c.handle), "@")
+			cleanE := strings.ToLower(c.email)
+
+			// Allow any authenticated user to join public/trending communities
+			if isPublicTrendingCommunity(cleanCommID) || rec.CreatorID == "" {
+				h.mu.Lock()
+				if cleanH != "" {
+					rec.Members[cleanH] = true
+					rec.Members["@"+cleanH] = true
+				}
+				if cleanE != "" {
+					rec.Members[cleanE] = true
+				}
+				h.mu.Unlock()
+			}
+
+			isMember := c.userID == rec.CreatorID ||
+				rec.CreatorID == "" ||
+				isPublicTrendingCommunity(cleanCommID) ||
+				(cleanH != "" && (rec.Members[cleanH] || rec.Members["@"+cleanH])) ||
+				(cleanE != "" && rec.Members[cleanE])
+
+			if !isMember {
+				c.SendEvent(Event{
+					Type: "community.error",
+					Payload: map[string]interface{}{
+						"error":       "unauthorized: not a member of this community",
+						"communityId": cleanCommID,
+					},
+				})
+				log.Printf("[WebSocket] User %s blocked from deleting message in unauthorized community %s", c.userID, cleanCommID)
+				return
+			}
+
+			// Authorization: Only community creator or original message author may delete community messages
+			h.mu.RLock()
+			authorID := h.commMsgAuthors[cleanCommID+"#"+req.MessageID]
+			h.mu.RUnlock()
+
+			isCreator := c.userID == rec.CreatorID
+			isAuthor := authorID != "" && c.userID == authorID
+
+			if !isCreator && !isAuthor {
+				c.SendEvent(Event{
+					Type: "community.error",
+					Payload: map[string]interface{}{
+						"error":       "unauthorized: only the community creator or original message author may delete this message",
+						"communityId": cleanCommID,
+					},
+				})
+				log.Printf("[WebSocket] User %s blocked from deleting message %s in community %s (not creator or author)", c.userID, req.MessageID, cleanCommID)
+				return
+			}
+
+			h.mu.Lock()
+			delete(h.commMsgAuthors, cleanCommID+"#"+req.MessageID)
+			h.mu.Unlock()
+
+			_ = h.SendToCommunity(cleanCommID, Event{
 				Type: "community.delete_message",
 				Payload: map[string]interface{}{
-					"communityId": req.CommunityID,
+					"communityId": cleanCommID,
 					"messageId":   req.MessageID,
 				},
 			})
@@ -1085,4 +1470,3 @@ func (h *Hub) ActiveConnections(userID string) int {
 	}
 	return 0
 }
-

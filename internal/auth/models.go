@@ -1,10 +1,10 @@
 package auth
 
 type User struct {
-	PK        string `dynamodbav:"PK" json:"-"`
-	SK        string `dynamodbav:"SK" json:"-"`
-	GSI1PK    string `dynamodbav:"GSI1PK" json:"-"`
-	GSI1SK    string `dynamodbav:"GSI1SK" json:"-"`
+	PK     string `dynamodbav:"PK" json:"-"`
+	SK     string `dynamodbav:"SK" json:"-"`
+	GSI1PK string `dynamodbav:"GSI1PK" json:"-"`
+	GSI1SK string `dynamodbav:"GSI1SK" json:"-"`
 
 	ID        string `dynamodbav:"ID" json:"id"`
 	Email     string `dynamodbav:"Email" json:"email"`
@@ -19,4 +19,14 @@ type PublicProfile struct {
 	Name    string `json:"name"`
 	Handle  string `json:"handle"`
 	Picture string `json:"picture"`
+}
+
+// HandleReservation ensures atomic exclusivity for public @handles in DynamoDB.
+// Partition key is HANDLE#<clean_handle>, Sort key is RESERVATION.
+type HandleReservation struct {
+	PK        string `dynamodbav:"PK"`
+	SK        string `dynamodbav:"SK"`
+	UserID    string `dynamodbav:"UserID"`
+	Handle    string `dynamodbav:"Handle"`
+	CreatedAt string `dynamodbav:"CreatedAt"`
 }

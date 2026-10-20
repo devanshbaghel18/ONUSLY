@@ -38,6 +38,7 @@ func (s *Service) CreateFromProofSubmitted(ctx context.Context, event events.Pro
 		Message:     fmt.Sprintf("New proof submitted for %q. Review evidence.", event.Title),
 		GoalID:      event.GoalID,
 		ProofID:     event.ProofID,
+		OwnerID:     event.OwnerID,
 		Read:        false,
 		CreatedAt:   submittedAt.Format(time.RFC3339),
 	}
@@ -79,6 +80,7 @@ func (s *Service) CreateFromApprovalDecided(ctx context.Context, event events.Ap
 		Message:     message,
 		GoalID:      event.GoalID,
 		ProofID:     event.ProofID,
+		OwnerID:     event.OwnerID,
 		Read:        false,
 		CreatedAt:   decidedAt.Format(time.RFC3339),
 	}

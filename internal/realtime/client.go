@@ -31,22 +31,40 @@ type Client struct {
 	userID           string
 	email            string
 	handle           string
+	name             string
 	deliveredOffline bool
 	mu               sync.Mutex
 	send             chan []byte
 }
 
-// NewClient initializes a new Client with authenticated userID, email, and handle.
-func NewClient(hub *Hub, conn *websocket.Conn, userID string, email string, handle string) *Client {
+// NewClient initializes a new Client with authenticated userID, email, handle, and optional name.
+func NewClient(hub *Hub, conn *websocket.Conn, userID string, email string, handle string, name ...string) *Client {
+	var n string
+	if len(name) > 0 {
+		n = strings.TrimSpace(name[0])
+	}
 	return &Client{
 		hub:    hub,
 		conn:   conn,
-		userID: userID,
+		userID: strings.TrimSpace(userID),
 		email:  strings.TrimSpace(strings.ToLower(email)),
 		handle: strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@")),
+		name:   n,
 		send:   make(chan []byte, 256),
 	}
 }
+
+// UserID returns the immutable authenticated user subject.
+func (c *Client) UserID() string { return c.userID }
+
+// Email returns the immutable authenticated user email.
+func (c *Client) Email() string { return c.email }
+
+// Handle returns the immutable authenticated user handle.
+func (c *Client) Handle() string { return c.handle }
+
+// Name returns the immutable authenticated user display name.
+func (c *Client) Name() string { return c.name }
 
 // SendEvent serializes and sends an Event directly to this client.
 func (c *Client) SendEvent(event Event) {

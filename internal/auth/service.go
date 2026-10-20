@@ -9,9 +9,9 @@ import (
 	"unicode"
 
 	"github.com/golang-jwt/jwt/v5"
-	"google.golang.org/api/idtoken"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/idtoken"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
 )
@@ -156,7 +156,7 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 			handle, hErr := s.generateUniqueHandle(ctx, user.Name, user.Email)
 			if hErr == nil {
 				user.Handle = handle
-				_ = s.repo.UpdateUserHandle(ctx, user.ID, handle)
+				_ = s.repo.UpdateUserHandle(ctx, user.ID, "", handle)
 			}
 		}
 	} else {
@@ -209,6 +209,23 @@ func (s *Service) UpdateUserHandle(ctx context.Context, userID, newHandle string
 		}
 	}
 
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	oldHandle := ""
+	if user != nil {
+		oldHandle = strings.TrimPrefix(strings.TrimSpace(strings.ToLower(user.Handle)), "@")
+		if oldHandle == clean {
+			return &PublicProfile{
+				ID:      user.ID,
+				Name:    user.Name,
+				Handle:  clean,
+				Picture: user.Picture,
+			}, nil
+		}
+	}
+
 	existing, err := s.repo.GetUserByHandle(ctx, clean)
 	if err != nil {
 		return nil, err
@@ -217,12 +234,11 @@ func (s *Service) UpdateUserHandle(ctx context.Context, userID, newHandle string
 		return nil, errors.New("this handle is already taken, please choose another")
 	}
 
-	if err := s.repo.UpdateUserHandle(ctx, userID, clean); err != nil {
+	if err := s.repo.UpdateUserHandle(ctx, userID, oldHandle, clean); err != nil {
 		return nil, err
 	}
 
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil || user == nil {
+	if user == nil {
 		return &PublicProfile{
 			ID:     userID,
 			Handle: clean,
@@ -263,4 +279,4 @@ func (s *Service) LookupUserByHandle(ctx context.Context, handle string) (*Publi
 // GetUserByID returns the full user object for the authenticated owner.
 func (s *Service) GetUserByID(ctx context.Context, userID string) (*User, error) {
 	return s.repo.GetUserByID(ctx, userID)
-}
+}

@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
@@ -23,6 +25,35 @@ func NewRepository() Repository {
 	return &DynamoRepository{
 		client: shared.NewDynamoClient(),
 	}
+}
+
+func isConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var tce *types.TransactionCanceledException
+	if errors.As(err, &tce) {
+		for _, reason := range tce.CancellationReasons {
+			if reason.Code != nil {
+				code := *reason.Code
+				if code == "ConditionalCheckFailed" || code == "TransactionConflict" {
+					return true
+				}
+			}
+		}
+	}
+	var tcfe *types.TransactionConflictException
+	if errors.As(err, &tcfe) {
+		return true
+	}
+	var ccfe *types.ConditionalCheckFailedException
+	if errors.As(err, &ccfe) {
+		return true
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "ConditionalCheckFailed") ||
+		strings.Contains(errStr, "TransactionConflict") ||
+		strings.Contains(errStr, "TransactionCanceledException")
 }
 
 func (r *DynamoRepository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
@@ -81,42 +112,30 @@ func (r *DynamoRepository) GetUserByHandle(ctx context.Context, handle string) (
 		return nil, nil
 	}
 
-	withAt := "@" + cleaned
-
-	var startKey map[string]types.AttributeValue
-	for {
-		out, err := r.client.Scan(ctx, &dynamodb.ScanInput{
-			TableName:        aws.String(tableName),
-			FilterExpression: aws.String("SK = :sk AND (#handle = :h1 OR #handle = :h2)"),
-			ExpressionAttributeNames: map[string]string{
-				"#handle": "Handle",
-			},
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":sk": &types.AttributeValueMemberS{Value: "PROFILE"},
-				":h1": &types.AttributeValueMemberS{Value: cleaned},
-				":h2": &types.AttributeValueMemberS{Value: withAt},
-			},
-			ExclusiveStartKey: startKey,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		if len(out.Items) > 0 {
-			var user User
-			if err := attributevalue.UnmarshalMap(out.Items[0], &user); err != nil {
-				return nil, err
-			}
-			return &user, nil
-		}
-
-		if len(out.LastEvaluatedKey) == 0 {
-			break
-		}
-		startKey = out.LastEvaluatedKey
+	// 1. Direct O(1) lookup on HANDLE#<clean> reservation item
+	resOut, err := r.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: "HANDLE#" + cleaned},
+			"SK": &types.AttributeValueMemberS{Value: "RESERVATION"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(resOut.Item) == 0 {
+		return nil, nil
 	}
 
-	return nil, nil
+	var reservation HandleReservation
+	if err := attributevalue.UnmarshalMap(resOut.Item, &reservation); err != nil {
+		return nil, err
+	}
+	if reservation.UserID == "" {
+		return nil, nil
+	}
+
+	return r.GetUserByID(ctx, reservation.UserID)
 }
 
 func (r *DynamoRepository) CreateUser(ctx context.Context, user *User) error {
@@ -130,6 +149,43 @@ func (r *DynamoRepository) CreateUser(ctx context.Context, user *User) error {
 		return err
 	}
 
+	cleanHandle := strings.TrimPrefix(strings.TrimSpace(strings.ToLower(user.Handle)), "@")
+	if cleanHandle != "" {
+		handleItem := map[string]types.AttributeValue{
+			"PK":        &types.AttributeValueMemberS{Value: "HANDLE#" + cleanHandle},
+			"SK":        &types.AttributeValueMemberS{Value: "RESERVATION"},
+			"UserID":    &types.AttributeValueMemberS{Value: user.ID},
+			"Handle":    &types.AttributeValueMemberS{Value: cleanHandle},
+			"CreatedAt": &types.AttributeValueMemberS{Value: time.Now().UTC().Format(time.RFC3339)},
+		}
+
+		_, err = r.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+			TransactItems: []types.TransactWriteItem{
+				{
+					Put: &types.Put{
+						TableName:           aws.String(tableName),
+						Item:                item,
+						ConditionExpression: aws.String("attribute_not_exists(PK)"),
+					},
+				},
+				{
+					Put: &types.Put{
+						TableName:           aws.String(tableName),
+						Item:                handleItem,
+						ConditionExpression: aws.String("attribute_not_exists(PK)"),
+					},
+				},
+			},
+		})
+		if err != nil {
+			if isConflictError(err) {
+				return errors.New("this handle is already taken, please choose another")
+			}
+			return fmt.Errorf("failed creating user: %w", err)
+		}
+		return nil
+	}
+
 	_, err = r.client.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
 		Item:      item,
@@ -141,25 +197,80 @@ func (r *DynamoRepository) CreateUser(ctx context.Context, user *User) error {
 	return nil
 }
 
-func (r *DynamoRepository) UpdateUserHandle(ctx context.Context, userID, handle string) error {
-	clean := strings.TrimPrefix(strings.TrimSpace(strings.ToLower(handle)), "@")
-	if clean == "" {
+func (r *DynamoRepository) UpdateUserHandle(ctx context.Context, userID, oldHandle, newHandle string) error {
+	cleanNew := strings.TrimPrefix(strings.TrimSpace(strings.ToLower(newHandle)), "@")
+	if cleanNew == "" {
 		return fmt.Errorf("handle cannot be empty")
 	}
 
-	_, err := r.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: aws.String(tableName),
-		Key: map[string]types.AttributeValue{
-			"PK": &types.AttributeValueMemberS{Value: "USER#" + userID},
-			"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
+	cleanOld := strings.TrimPrefix(strings.TrimSpace(strings.ToLower(oldHandle)), "@")
+	if cleanOld == cleanNew {
+		// Idempotent: caller already holds this handle
+		return nil
+	}
+
+	handleItem := map[string]types.AttributeValue{
+		"PK":        &types.AttributeValueMemberS{Value: "HANDLE#" + cleanNew},
+		"SK":        &types.AttributeValueMemberS{Value: "RESERVATION"},
+		"UserID":    &types.AttributeValueMemberS{Value: userID},
+		"Handle":    &types.AttributeValueMemberS{Value: cleanNew},
+		"CreatedAt": &types.AttributeValueMemberS{Value: time.Now().UTC().Format(time.RFC3339)},
+	}
+
+	transactItems := []types.TransactWriteItem{
+		{
+			Put: &types.Put{
+				TableName:           aws.String(tableName),
+				Item:                handleItem,
+				ConditionExpression: aws.String("attribute_not_exists(PK) OR UserID = :uid"),
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":uid": &types.AttributeValueMemberS{Value: userID},
+				},
+			},
 		},
-		UpdateExpression: aws.String("SET #handle = :handle"),
-		ExpressionAttributeNames: map[string]string{
-			"#handle": "Handle",
+		{
+			Update: &types.Update{
+				TableName: aws.String(tableName),
+				Key: map[string]types.AttributeValue{
+					"PK": &types.AttributeValueMemberS{Value: "USER#" + userID},
+					"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
+				},
+				UpdateExpression: aws.String("SET #handle = :handle"),
+				ExpressionAttributeNames: map[string]string{
+					"#handle": "Handle",
+				},
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":handle": &types.AttributeValueMemberS{Value: cleanNew},
+				},
+			},
 		},
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":handle": &types.AttributeValueMemberS{Value: clean},
-		},
+	}
+
+	if cleanOld != "" && cleanOld != cleanNew {
+		transactItems = append(transactItems, types.TransactWriteItem{
+			Delete: &types.Delete{
+				TableName: aws.String(tableName),
+				Key: map[string]types.AttributeValue{
+					"PK": &types.AttributeValueMemberS{Value: "HANDLE#" + cleanOld},
+					"SK": &types.AttributeValueMemberS{Value: "RESERVATION"},
+				},
+				ConditionExpression: aws.String("attribute_not_exists(PK) OR UserID = :uid"),
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":uid": &types.AttributeValueMemberS{Value: userID},
+				},
+			},
+		})
+	}
+
+	_, err := r.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		TransactItems: transactItems,
 	})
-	return err
+	if err != nil {
+		if isConflictError(err) {
+			return errors.New("this handle is already taken, please choose another")
+		}
+		return fmt.Errorf("failed updating handle: %w", err)
+	}
+
+	return nil
 }

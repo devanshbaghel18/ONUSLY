@@ -23,6 +23,7 @@ type Notification struct {
 	Message     string `dynamodbav:"message" json:"message"`
 	GoalID      string `dynamodbav:"goalId" json:"goalId"`
 	ProofID     string `dynamodbav:"proofId" json:"proofId"`
+	OwnerID     string `dynamodbav:"ownerId,omitempty" json:"ownerId,omitempty"`
 	Read        bool   `dynamodbav:"read" json:"read"`
 	CreatedAt   string `dynamodbav:"createdAt" json:"createdAt"` // RFC3339 timestamp
 }

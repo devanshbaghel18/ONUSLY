@@ -65,7 +65,7 @@ func (r *Repository) List(ctx context.Context, recipientID string, limit int) ([
 	prefix := "NOTIF#"
 
 	out, err := r.db.Query(ctx, &dynamodb.QueryInput{
-		TableName: aws.String(r.tableName),
+		TableName:              aws.String(r.tableName),
 		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :prefix)"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk":     &types.AttributeValueMemberS{Value: pk},
