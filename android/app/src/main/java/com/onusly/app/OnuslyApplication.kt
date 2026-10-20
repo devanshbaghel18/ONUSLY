@@ -5,6 +5,8 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import com.onusly.app.data.ChatRepository
+import com.onusly.app.data.GoalsRepository
 import com.onusly.app.data.SyncRepository
 import com.onusly.app.data.auth.AuthManager
 import com.onusly.app.data.cache.SharedPreferencesBlocklistCache
@@ -23,6 +25,12 @@ class OnuslyApplication : Application() {
         private set
     lateinit var syncRepository: SyncRepository
         private set
+    lateinit var goalsRepository: GoalsRepository
+        private set
+    lateinit var chatRepository: ChatRepository
+        private set
+    lateinit var realtimeWebSocketManager: com.onusly.app.data.realtime.RealtimeWebSocketManager
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -31,12 +39,19 @@ class OnuslyApplication : Application() {
         authManager = AuthManager.create(this)
         blocklistCache = SharedPreferencesBlocklistCache.create(this)
         syncRepository = SyncRepository.create(this)
+        goalsRepository = GoalsRepository.create(this, syncRepository, authManager)
+        chatRepository = ChatRepository(authManager, syncRepository)
+        realtimeWebSocketManager = com.onusly.app.data.realtime.RealtimeWebSocketManager(
+            getBaseUrl = { syncRepository.getBaseUrl() },
+            getToken = { authManager.getJwtToken() }
+        )
 
         // Startup sync if signed in
         if (authManager.isSignedIn()) {
             applicationScope.launch(Dispatchers.IO) {
                 syncRepository.syncBlocklist()
             }
+            realtimeWebSocketManager.connect()
         }
 
         registerNetworkCallback()
@@ -55,6 +70,7 @@ class OnuslyApplication : Application() {
                         applicationScope.launch(Dispatchers.IO) {
                             syncRepository.syncBlocklist()
                         }
+                        realtimeWebSocketManager.connect()
                     }
                 }
             })

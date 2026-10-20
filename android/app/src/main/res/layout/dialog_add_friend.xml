@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#16161A"
+    android:padding="16dp">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Accountability Friends"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/btnCloseAddFriend"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:contentDescription="Close" />
+    </LinearLayout>
+
+    <!-- Tab Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="14dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTabSendRequest"
+            style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="Send Request"
+            android:textColor="#000000"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:backgroundTint="#FFFFFF"
+            android:layout_marginEnd="4dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTabFriendRequests"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="Requests"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:layout_marginStart="4dp" />
+    </LinearLayout>
+
+    <!-- Tab 1 Container: Send Request -->
+    <LinearLayout
+        android:id="@+id/layoutSendRequestTab"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Enter ONUSLY @handle or email:"
+            android:textColor="#A1A1AA"
+            android:textSize="12sp"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/etFriendTargetInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_chat_input"
+            android:hint="e.g. @bob or partner@gmail.com"
+            android:textColorHint="#666666"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:padding="12dp"
+            android:singleLine="true" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSubmitFriendRequest"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="Send Friend Request"
+            android:textColor="#000000"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:backgroundTint="#FFFFFF"
+            android:layout_marginTop="14dp" />
+    </LinearLayout>
+
+    <!-- Tab 2 Container: Pending Requests -->
+    <LinearLayout
+        android:id="@+id/layoutFriendRequestsTab"
+        android:layout_width="match_parent"
+        android:layout_height="260dp"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:id="@+id/pbRequestsLoading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:indeterminateTint="#FFFFFF"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvEmptyRequests"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="No pending friend requests"
+            android:textColor="#777777"
+            android:textSize="13sp"
+            android:visibility="gone"
+            android:layout_marginTop="60dp" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvIncomingRequests"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </LinearLayout>
+</LinearLayout>

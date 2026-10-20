@@ -22,7 +22,7 @@ class AuthManager(
 ) {
 
     companion object {
-        const val SERVER_CLIENT_ID = "316293252544-c8s2tsrvd4g8tj0fv4f4hgavrtm44jg8.apps.googleusercontent.com"
+        val SERVER_CLIENT_ID: String = com.onusly.app.BuildConfig.GOOGLE_SERVER_CLIENT_ID
         private const val PREFS_NAME = "onusly_auth_prefs"
         private const val KEY_JWT_TOKEN = "jwt_token"
         private const val KEY_USER_ID = "user_id"
@@ -102,7 +102,7 @@ class AuthManager(
 
         try {
             getGoogleSignInClient().signOut()
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
         }
     }
 

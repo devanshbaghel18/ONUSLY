@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="12dp"
+    app:cardCornerRadius="12dp"
+    app:cardBackgroundColor="@color/surface"
+    app:strokeColor="@color/surface_card"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Goal Header -->
+        <TextView
+            android:id="@+id/tvReviewGoalTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_primary"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:text="Goal Title" />
+
+        <TextView
+            android:id="@+id/tvReviewOwner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/text_muted"
+            android:textSize="12sp"
+            android:text="Owner: user_123" />
+
+        <!-- Blocked Targets Indicator -->
+        <TextView
+            android:id="@+id/tvReviewTargets"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/warning"
+            android:textSize="11sp"
+            android:text="Locked Targets: None" />
+
+        <!-- Proof Evidence Box -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="10dp"
+            android:padding="12dp"
+            android:background="@color/surface_card">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tvProofTypeBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/warning"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:text="PROOF TYPE: TEXT" />
+
+                <TextView
+                    android:id="@+id/tvProofSubmittedAt"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:textColor="@color/text_muted"
+                    android:textSize="11sp"
+                    android:text="Submitted recently" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvProofContent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp"
+                android:text="Explanation text goes here..." />
+
+            <TextView
+                android:id="@+id/tvProofLink"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@color/primary"
+                android:textSize="12sp"
+                android:autoLink="web"
+                android:visibility="gone"
+                android:text="https://..." />
+        </LinearLayout>
+
+        <!-- Self-Approval Guard Banner -->
+        <TextView
+            android:id="@+id/tvSelfApprovalNotice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:padding="8dp"
+            android:background="@color/warning_bg"
+            android:textColor="@color/warning"
+            android:textSize="11sp"
+            android:text="You are the goal owner. Only your assigned partner can verify and approve."
+            android:visibility="gone" />
+
+        <!-- Decision Actions -->
+        <LinearLayout
+            android:id="@+id/layoutDecisionButtons"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="12dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnApprove"
+                android:layout_width="0dp"
+                android:layout_height="42dp"
+                android:layout_weight="1"
+                android:text="Approve"
+                android:textColor="@color/text_primary"
+                android:backgroundTint="@color/success"
+                app:cornerRadius="6dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnReject"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="42dp"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:text="Reject"
+                android:textColor="@color/error"
+                app:strokeColor="@color/error"
+                app:cornerRadius="6dp" />
+        </LinearLayout>
+
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

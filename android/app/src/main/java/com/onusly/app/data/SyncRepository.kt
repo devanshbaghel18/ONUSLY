@@ -31,6 +31,19 @@ class SyncRepository(
             val settingsPrefs = context.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
             return SyncRepository(authManager, cache, apiClient, settingsPrefs)
         }
+
+        fun isValidBaseUrl(url: String): Boolean {
+            val trimmed = url.trim().trimEnd('/')
+            if (!trimmed.startsWith("http://", ignoreCase = true) && !trimmed.startsWith("https://", ignoreCase = true)) {
+                return false
+            }
+            return try {
+                val uri = java.net.URI(trimmed)
+                !uri.host.isNullOrBlank() && (uri.path == null || uri.path.isEmpty() || uri.path == "/")
+            } catch (_: Exception) {
+                false
+            }
+        }
     }
 
     private val _cachedBlocklistFlow = MutableStateFlow<CachedBlocklist?>(null)
@@ -40,12 +53,32 @@ class SyncRepository(
         refreshFlowFromCache()
     }
 
+    private val signOutListeners = mutableListOf<() -> Unit>()
+
+    fun addSignOutListener(listener: () -> Unit) {
+        synchronized(signOutListeners) {
+            signOutListeners.add(listener)
+        }
+    }
+
     fun getBaseUrl(): String {
         return settingsPrefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
     }
 
+    fun isDefaultBaseUrl(): Boolean {
+        return getBaseUrl() == DEFAULT_BASE_URL
+    }
+
     fun setBaseUrl(url: String) {
-        settingsPrefs.edit().putString(KEY_BASE_URL, url.trim().trimEnd('/')).apply()
+        val clean = url.trim().trimEnd('/')
+        if (!isValidBaseUrl(clean)) {
+            throw IllegalArgumentException("Invalid base URL: Scheme must be http:// or https:// with a valid host.")
+        }
+        val current = getBaseUrl().trim().trimEnd('/')
+        if (clean != current) {
+            onUserSignOut()
+            settingsPrefs.edit().putString(KEY_BASE_URL, clean).apply()
+        }
     }
 
     fun getActiveCache(): CachedBlocklist? {
@@ -101,5 +134,13 @@ class SyncRepository(
         blocklistCache.clear()
         authManager.clearSession()
         _cachedBlocklistFlow.value = null
+        synchronized(signOutListeners) {
+            for (listener in signOutListeners) {
+                try {
+                    listener()
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 }

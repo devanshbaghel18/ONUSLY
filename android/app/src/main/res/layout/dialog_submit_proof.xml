@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/surface">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <!-- Header -->
+        <TextView
+            android:id="@+id/tvSubmitProofModalTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Submit Goal Proof"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvSubmitProofModalSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:text="Provide evidence of your completed goal for partner review." />
+
+        <!-- Error Banner -->
+        <TextView
+            android:id="@+id/tvSubmitProofError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:padding="10dp"
+            android:background="@color/warning_bg"
+            android:textColor="@color/error"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <!-- Info Notice Banner -->
+        <LinearLayout
+            android:id="@+id/bannerProofNotice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:padding="10dp"
+            android:orientation="horizontal"
+            android:background="@color/surface_card"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:src="@drawable/ic_nav_reviews"
+                app:tint="@color/warning"
+                android:contentDescription="Notice" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="Your accountability partner must approve this proof to release distraction locks."
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Proof Type Selector -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="SELECT PROOF TYPE *"
+            android:textColor="@color/text_muted"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/rgProofType"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rbProofText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:checked="true"
+                android:text="Text"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp" />
+
+            <RadioButton
+                android:id="@+id/rbProofLink"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Link"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp" />
+
+            <RadioButton
+                android:id="@+id/rbProofPhoto"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Photo URL"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp" />
+        </RadioGroup>
+
+        <!-- External Link Field (Visible for Link) -->
+        <LinearLayout
+            android:id="@+id/layoutProofLink"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="EXTERNAL LINK URL *"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etProofLink"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:layout_marginTop="4dp"
+                android:background="@color/surface_card"
+                android:paddingHorizontal="12dp"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_muted"
+                android:textSize="13sp"
+                android:inputType="textUri"
+                android:hint="https://github.com/..., https://notion.so/..." />
+        </LinearLayout>
+
+        <!-- Photo URL Field (Visible for Photo) -->
+        <LinearLayout
+            android:id="@+id/layoutProofPhoto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="PHOTO / SCREENSHOT URL *"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etProofPhotoUrl"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:layout_marginTop="4dp"
+                android:background="@color/surface_card"
+                android:paddingHorizontal="12dp"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_muted"
+                android:textSize="13sp"
+                android:inputType="textUri"
+                android:hint="https://images.example.com/screenshot.png" />
+        </LinearLayout>
+
+        <!-- Explanation Field -->
+        <TextView
+            android:id="@+id/tvExplanationLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="EXPLANATION *"
+            android:textColor="@color/text_muted"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etProofExplanation"
+            android:layout_width="match_parent"
+            android:layout_height="90dp"
+            android:layout_marginTop="4dp"
+            android:gravity="top|start"
+            android:background="@color/surface_card"
+            android:padding="12dp"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_muted"
+            android:textSize="13sp"
+            android:inputType="textMultiLine"
+            android:hint="Describe the work done, milestones achieved, or reflection..." />
+
+        <!-- Saving Spinner -->
+        <ProgressBar
+            android:id="@+id/pbSubmitProof"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="16dp"
+            android:visibility="gone" />
+
+        <!-- Action Buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCancelProof"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:text="Cancel"
+                android:textColor="@color/text_secondary"
+                app:strokeColor="@color/surface_card"
+                app:cornerRadius="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnConfirmSubmitProof"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:text="Submit Proof"
+                android:textColor="@color/text_primary"
+                android:backgroundTint="@color/primary"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

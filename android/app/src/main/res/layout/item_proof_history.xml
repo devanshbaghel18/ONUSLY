@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="10dp"
+    app:cardCornerRadius="10dp"
+    app:cardBackgroundColor="@color/surface_card"
+    app:strokeColor="@color/surface"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <!-- Header: Type Badge & Timestamp -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tvHistoryTypeBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="2dp"
+                android:background="@color/surface"
+                android:textColor="@color/primary"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:text="TEXT" />
+
+            <TextView
+                android:id="@+id/tvHistoryTimestamp"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp"
+                android:text="2026-10-20 10:00 UTC" />
+        </LinearLayout>
+
+        <!-- Explanation Content -->
+        <TextView
+            android:id="@+id/tvHistoryExplanation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp"
+            android:text="Explanation text..." />
+
+        <!-- Link Preview -->
+        <TextView
+            android:id="@+id/tvHistoryLink"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/primary"
+            android:textSize="12sp"
+            android:autoLink="web"
+            android:visibility="gone"
+            android:text="https://..." />
+
+        <!-- Photo URL Preview -->
+        <TextView
+            android:id="@+id/tvHistoryPhotoUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/secondary"
+            android:textSize="12sp"
+            android:autoLink="web"
+            android:visibility="gone"
+            android:text="https://..." />
+
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

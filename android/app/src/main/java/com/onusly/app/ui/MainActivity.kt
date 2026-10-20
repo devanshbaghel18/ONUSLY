@@ -1,64 +1,45 @@
 package com.onusly.app.ui
 
-import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import android.provider.Settings
 import android.view.View
 import android.widget.EditText
 import android.widget.ImageButton
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.card.MaterialCardView
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.onusly.app.BuildConfig
 import com.onusly.app.OnuslyApplication
 import com.onusly.app.R
 import com.onusly.app.data.auth.AuthManager
-import com.onusly.app.data.model.CachedBlocklist
+import com.onusly.app.data.model.CreateGoalRequest
+import com.onusly.app.data.model.CreateProofRequest
+import com.onusly.app.data.model.Goal
 import com.onusly.app.data.model.SyncResult
 import com.onusly.app.data.model.UserSession
-import com.onusly.app.service.OnuslyAccessibilityService
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var cardAccessibility: MaterialCardView
-    private lateinit var ivAccessibilityIcon: ImageView
-    private lateinit var tvAccessibilityTitle: TextView
-    private lateinit var tvAccessibilityDesc: TextView
-    private lateinit var tvRestrictedSettingsNote: TextView
-    private lateinit var btnEnableAccessibility: MaterialButton
+    private lateinit var bottomNavigation: BottomNavigationView
+    private lateinit var headerProgress: ProgressBar
+    private lateinit var btnHeaderSync: ImageButton
 
-    private lateinit var layoutSignedIn: LinearLayout
-    private lateinit var layoutSignedOut: LinearLayout
-    private lateinit var tvUserName: TextView
-    private lateinit var tvUserEmail: TextView
-    private lateinit var btnSignOut: MaterialButton
-    private lateinit var btnSignInGoogle: MaterialButton
-    private lateinit var btnManualToken: MaterialButton
+    private val homeFragment = HomeFragment()
+    private val goalsFragment = GoalsFragment()
+    private val reviewsFragment = ReviewsFragment()
+    private val chatFragment = ChatFragment()
+    private val settingsFragment = SettingsFragment()
 
-    private lateinit var pbSyncing: ProgressBar
-    private lateinit var tvLastSyncTime: TextView
-    private lateinit var tvVersion: TextView
-    private lateinit var btnSyncNow: MaterialButton
-
-    private lateinit var tvBlockedCountBadge: TextView
-    private lateinit var tvBlockedList: TextView
-    private lateinit var btnSettings: ImageButton
+    private var activeFragment: Fragment = homeFragment
 
     private val googleSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -84,249 +65,119 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         bindViews()
-        setupListeners()
-        observeData()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        updateAccessibilityState()
-        updateAccountState()
-        updateBlocklistUi((application as OnuslyApplication).syncRepository.getActiveCache())
+        setupFragments(savedInstanceState)
+        setupNavigation()
     }
 
     private fun bindViews() {
-        cardAccessibility = findViewById(R.id.cardAccessibility)
-        ivAccessibilityIcon = findViewById(R.id.ivAccessibilityIcon)
-        tvAccessibilityTitle = findViewById(R.id.tvAccessibilityTitle)
-        tvAccessibilityDesc = findViewById(R.id.tvAccessibilityDesc)
-        tvRestrictedSettingsNote = findViewById(R.id.tvRestrictedSettingsNote)
-        btnEnableAccessibility = findViewById(R.id.btnEnableAccessibility)
+        bottomNavigation = findViewById(R.id.bottom_navigation)
+        headerProgress = findViewById(R.id.headerProgress)
+        btnHeaderSync = findViewById(R.id.btnHeaderSync)
 
-        layoutSignedIn = findViewById(R.id.layoutSignedIn)
-        layoutSignedOut = findViewById(R.id.layoutSignedOut)
-        tvUserName = findViewById(R.id.tvUserName)
-        tvUserEmail = findViewById(R.id.tvUserEmail)
-        btnSignOut = findViewById(R.id.btnSignOut)
-        btnSignInGoogle = findViewById(R.id.btnSignInGoogle)
-        btnManualToken = findViewById(R.id.btnManualToken)
-        btnManualToken.visibility = if (BuildConfig.DEBUG) View.VISIBLE else View.GONE
-
-        pbSyncing = findViewById(R.id.pbSyncing)
-        tvLastSyncTime = findViewById(R.id.tvLastSyncTime)
-        tvVersion = findViewById(R.id.tvVersion)
-        btnSyncNow = findViewById(R.id.btnSyncNow)
-
-        tvBlockedCountBadge = findViewById(R.id.tvBlockedCountBadge)
-        tvBlockedList = findViewById(R.id.tvBlockedList)
-        btnSettings = findViewById(R.id.btnSettings)
-    }
-
-    private fun setupListeners() {
-        btnEnableAccessibility.setOnClickListener {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            startActivity(intent)
-        }
-
-        btnSignInGoogle.setOnClickListener {
-            val app = application as OnuslyApplication
-            val client = app.authManager.getGoogleSignInClient()
-            googleSignInLauncher.launch(client.signInIntent)
-        }
-
-        btnSignOut.setOnClickListener {
-            val app = application as OnuslyApplication
-            app.syncRepository.onUserSignOut()
-            updateAccountState()
-            updateBlocklistUi(null)
-            Toast.makeText(this, "Signed out", Toast.LENGTH_SHORT).show()
-        }
-
-        btnManualToken.setOnClickListener {
-            if (BuildConfig.DEBUG) {
-                showManualTokenDialog()
-            }
-        }
-
-        btnSyncNow.setOnClickListener {
-            performSync()
-        }
-
-        btnSettings.setOnClickListener {
-            showServerSettingsDialog()
+        btnHeaderSync.setOnClickListener {
+            performQuickSync()
         }
     }
 
-    private fun observeData() {
-        lifecycleScope.launch {
-            val app = application as OnuslyApplication
-            app.syncRepository.cachedBlocklistFlow.collect { cached ->
-                updateBlocklistUi(cached)
-            }
-        }
-    }
-
-    private fun updateAccessibilityState() {
-        val isEnabled = OnuslyAccessibilityService.isServiceEnabled(this)
-        if (isEnabled) {
-            cardAccessibility.setCardBackgroundColor(ContextCompat.getColor(this, R.color.success_bg))
-            cardAccessibility.strokeColor = ContextCompat.getColor(this, R.color.success)
-            ivAccessibilityIcon.setImageResource(android.R.drawable.checkbox_on_background)
-            ivAccessibilityIcon.setColorFilter(ContextCompat.getColor(this, R.color.success))
-            tvAccessibilityTitle.text = getString(R.string.accessibility_enabled_title)
-            tvAccessibilityTitle.setTextColor(ContextCompat.getColor(this, R.color.success))
-            tvAccessibilityDesc.text = getString(R.string.accessibility_enabled_desc)
-            tvRestrictedSettingsNote.visibility = View.GONE
-            btnEnableAccessibility.visibility = View.GONE
+    private fun setupFragments(savedInstanceState: Bundle?) {
+        if (savedInstanceState == null) {
+            supportFragmentManager.beginTransaction()
+                .add(R.id.container_fragment, homeFragment, "HOME")
+                .add(R.id.container_fragment, goalsFragment, "GOALS").hide(goalsFragment)
+                .add(R.id.container_fragment, reviewsFragment, "REVIEWS").hide(reviewsFragment)
+                .add(R.id.container_fragment, chatFragment, "CHAT").hide(chatFragment)
+                .add(R.id.container_fragment, settingsFragment, "SETTINGS").hide(settingsFragment)
+                .commit()
+            activeFragment = homeFragment
         } else {
-            cardAccessibility.setCardBackgroundColor(ContextCompat.getColor(this, R.color.warning_bg))
-            cardAccessibility.strokeColor = ContextCompat.getColor(this, R.color.warning)
-            ivAccessibilityIcon.setImageResource(android.R.drawable.ic_dialog_alert)
-            ivAccessibilityIcon.setColorFilter(ContextCompat.getColor(this, R.color.warning))
-            tvAccessibilityTitle.text = getString(R.string.accessibility_disabled_title)
-            tvAccessibilityTitle.setTextColor(ContextCompat.getColor(this, R.color.warning))
-            tvAccessibilityDesc.text = getString(R.string.accessibility_disabled_desc)
-            tvRestrictedSettingsNote.visibility = View.VISIBLE
-            btnEnableAccessibility.visibility = View.VISIBLE
+            // Restore fragments
+            supportFragmentManager.findFragmentByTag("HOME")?.let { }
         }
     }
 
-    private fun updateAccountState() {
-        val app = application as OnuslyApplication
-        val session = app.authManager.getSession()
-        if (session != null && session.userId.isNotBlank()) {
-            layoutSignedIn.visibility = View.VISIBLE
-            layoutSignedOut.visibility = View.GONE
-            tvUserName.text = if (session.name.isNotBlank()) session.name else "Authenticated User"
-            tvUserEmail.text = session.email
-        } else {
-            layoutSignedIn.visibility = View.GONE
-            layoutSignedOut.visibility = View.VISIBLE
-        }
-    }
-
-    private fun updateBlocklistUi(cached: CachedBlocklist?) {
-        if (cached == null || cached.targets.isEmpty()) {
-            tvBlockedCountBadge.text = "0"
-            tvBlockedList.text = "No apps currently blocked."
-            tvVersion.text = "None"
-            tvLastSyncTime.text = if (cached?.lastSyncTimestamp ?: 0 > 0) {
-                formatTimestamp(cached!!.lastSyncTimestamp)
-            } else {
-                "Never"
+    private fun setupNavigation() {
+        bottomNavigation.setOnItemSelectedListener { item ->
+            val targetFragment = when (item.itemId) {
+                R.id.nav_home -> homeFragment
+                R.id.nav_goals -> goalsFragment
+                R.id.nav_reviews -> reviewsFragment
+                R.id.nav_chat -> chatFragment
+                R.id.nav_settings -> settingsFragment
+                else -> null
             }
-            return
-        }
 
-        tvVersion.text = cached.version
-        tvLastSyncTime.text = formatTimestamp(cached.lastSyncTimestamp)
-
-        // Count unique blocked apps
-        val uniqueApps = mutableSetOf<String>()
-        val sb = java.lang.StringBuilder()
-
-        for (target in cached.targets) {
-            val statusTag = if (target.status.equals("active", ignoreCase = true)) "[ACTIVE]" else "[WAITING REVIEW]"
-            sb.append("• ").append(target.goalTitle).append(" ").append(statusTag).append("\n")
-            if (target.apps.isEmpty()) {
-                sb.append("   (no package names configured)\n")
+            if (targetFragment != null && targetFragment != activeFragment) {
+                supportFragmentManager.beginTransaction()
+                    .hide(activeFragment)
+                    .show(targetFragment)
+                    .commit()
+                activeFragment = targetFragment
+                true
             } else {
-                for (appPkg in target.apps) {
-                    uniqueApps.add(appPkg)
-                    sb.append("   - ").append(appPkg).append("\n")
-                }
+                false
             }
-            sb.append("\n")
         }
-
-        tvBlockedCountBadge.text = uniqueApps.size.toString()
-        tvBlockedList.text = sb.toString().trim()
     }
 
-    private fun formatTimestamp(timestamp: Long): String {
-        if (timestamp <= 0) return "Never"
-        val sdf = SimpleDateFormat("HH:mm:ss (dd MMM)", Locale.getDefault())
-        return sdf.format(Date(timestamp))
-    }
-
-    private fun handleGoogleToken(idToken: String) {
+    fun launchGoogleSignIn() {
         val app = application as OnuslyApplication
-        pbSyncing.visibility = View.VISIBLE
-        btnSignInGoogle.isEnabled = false
+        val client = app.authManager.getGoogleSignInClient()
+        googleSignInLauncher.launch(client.signInIntent)
+    }
+
+    fun handleGoogleToken(idToken: String) {
+        val app = application as OnuslyApplication
+        headerProgress.visibility = View.VISIBLE
 
         lifecycleScope.launch {
             val result = app.authManager.exchangeGoogleIdToken(
                 apiBaseUrl = app.syncRepository.getBaseUrl(),
                 googleIdToken = idToken
             )
-            pbSyncing.visibility = View.GONE
-            btnSignInGoogle.isEnabled = true
+            headerProgress.visibility = View.GONE
 
             result.onSuccess { session ->
                 Toast.makeText(this@MainActivity, "Signed in as ${session.email}", Toast.LENGTH_SHORT).show()
-                updateAccountState()
-                performSync()
+                homeFragment.updateAccountState()
+                performQuickSync()
+                goalsFragment.refreshGoals()
             }.onFailure { err ->
                 Toast.makeText(this@MainActivity, "Login failed: ${err.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    private fun performSync() {
+    fun performQuickSync() {
         val app = application as OnuslyApplication
         if (!app.authManager.isSignedIn()) {
             Toast.makeText(this, "Please sign in first", Toast.LENGTH_SHORT).show()
             return
         }
 
-        pbSyncing.visibility = View.VISIBLE
-        btnSyncNow.isEnabled = false
+        headerProgress.visibility = View.VISIBLE
+        btnHeaderSync.isEnabled = false
 
         lifecycleScope.launch {
             val result = app.syncRepository.syncBlocklist()
-            pbSyncing.visibility = View.GONE
-            btnSyncNow.isEnabled = true
+            headerProgress.visibility = View.GONE
+            btnHeaderSync.isEnabled = true
 
             when (result) {
                 is SyncResult.Success -> {
                     Toast.makeText(this@MainActivity, "Blocklist synced: ${result.response.version}", Toast.LENGTH_SHORT).show()
                 }
                 is SyncResult.NotModified -> {
-                    Toast.makeText(this@MainActivity, "Blocklist up-to-date (304 Not Modified)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Up-to-date (304 Not Modified)", Toast.LENGTH_SHORT).show()
                 }
                 is SyncResult.Error -> {
                     Toast.makeText(this@MainActivity, "Sync failed: ${result.message}", Toast.LENGTH_LONG).show()
                 }
             }
-            updateBlocklistUi(app.syncRepository.getActiveCache())
+            homeFragment.updateBlocklistUi(app.syncRepository.getActiveCache())
         }
     }
 
-    private fun showServerSettingsDialog() {
-        val app = application as OnuslyApplication
-        val currentUrl = app.syncRepository.getBaseUrl()
-
-        val input = EditText(this).apply {
-            setText(currentUrl)
-            setSelection(currentUrl.length)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Backend API Base URL")
-            .setMessage("Default for Android Emulator is http://10.0.2.2:8080.\nFor physical devices, use your host's local IP (e.g. http://192.168.1.x:8080).")
-            .setView(input)
-            .setPositiveButton("Save") { _, _ ->
-                val newUrl = input.text.toString().trim()
-                if (newUrl.isNotBlank()) {
-                    app.syncRepository.setBaseUrl(newUrl)
-                    Toast.makeText(this, "Base URL updated: $newUrl", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun showManualTokenDialog() {
+    fun showManualTokenDialog() {
         if (!BuildConfig.DEBUG) return
         val app = application as OnuslyApplication
         val container = LinearLayout(this).apply {
@@ -345,7 +196,7 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle("Manual Session Token")
-            .setMessage("Paste an existing ONUSLY JWT token (e.g. from web app or curl testing):")
+            .setMessage("Paste an existing ONUSLY JWT token:")
             .setView(container)
             .setPositiveButton("Set Session") { _, _ ->
                 val token = inputJwt.text.toString().trim()
@@ -362,12 +213,120 @@ class MainActivity : AppCompatActivity() {
                             jwtToken = token
                         )
                         app.authManager.saveSession(session)
-                        updateAccountState()
-                        performSync()
+                        homeFragment.updateAccountState()
+                        performQuickSync()
+                        goalsFragment.refreshGoals()
                     }
                 }
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    // --- Goal Creation & Editing (Vertical Slice 2) ---
+
+    fun showCreateGoalDialog() {
+        val app = application as OnuslyApplication
+        if (!app.authManager.isSignedIn()) {
+            Toast.makeText(this, "Sign in first to create a goal", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        GoalEditorDialog(
+            context = this,
+            scope = lifecycleScope,
+            goalsRepository = app.goalsRepository,
+            existingGoal = null
+        ) { goal, syncSucceeded, syncError ->
+            Toast.makeText(this, "Goal created: ${goal.title}", Toast.LENGTH_SHORT).show()
+            if (!syncSucceeded) {
+                showSyncFailedDialog(syncError)
+            }
+        }.show()
+    }
+
+    fun showEditGoalDialog(goal: Goal) {
+        val app = application as OnuslyApplication
+        if (!app.authManager.isSignedIn()) {
+            Toast.makeText(this, "Sign in first to edit a goal", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        GoalEditorDialog(
+            context = this,
+            scope = lifecycleScope,
+            goalsRepository = app.goalsRepository,
+            existingGoal = goal
+        ) { updatedGoal, syncSucceeded, syncError ->
+            Toast.makeText(this, "Goal updated: ${updatedGoal.title}", Toast.LENGTH_SHORT).show()
+            if (!syncSucceeded) {
+                showSyncFailedDialog(syncError)
+            }
+        }.show()
+    }
+
+    fun showSyncFailedDialog(syncError: String?) {
+        AlertDialog.Builder(this)
+            .setTitle("Blocklist Sync Pending")
+            .setMessage("Your update was saved on the server, but local blocklist update failed (${syncError ?: "Network error"}). Local enforcement will retry automatically, or you can retry now.")
+            .setPositiveButton("Retry Sync Now") { _, _ ->
+                val app = application as OnuslyApplication
+                lifecycleScope.launch {
+                    val result = app.goalsRepository.retryBlocklistSync()
+                    if (result.isSuccess) {
+                        Toast.makeText(this@MainActivity, "Blocklist synchronized successfully", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Sync retry failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("Dismiss", null)
+            .show()
+    }
+
+    fun showSubmitProofDialog(goal: Goal) {
+        val app = application as OnuslyApplication
+        if (!app.authManager.isSignedIn()) {
+            Toast.makeText(this, "Sign in first to submit proof", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        SubmitProofDialog(
+            context = this,
+            scope = lifecycleScope,
+            goalsRepository = app.goalsRepository,
+            goal = goal
+        ) { _, syncSucceeded, syncError ->
+            Toast.makeText(this, "Proof submitted for \"${goal.title}\"", Toast.LENGTH_SHORT).show()
+            if (!syncSucceeded) {
+                showSyncFailedDialog(syncError)
+            }
+        }.show()
+    }
+
+    fun showProofHistoryDialog(goal: Goal) {
+        val app = application as OnuslyApplication
+        if (!app.authManager.isSignedIn()) {
+            Toast.makeText(this, "Sign in first to view proof history", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        ProofHistoryDialog(
+            context = this,
+            scope = lifecycleScope,
+            goalsRepository = app.goalsRepository,
+            goal = goal
+        ).show()
+    }
+
+    fun onUserLoggedOut() {
+        val app = application as OnuslyApplication
+        app.syncRepository.onUserSignOut()
+        app.goalsRepository.clearLocalData()
+        homeFragment.updateAccountState()
+        homeFragment.updateBlocklistUi(null)
+        goalsFragment.refreshGoals()
+        reviewsFragment.clearLocalData()
+        settingsFragment.updateProfileUi()
     }
 }
