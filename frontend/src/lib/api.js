@@ -172,6 +172,21 @@ export async function getChatHistory(peerEmail) {
   return Array.isArray(data) ? data : [];
 }
 
+export async function sendChatMessageApi(recipient, text, options = {}) {
+  if (!recipient || !text) return null;
+  return request("/chat/messages", {
+    method: "POST",
+    body: JSON.stringify({
+      recipient,
+      text,
+      isProof: options.isProof || false,
+      goalId: options.goalId || "",
+      goalTitle: options.goalTitle || "",
+      ownerId: options.ownerId || "",
+    }),
+  });
+}
+
 export async function clearChatHistory(peerEmail) {
   if (!peerEmail) return false;
   return request(`/chat/messages?peer=${encodeURIComponent(peerEmail.trim())}`, {
@@ -243,6 +258,60 @@ export async function repeatGoal(originalGoal) {
   });
 
   return newGoal;
+}
+
+export async function sendFriendRequest(target) {
+  return request("/friends/request", {
+    method: "POST",
+    body: JSON.stringify({ target }),
+  });
+}
+
+export async function getFriendRequests() {
+  const data = await request("/friends/requests", { method: "GET" });
+  return data || { incoming: [], outgoing: [] };
+}
+
+export async function respondFriendRequest(requestId, action) {
+  return request("/friends/request/respond", {
+    method: "POST",
+    body: JSON.stringify({ requestId, action }),
+  });
+}
+
+export async function getFriendsList() {
+  const data = await request("/friends", { method: "GET" });
+  return Array.isArray(data) ? data : [];
+}
+
+export async function deleteFriendApi(friendId) {
+  return request(`/friends/${encodeURIComponent(friendId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getTrendingCommunities() {
+  const data = await request("/communities/trending", { method: "GET" });
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getJoinedCommunities() {
+  const data = await request("/communities/joined", { method: "GET" });
+  return Array.isArray(data) ? data : [];
+}
+
+export async function joinCommunityApi(communityId) {
+  return request("/communities/join", {
+    method: "POST",
+    body: JSON.stringify({ communityId }),
+  });
+}
+
+export async function leaveCommunityApi(communityId) {
+  return request("/communities/leave", {
+    method: "POST",
+    body: JSON.stringify({ communityId }),
+  });
 }
 
 

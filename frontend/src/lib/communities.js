@@ -406,3 +406,109 @@ export function markCommunityMessageApproved(goalId, messageId) {
     console.error("Failed to mark community message approved:", err);
   }
 }
+
+export function mergeCommunityHistory(communityId, serverMessages, currentUserEmail, currentUserHandle) {
+  if (!serverMessages || !Array.isArray(serverMessages)) return getCommunityMessages(communityId);
+  try {
+    const raw = localStorage.getItem(COMMUNITY_CHATS_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    const local = all[communityId] || [];
+    const clearedAt = getCommunityClearedAt(communityId);
+
+    const normCurrentEmail = (currentUserEmail || "").toLowerCase();
+    const normCurrentHandle = (currentUserHandle || "").toLowerCase().replace(/^@/, "");
+    const map = new Map();
+
+    local.forEach((m) => {
+      if (m.id) {
+        if (clearedAt > 0) {
+          const msgTime = m.timestamp || (m.time && m.time.includes("T") ? new Date(m.time).getTime() : 0);
+          if (msgTime > 0 && msgTime <= clearedAt) {
+            return;
+          }
+        }
+        map.set(m.id, m);
+      }
+    });
+
+    serverMessages.forEach((m) => {
+      if (clearedAt > 0) {
+        const msgTime = m.time ? new Date(m.time).getTime() : 0;
+        if (msgTime > 0 && msgTime <= clearedAt) {
+          return;
+        }
+      }
+
+      const senderE = (m.senderEmail || "").toLowerCase();
+      const senderH = (m.senderHandle || "").toLowerCase().replace(/^@/, "");
+      const isMe = (normCurrentEmail && senderE === normCurrentEmail) ||
+                   (normCurrentHandle && senderH === normCurrentHandle);
+
+      const existing = map.get(m.id) || {};
+      const text = m.text || existing.text || "";
+      const textMatch = text.match(/verify my goal:\s*["“]?([^"”\n\r]+)["”]?/i);
+      const isProof = Boolean(m.isProof || existing.isProof || textMatch);
+      const goalTitle = m.goalTitle || existing.goalTitle || (textMatch ? textMatch[1].trim() : "");
+      const goalId = m.goalId || existing.goalId || "";
+      const ownerId = m.ownerId || existing.ownerId || "";
+      const approved = Boolean(m.approved || existing.approved);
+      const images = (Array.isArray(m.images) && m.images.length > 0) ? m.images : (existing.images || []);
+      const files = (Array.isArray(m.files) && m.files.length > 0) ? m.files : (existing.files || []);
+      const externalLink = m.externalLink || existing.externalLink || "";
+
+      const formatted = {
+        ...existing,
+        id: m.id,
+        text,
+        sender: isMe ? "me" : "member",
+        senderName: isMe ? "You" : (m.senderName || (m.senderHandle ? `@${m.senderHandle.replace(/^@/, "")}` : "Member")),
+        senderHandle: m.senderHandle || existing.senderHandle || "",
+        isProof,
+        goalId,
+        goalTitle,
+        ownerId,
+        approved,
+        images,
+        files,
+        externalLink,
+        replyTo: m.replyTo || existing.replyTo || null,
+        timestamp: m.time ? new Date(m.time).getTime() : (existing.timestamp || Date.now()),
+        time: m.time
+          ? (m.time.includes("T") ? new Date(m.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : m.time)
+          : (existing.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
+      };
+
+      map.set(m.id, formatted);
+    });
+
+    const merged = Array.from(map.values()).sort((a, b) => {
+      const timeA = a.timestamp || 0;
+      const timeB = b.timestamp || 0;
+      return timeA - timeB;
+    });
+
+    all[communityId] = merged;
+    localStorage.setItem(COMMUNITY_CHATS_KEY, JSON.stringify(all));
+
+    // Update community card preview
+    if (merged.length > 0) {
+      const lastMsg = merged[merged.length - 1];
+      const list = getStoredCommunities();
+      const updated = list.map((c) =>
+        c.id === communityId
+          ? {
+              ...c,
+              lastMessage: lastMsg.isProof ? `📸 Proof: ${lastMsg.goalTitle || "Goal"}` : lastMsg.text,
+              lastMessageTime: lastMsg.time,
+            }
+          : c
+      );
+      saveCommunities(updated);
+    }
+
+    return merged;
+  } catch (err) {
+    console.error("Failed to merge community history:", err);
+    return getCommunityMessages(communityId);
+  }
+}

@@ -8,6 +8,7 @@
     "package:ext": "python3 ../scripts/package-extension.py",
     "build": "python3 ../scripts/package-extension.py && vite build",
     "lint": "eslint .",
+    "test": "node --test tests/**/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

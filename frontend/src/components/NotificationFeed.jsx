@@ -116,7 +116,17 @@ export default function NotificationFeed() {
 
     setIsOpen(false);
     if (notif.goalId) {
-      navigate(`/goals/${notif.goalId}`);
+      if (notif.type === "proof_submitted") {
+        navigate("/community-friends", {
+          state: {
+            view: "friends",
+            targetId: notif.ownerId || "",
+          },
+        });
+      } else {
+        const ownerParam = notif.ownerId ? `?ownerId=${encodeURIComponent(notif.ownerId)}` : "";
+        navigate(`/goals/${notif.goalId}${ownerParam}`);
+      }
     }
   };
 

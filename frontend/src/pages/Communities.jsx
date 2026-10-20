@@ -4,7 +4,6 @@ import AppLayout from "../components/AppLayout";
 import {
   Users,
   Search,
-  Plus,
   ArrowLeft,
   Copy,
   Check,
@@ -28,6 +27,8 @@ import {
   Star,
   Reply,
   RotateCcw,
+  Compass,
+  UserCheck,
 } from "lucide-react";
 import {
   getStoredCommunities,
@@ -45,9 +46,11 @@ import {
   clearCommunityChat,
   toggleFavoriteCommunity,
   markCommunityMessageApproved,
+  mergeCommunityHistory,
 } from "../lib/communities";
 import {
   getStoredFriends,
+  saveFriends,
   addFriend,
   deleteFriend,
   getChatMessages,
@@ -61,7 +64,18 @@ import {
   markChatMessageApproved,
   clearUnreadCount,
 } from "../lib/friendsChat";
-import { getChatHistory, lookupUser, clearChatHistory } from "../lib/api";
+import {
+  getChatHistory,
+  lookupUser,
+  clearChatHistory,
+  sendFriendRequest,
+  getFriendRequests,
+  respondFriendRequest,
+  getFriendsList,
+  getTrendingCommunities,
+  joinCommunityApi,
+  sendChatMessageApi,
+} from "../lib/api";
 
 import { getUser } from "../lib/auth";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -162,18 +176,11 @@ function WhatsAppImageGrid({ images, onImageClick }) {
 
 export default function Communities() {
   const location = useLocation();
-  // Main mode: 'communities' | 'friends'
-  const [mainView, setMainView] = useState(() => {
-    if (location.state?.view) return location.state.view;
-    if (location.pathname === "/community-friends") return "friends";
-    return "communities";
-  });
 
   // ==========================================
   // COMMUNITIES STATE
   // ==========================================
   const [communities, setCommunities] = useState(() => getStoredCommunities());
-  const [searchQuery, setSearchQuery] = useState("");
   const [privateCode, setPrivateCode] = useState("");
   const [codeNotice, setCodeNotice] = useState({ error: "", success: "" });
 
@@ -200,7 +207,6 @@ export default function Communities() {
   // FRIENDS & 1-ON-1 CHAT STATE
   // ==========================================
   const [friends, setFriends] = useState(() => getStoredFriends());
-  const [friendSearch, setFriendSearch] = useState("");
   const [activeFriendId, setActiveFriendId] = useState(() => {
     if (location.state?.view === "friends" && location.state?.targetId) {
       return location.state.targetId;
@@ -223,6 +229,10 @@ export default function Communities() {
   const [messageInput, setMessageInput] = useState("");
   const [onlineEmails, setOnlineEmails] = useState(new Set());
   const [onlineHandles, setOnlineHandles] = useState(new Set());
+  const [friendRequests, setFriendRequests] = useState({ incoming: [], outgoing: [] });
+  const [friendModalTab, setFriendModalTab] = useState("add"); // 'add' | 'requests'
+  const [friendSuccess, setFriendSuccess] = useState("");
+  const [sendingRequest, setSendingRequest] = useState(false);
 
   // Confirm delete modals/prompts
   const [friendToDelete, setFriendToDelete] = useState(null);
@@ -296,16 +306,15 @@ export default function Communities() {
   useEffect(() => {
     if (!location.state) return;
     const timer = setTimeout(() => {
-      if (location.state?.view) {
-        setMainView(location.state.view);
-      }
       if (location.state?.view === "friends" && location.state?.targetId) {
+        setSelectedCommunity(null);
         setActiveFriendId(location.state.targetId);
         const updated = clearUnreadCount(location.state.targetId);
         setFriends(updated);
         setChatMessages(getChatMessages(location.state.targetId));
       }
       if (location.state?.view === "communities" && location.state?.targetId) {
+        setActiveFriendId(null);
         const allComms = getStoredCommunities();
         const targetComm = allComms.find((c) => c.id === location.state.targetId);
         if (targetComm) {
@@ -546,6 +555,48 @@ export default function Communities() {
         });
       }
     }
+
+    // Real-time Friend Request received
+    if (event?.type === "friend.request") {
+      getFriendRequests()
+        .then((data) => {
+          if (data) setFriendRequests(data);
+        })
+        .catch(() => {});
+    }
+
+    // Real-time Friend Request Accepted
+    if (event?.type === "friend.accepted") {
+      getFriendRequests()
+        .then((data) => {
+          if (data) setFriendRequests(data);
+        })
+        .catch(() => {});
+      getFriendsList()
+        .then((list) => {
+          if (Array.isArray(list) && list.length > 0) {
+            const current = getStoredFriends();
+            const byId = new Map(current.map((f) => [f.id, f]));
+            list.forEach((f) => {
+              if (!byId.has(f.friendId)) {
+                byId.set(f.friendId, {
+                  id: f.friendId,
+                  name: f.friendName || f.friendHandle || f.friendEmail,
+                  handle: f.friendHandle,
+                  email: f.friendEmail,
+                  picture: "",
+                  unreadCount: 0,
+                  messages: [],
+                });
+              }
+            });
+            const merged = Array.from(byId.values());
+            saveFriends(merged);
+            setFriends(merged);
+          }
+        })
+        .catch(() => {});
+    }
   });
 
   // Query online presence and announce communities on connect
@@ -634,29 +685,47 @@ export default function Communities() {
 
   // Background heartbeat & window focus sync (ensures latest chats with zero manual refresh)
   useEffect(() => {
-    if (!activeFriendId) return;
+    if (!activeFriendId && !selectedCommunity?.id) return;
 
     const syncHistory = () => {
-      const f = friends.find((item) => item.id === activeFriendId);
-      const peerKey = f?.handle ? `@${f.handle}` : f?.email || "";
-      if (!peerKey) return;
-
-      getChatHistory(peerKey)
-        .then((serverMsgs) => {
-          if (serverMsgs && serverMsgs.length > 0) {
-            const merged = mergeChatHistory(activeFriendId, serverMsgs, currentUser?.email, currentUser?.handle);
-            setChatMessages((prev) => {
-              if (prev.length !== merged.length || (prev.length > 0 && merged.length > 0 && prev[prev.length - 1]?.id !== merged[merged.length - 1]?.id)) {
-                return merged;
+      if (activeFriendId) {
+        const f = friends.find((item) => item.id === activeFriendId);
+        const peerKey = f?.handle ? `@${f.handle}` : f?.email || "";
+        if (peerKey) {
+          getChatHistory(peerKey)
+            .then((serverMsgs) => {
+              if (serverMsgs && serverMsgs.length > 0) {
+                const merged = mergeChatHistory(activeFriendId, serverMsgs, currentUser?.email, currentUser?.handle);
+                setChatMessages((prev) => {
+                  if (prev.length !== merged.length || (prev.length > 0 && merged.length > 0 && prev[prev.length - 1]?.id !== merged[merged.length - 1]?.id)) {
+                    return merged;
+                  }
+                  return prev;
+                });
               }
-              return prev;
-            });
-          }
-        })
-        .catch(() => {});
+            })
+            .catch(() => {});
+        }
+      }
+
+      if (selectedCommunity?.id) {
+        getChatHistory(selectedCommunity.id)
+          .then((serverMsgs) => {
+            if (serverMsgs && serverMsgs.length > 0) {
+              const merged = mergeCommunityHistory(selectedCommunity.id, serverMsgs, currentUser?.email, currentUser?.handle);
+              setCommChatMessages((prev) => {
+                if (prev.length !== merged.length || (prev.length > 0 && merged.length > 0 && prev[prev.length - 1]?.id !== merged[merged.length - 1]?.id)) {
+                  return merged;
+                }
+                return prev;
+              });
+            }
+          })
+          .catch(() => {});
+      }
     };
 
-    // Immediate sync on mount / friend switch
+    // Immediate sync on mount / friend or community switch
     syncHistory();
 
     // 3-second heartbeat sync for zero-loss real-time assurance
@@ -670,7 +739,7 @@ export default function Communities() {
       clearInterval(interval);
       window.removeEventListener("focus", onFocus);
     };
-  }, [activeFriendId, friends, currentUser?.email, currentUser?.handle]);
+  }, [activeFriendId, selectedCommunity?.id, friends, currentUser?.email, currentUser?.handle]);
 
   // ==========================================
   // ATTACHMENT MODAL HANDLERS (WhatsApp-style)
@@ -749,6 +818,11 @@ export default function Communities() {
           },
         });
 
+        const peerTarget = activeFriend.handle ? `@${activeFriend.handle.replace(/^@/, "")}` : activeFriend.email || activeFriend.id;
+        if (peerTarget) {
+          sendChatMessageApi(peerTarget, text || "Sent an attachment", { replyTo: currentReplyTo }).catch(() => {});
+        }
+
         const updated = sendChatMessage(
           activeFriendId,
           {
@@ -791,6 +865,10 @@ export default function Communities() {
             replyTo: currentReplyTo,
           },
         });
+
+        sendChatMessageApi(selectedCommunity.id, text || "Sent an attachment", {
+          replyTo: currentReplyTo,
+        }).catch(() => {});
 
         const updated = sendCommunityMessage(selectedCommunity.id, {
           id: msgId,
@@ -917,34 +995,174 @@ export default function Communities() {
     }
   };
 
-  const totalUnreadFriends = useMemo(() => {
-    return friends.reduce((acc, f) => acc + (Number(f.unreadCount) || 0), 0);
-  }, [friends]);
+  const selectCommunity = (c) => {
+    setActiveFriendId(null);
+    setSelectedCommunity(c);
+    setCommChatMessages(getCommunityMessages(c.id));
+    if (c?.id) {
+      getChatHistory(c.id)
+        .then((serverMsgs) => {
+          if (serverMsgs && serverMsgs.length > 0) {
+            const merged = mergeCommunityHistory(c.id, serverMsgs, currentUser?.email, currentUser?.handle);
+            setCommChatMessages(merged);
+          }
+        })
+        .catch(() => {});
+    }
+  };
 
-  // Filtered lists (Favorited items are sorted to the top)
-  const filteredCommunities = useMemo(() => {
-    const list = communities.filter((c) => {
-      const q = searchQuery.toLowerCase();
-      return c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q);
-    });
-    return [...list].sort((a, b) => {
+  const handleSelectConversation = (conv) => {
+    if (conv.type === "friend") {
+      selectFriend(conv.id);
+    } else if (conv.type === "community") {
+      selectCommunity(conv.raw);
+    }
+  };
+
+  // WhatsApp-Style Unified Chat & Community Discovery State
+  const [chatFilter, setChatFilter] = useState("all"); // 'all' | 'unread' | 'friends' | 'communities'
+  const [unifiedSearch, setUnifiedSearch] = useState("");
+  const [showExploreModal, setShowExploreModal] = useState(false);
+  const [exploreSearch, setExploreSearch] = useState("");
+  const [exploreCategory, setExploreCategory] = useState("All");
+  const [trendingCommunities, setTrendingCommunities] = useState([]);
+
+  // Sync Friends, Requests, and Trending Communities from server with automatic 4-second polling
+  useEffect(() => {
+    const fetchFriendsAndRequests = () => {
+      getFriendsList()
+        .then((backendFriends) => {
+          if (Array.isArray(backendFriends) && backendFriends.length > 0) {
+            const local = getStoredFriends();
+            const merged = [...local];
+            backendFriends.forEach((bf) => {
+              const exists = merged.some(
+                (f) =>
+                  f.id === bf.friendId ||
+                  (f.handle && bf.friendHandle && f.handle.toLowerCase().replace(/^@/, "") === bf.friendHandle.toLowerCase().replace(/^@/, "")) ||
+                  (f.email && bf.friendEmail && f.email.toLowerCase() === bf.friendEmail.toLowerCase())
+              );
+              if (!exists) {
+                merged.push({
+                  id: bf.friendId,
+                  name: bf.friendName || `@${bf.friendHandle || "friend"}`,
+                  handle: bf.friendHandle,
+                  email: bf.friendEmail,
+                  status: "Active Partner",
+                  lastMessage: "Connected as accountability friend",
+                  lastMessageTime: "",
+                  unreadCount: 0,
+                });
+              }
+            });
+            saveFriends(merged);
+            setFriends(merged);
+          }
+        })
+        .catch(() => {});
+
+      getFriendRequests()
+        .then((data) => {
+          if (data && (data.incoming || data.outgoing)) {
+            setFriendRequests(data);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchFriendsAndRequests();
+    const interval = setInterval(fetchFriendsAndRequests, 4000);
+
+    getTrendingCommunities()
+      .then((list) => {
+        if (Array.isArray(list) && list.length > 0) {
+          setTrendingCommunities(list);
+        }
+      })
+      .catch(() => {});
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Compute unified conversation list (WhatsApp style)
+  const unifiedConversations = useMemo(() => {
+    // 1. Friends mapped to unified conversation shape
+    const friendConvos = friends.map((f) => ({
+      id: f.id,
+      type: "friend",
+      name: f.name || `@${f.handle || "friend"}`,
+      handle: f.handle || "",
+      email: f.email || "",
+      picture: f.picture || "",
+      lastMessage: f.lastMessage || "No messages yet",
+      lastMessageTime: f.lastMessageTime || "",
+      unreadCount: Number(f.unreadCount) || 0,
+      isFavorite: Boolean(f.isFavorite),
+      raw: f,
+    }));
+
+    // 2. Joined communities mapped to unified conversation shape
+    const joinedComms = communities
+      .filter((c) => c.joined)
+      .map((c) => {
+        const msgs = getCommunityMessages(c.id);
+        const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+        return {
+          id: c.id,
+          type: "community",
+          name: c.name,
+          category: c.category || "General",
+          membersCount: c.membersCount || c.members?.length || 1,
+          code: c.code || "",
+          lastMessage: lastMsg
+            ? lastMsg.isProof
+              ? `📸 Proof: ${lastMsg.goalTitle || "Goal"}`
+              : lastMsg.text
+            : c.description || "Community group chat",
+          lastMessageTime: lastMsg?.time || "",
+          unreadCount: 0,
+          isFavorite: Boolean(c.isFavorite),
+          raw: c,
+        };
+      });
+
+    // 3. Combine and sort
+    const all = [...friendConvos, ...joinedComms];
+    all.sort((a, b) => {
       if (a.isFavorite && !b.isFavorite) return -1;
       if (!a.isFavorite && b.isFavorite) return 1;
       return 0;
     });
-  }, [communities, searchQuery]);
+    return all;
+  }, [friends, communities]);
 
-  const filteredFriends = useMemo(() => {
-    const list = friends.filter((f) =>
-      f.name.toLowerCase().includes(friendSearch.toLowerCase()) ||
-      (f.handle && f.handle.toLowerCase().includes(friendSearch.toLowerCase()))
-    );
-    return [...list].sort((a, b) => {
-      if (a.isFavorite && !b.isFavorite) return -1;
-      if (!a.isFavorite && b.isFavorite) return 1;
-      return 0;
-    });
-  }, [friends, friendSearch]);
+  // Filtered unified conversations
+  const filteredConversations = useMemo(() => {
+    let list = unifiedConversations;
+
+    // Filter chip tab
+    if (chatFilter === "unread") {
+      list = list.filter((c) => c.unreadCount > 0);
+    } else if (chatFilter === "friends") {
+      list = list.filter((c) => c.type === "friend");
+    } else if (chatFilter === "communities") {
+      list = list.filter((c) => c.type === "community");
+    }
+
+    // Search query
+    if (unifiedSearch.trim()) {
+      const q = unifiedSearch.toLowerCase();
+      list = list.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.handle && c.handle.toLowerCase().includes(q)) ||
+          (c.category && c.category.toLowerCase().includes(q)) ||
+          (c.lastMessage && c.lastMessage.toLowerCase().includes(q))
+      );
+    }
+
+    return list;
+  }, [unifiedConversations, chatFilter, unifiedSearch]);
 
   // Join / Leave / Delete Community actions
   const handleJoin = (id, e) => {
@@ -1102,44 +1320,82 @@ export default function Communities() {
     }
   };
 
-  const handleAddFriendSubmit = async (e) => {
+  const handleSendFriendRequest = async (e) => {
     e.preventDefault();
     const cleanHandle = newFriendHandle.replace(/[@\s]/g, "").toLowerCase();
-    if (!cleanHandle && !newFriendEmail.trim()) {
-      setFriendError("Friend's ONUSLY handle is required (e.g. @himanshu)");
+    const cleanEmail = newFriendEmail.trim().toLowerCase();
+    const target = cleanHandle ? `@${cleanHandle}` : cleanEmail;
+    if (!target) {
+      setFriendError("Please enter an ONUSLY handle (e.g. @bob) or email");
       return;
     }
 
-    let friendData = {
-      name: newFriendName.trim() || verifiedPartner?.name || (cleanHandle ? `@${cleanHandle}` : "Friend"),
-      handle: cleanHandle,
-      email: newFriendEmail.trim(),
-      picture: verifiedPartner?.picture || "",
-    };
-
-    if (cleanHandle && !verifiedPartner) {
-      try {
-        const profile = await lookupUser(cleanHandle);
-        if (profile) {
-          friendData.name = newFriendName.trim() || profile.name || `@${cleanHandle}`;
-          friendData.picture = profile.picture;
-        }
-      } catch {
-        // Fallback
-      }
-    }
-
-    const updated = addFriend(friendData);
-    setFriends(updated);
-    setShowAddFriendModal(false);
-    setNewFriendName("");
-    setNewFriendHandle("");
-    setNewFriendEmail("");
-    setVerifiedPartner(null);
+    setSendingRequest(true);
     setFriendError("");
-    if (updated.length > 0) {
-      selectFriend(updated[0].id);
+    setFriendSuccess("");
+
+    try {
+      await sendFriendRequest(target);
+      setFriendSuccess(`Friend request sent to ${target}! Once they accept, they will appear in your chat list.`);
+      setNewFriendHandle("");
+      setNewFriendEmail("");
+      setVerifiedPartner(null);
+      getFriendRequests().then(setFriendRequests).catch(() => {});
+    } catch (err) {
+      setFriendError(err.message || "Failed to send friend request");
+    } finally {
+      setSendingRequest(false);
     }
+  };
+
+  const handleRespondFriendRequest = async (requestId, action, reqData) => {
+    try {
+      await respondFriendRequest(requestId, action);
+      if (action === "accept" && reqData) {
+        const updated = addFriend({
+          name: reqData.senderName || `@${reqData.senderHandle || "friend"}`,
+          handle: reqData.senderHandle,
+          email: reqData.senderEmail,
+        });
+        setFriends(updated);
+        const added = updated.find(
+          (f) =>
+            (reqData.senderHandle && f.handle && f.handle.toLowerCase() === reqData.senderHandle.toLowerCase()) ||
+            (reqData.senderEmail && f.email && f.email.toLowerCase() === reqData.senderEmail.toLowerCase())
+        );
+        if (added) {
+          selectFriend(added.id);
+          setShowAddFriendModal(false);
+        }
+      }
+      const refreshedReqs = await getFriendRequests();
+      setFriendRequests(refreshedReqs);
+    } catch (err) {
+      setFriendError(err.message || `Failed to ${action} request`);
+    }
+  };
+
+  const handleJoinTrendingCommunity = async (comm) => {
+    try {
+      await joinCommunityApi(comm.id);
+    } catch (err) {
+      console.warn("Server join error, joining locally:", err);
+    }
+    const updated = addOrUpdateCommunity({
+      id: comm.id,
+      name: comm.name,
+      description: comm.description,
+      category: comm.category,
+      membersCount: comm.members || 1,
+      joined: true,
+      code: comm.id.toUpperCase(),
+    });
+    setCommunities(updated);
+    const target = updated.find((c) => c.id === comm.id);
+    if (target) {
+      selectCommunity(target);
+    }
+    setShowExploreModal(false);
   };
 
   // Delete friend confirmation
@@ -1187,6 +1443,11 @@ export default function Communities() {
         replyTo: currentReplyTo,
       },
     });
+
+    const peerTarget = recHandle ? `@${recHandle}` : currentFriend?.email || currentFriend?.id;
+    if (peerTarget) {
+      sendChatMessageApi(peerTarget, text, { replyTo: currentReplyTo }).catch(() => {});
+    }
 
     const updatedMessages = sendChatMessage(
       activeFriendId,
@@ -1260,6 +1521,8 @@ export default function Communities() {
         replyTo: currentReplyTo,
       },
     });
+
+    sendChatMessageApi(selectedCommunity.id, text, { replyTo: currentReplyTo }).catch(() => {});
 
     const updated = sendCommunityMessage(selectedCommunity.id, {
       id: msgId,
@@ -1669,48 +1932,270 @@ export default function Communities() {
     );
   };
 
+  const renderCommunityChatPane = () => {
+    if (!selectedCommunity) return null;
+    if (!selectedCommunity.joined) {
+      return (
+        <div className="flex-1 min-h-0 flex flex-col justify-center h-full p-8 text-center space-y-4 bg-[#121212]">
+          <Users size={40} className="mx-auto text-[#737373]" />
+          <h3 className="text-lg font-bold text-white">Join {selectedCommunity.name}</h3>
+          <p className="text-xs text-[#A3A3A3] max-w-md mx-auto leading-relaxed">
+            {selectedCommunity.description}
+          </p>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={(e) => handleJoin(selectedCommunity.id, e)}
+              className="rounded-xl bg-white px-6 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition"
+            >
+              Join Community to Enter Chat
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden bg-[#121212]">
+        {/* Integrated Community Chat Header */}
+        <div className="shrink-0 flex flex-col gap-3 border-b border-[#2A2A2A] bg-[#181818] p-3 sm:p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setSelectedCommunity(null)}
+              className="rounded-xl border border-[#333333] bg-[#141414] p-2 text-white hover:border-white transition"
+              title="Back to all chats"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <span>{selectedCommunity.name}</span>
+                  {selectedCommunity.isFavorite && (
+                    <Star size={15} className="fill-white text-white shrink-0" title="Favorited Community" />
+                  )}
+                </h2>
+                <span className="rounded-full border border-[#444444] px-2 py-0.5 text-[10px] uppercase font-bold text-[#A3A3A3]">
+                  {selectedCommunity.category}
+                </span>
+              </div>
+              <p className="text-xs text-[#A3A3A3] mt-0.5">
+                {selectedCommunity.membersCount || 1} Members • {selectedCommunity.requiredApprovals || 2} Approvals Required
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => handleCopyCode(selectedCommunity.code)}
+              className="flex items-center gap-1.5 rounded-xl border border-[#333333] bg-[#222222] px-3 py-1.5 text-xs font-semibold text-white hover:border-white transition"
+              title="Share Invite Code"
+            >
+              <Copy size={13} />
+              {copiedCode ? "Copied" : selectedCommunity.code}
+            </button>
+
+            {/* WhatsApp-style 3-Dot Menu */}
+            <div className="relative" ref={commMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowCommMenu((prev) => !prev)}
+                className="rounded-xl border border-[#333333] bg-[#222222] p-2 text-neutral-300 hover:text-white hover:border-white transition"
+                title="More options"
+              >
+                <MoreVertical size={16} />
+              </button>
+
+              {showCommMenu && (
+                <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#333333] bg-[#1E1E1E] py-1 shadow-2xl z-40 backdrop-blur-md">
+                  <button
+                    type="button"
+                    onClick={handleToggleFavoriteActiveCommunity}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                  >
+                    <Star size={14} className={selectedCommunity.isFavorite ? "fill-white text-white" : "text-neutral-400"} />
+                    <span>{selectedCommunity.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCommMenu(false);
+                      setClearChatModal({ isOpen: true, type: "community", targetName: selectedCommunity.name });
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                  >
+                    <RotateCcw size={14} className="text-neutral-400" />
+                    <span>Clear Chat</span>
+                  </button>
+                  {selectedCommunity.joined && (
+                    <>
+                      <div className="my-1 border-t border-[#333333]" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCommMenu(false);
+                          setCommToLeave(selectedCommunity);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                      >
+                        <ArrowLeft size={14} className="text-neutral-400" />
+                        <span>Leave Community</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCommMenu(false);
+                          setCommToDelete(selectedCommunity);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-300 hover:bg-white/10 hover:text-white text-left transition"
+                      >
+                        <Trash2 size={14} className="text-neutral-400" />
+                        <span>Delete Community</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Community Description Banner */}
+        <div className="shrink-0 border-b border-[#222222] bg-[#161616] px-5 py-2.5 flex items-center justify-between text-xs text-[#A3A3A3]">
+          <span className="truncate max-w-xl">
+            📌 {selectedCommunity.description}
+          </span>
+          <span className="font-mono text-[11px] text-[#737373]">
+            Code: {selectedCommunity.code}
+          </span>
+        </div>
+
+        {/* Community Chat Stream */}
+        <div
+          ref={commChatContainerRef}
+          onScroll={(e) => {
+            const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+            isCommAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
+          }}
+          className="flex-1 min-h-0 space-y-3 overflow-y-auto no-scrollbar p-4 overscroll-contain"
+        >
+          {commChatMessages.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center py-16 text-center">
+              <Users size={36} className="text-[#444444] mb-2" />
+              <p className="text-xs font-semibold text-white">Community Chat Active</p>
+              <p className="mt-1 text-xs text-[#737373] max-w-sm">
+                Share messages, photos, or files with your community using the 📎 icon.
+              </p>
+            </div>
+          ) : (
+            commChatMessages.map((msg) => {
+              const u = getUser();
+              const myEmail = (u?.email || "").toLowerCase();
+              const myHandle = (u?.handle || "").replace(/[@\s]/g, "").toLowerCase();
+              const msgSenderEmail = (msg.senderEmail || "").toLowerCase();
+              const msgSenderHandle = (msg.senderHandle || "").replace(/[@\s]/g, "").toLowerCase();
+
+              const isMe =
+                msg.sender === "me" ||
+                (Boolean(myEmail) && msgSenderEmail === myEmail) ||
+                (Boolean(myHandle) && msgSenderHandle === myHandle);
+
+              return (
+                <ChatBubble
+                  key={msg.id}
+                  msg={msg}
+                  isMe={isMe}
+                  showSenderBadge={true}
+                  onDelete={(m, isCurrentUser) => requestDeleteMessage(m, isCurrentUser, "community")}
+                  onReply={(replyContext) => setReplyingTo(replyContext)}
+                  onJumpToMessage={handleJumpToMessage}
+                  isHighlighted={highlightedMsgId === msg.id}
+                  onImageClick={(imgUrl) => setLightboxImage(imgUrl)}
+                />
+              );
+            })
+          )}
+          <div ref={commChatEndRef} />
+        </div>
+
+        {/* Community Chat Input */}
+        <form
+          onSubmit={handleSendCommMessage}
+          className="shrink-0 sticky bottom-0 z-20 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
+        >
+          <button
+            type="button"
+            onClick={() => openAttachModal("community")}
+            title="Attach photos, files or links"
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-[#A3A3A3] hover:border-white hover:text-white hover:bg-[#2C2C2C] transition"
+          >
+            <Paperclip size={18} />
+          </button>
+
+          <input
+            type="text"
+            placeholder="Type a message to community..."
+            value={commMessageInput}
+            onChange={(e) => setCommMessageInput(e.target.value)}
+            className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-4 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+          />
+
+          <button
+            type="submit"
+            disabled={!commMessageInput.trim()}
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
+          >
+            <Send size={15} />
+          </button>
+        </form>
+      </div>
+    );
+  };
+
   return (
     <AppLayout>
       <div className="mx-auto w-full max-w-[1720px] flex-1 flex flex-col min-h-0 h-full">
-        {/* Top Header & Section Switcher */}
+        {/* Top Header & Actions */}
         <div className="shrink-0 flex flex-col justify-between gap-3 border-b border-white/[0.08] pb-3 sm:flex-row sm:items-center">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-              Community & Friends
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2.5">
+              <span>Chats</span>
+              <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-xs font-semibold text-white">
+                {unifiedConversations.length}
+              </span>
             </h1>
             <p className="mt-0.5 text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
-              Chat, share files, and verify goals with your accountability partners.
+              WhatsApp-style messaging with accountability partners & joined community groups.
             </p>
           </div>
 
-          {/* Section Switcher Tabs */}
-          <div className="flex items-center rounded-xl border border-white/10 bg-[#16161A] p-1 text-xs font-semibold shadow-inner">
+          {/* Quick Action Buttons */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setMainView("communities")}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 transition-all duration-200 ${
-                mainView === "communities"
-                  ? "bg-white text-black font-extrabold shadow-md"
-                  : "text-[#A1A1AA] hover:text-white"
-              }`}
+              onClick={() => setShowExploreModal(true)}
+              className="flex items-center gap-2 rounded-xl border border-white/15 bg-[#18181C] hover:bg-[#222228] px-3.5 py-2 text-xs font-bold text-white transition shadow-sm"
+              title="Explore and join accountability communities"
             >
-              <Users size={15} />
-              Communities ({communities.length})
+              <Compass size={15} className="text-white" />
+              <span>Explore Communities</span>
             </button>
             <button
               type="button"
-              onClick={() => setMainView("friends")}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 transition-all duration-200 ${
-                mainView === "friends"
-                  ? "bg-white text-black font-extrabold shadow-md"
-                  : "text-[#A1A1AA] hover:text-white"
-              }`}
+              onClick={() => {
+                setFriendModalTab(friendRequests.incoming?.length > 0 ? "requests" : "add");
+                setShowAddFriendModal(true);
+              }}
+              className="btn-glow flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold text-black shadow-sm"
+              title="Add friend or view pending friend requests"
             >
-              <MessageSquare size={15} />
-              <span>Friends ({friends.length})</span>
-              {totalUnreadFriends > 0 && (
-                <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black shadow-[0_0_10px_rgba(255,255,255,0.4)] animate-pulse">
-                  {totalUnreadFriends > 99 ? "99+" : totalUnreadFriends}
+              <UserPlus size={15} />
+              <span>Add Friend</span>
+              {friendRequests.incoming?.length > 0 && (
+                <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-black text-[9px] font-black text-white px-1">
+                  {friendRequests.incoming.length}
                 </span>
               )}
             </button>
@@ -1718,485 +2203,284 @@ export default function Communities() {
         </div>
 
         {/* ============================================================
-            VIEW 1: COMMUNITIES SECTION
+            WHATSAPP-STYLE UNIFIED CHAT VIEW (Friends + Joined Communities)
         ============================================================ */}
-        {mainView === "communities" && (
-          <div className="flex-1 min-h-0 flex flex-col mt-3">
-            {selectedCommunity ? (
-              /* Selected Community: Group Chat or Rules Preview */
-              selectedCommunity.joined ? (
-                <div className="flex-1 min-h-0 flex flex-col rounded-2xl border border-white/10 bg-[#121215]/90 backdrop-blur-2xl shadow-2xl overflow-hidden">
-                  {/* Integrated Community Chat Header */}
-                  <div className="shrink-0 flex flex-col gap-3 border-b border-[#2A2A2A] bg-[#181818] p-3 sm:p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCommunity(null)}
-                        className="rounded-xl border border-[#333333] bg-[#141414] p-2 text-white hover:border-white transition"
-                        title="Back to communities"
-                      >
-                        <ArrowLeft size={16} />
-                      </button>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                            <span>{selectedCommunity.name}</span>
-                            {selectedCommunity.isFavorite && (
-                              <Star size={15} className="fill-white text-white shrink-0" title="Favorited Community" />
-                            )}
-                          </h2>
-                          <span className="rounded-full border border-[#444444] px-2 py-0.5 text-[10px] uppercase font-bold text-[#A3A3A3]">
-                            {selectedCommunity.category}
-                          </span>
-                        </div>
-                        <p className="text-xs text-[#A3A3A3] mt-0.5">
-                          {selectedCommunity.membersCount} Members • {selectedCommunity.requiredApprovals} Approvals Required
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => handleCopyCode(selectedCommunity.code)}
-                        className="flex items-center gap-1.5 rounded-xl border border-[#333333] bg-[#222222] px-3 py-1.5 text-xs font-semibold text-white hover:border-white transition"
-                        title="Share Invite Code"
-                      >
-                        <Copy size={13} />
-                        {copiedCode ? "Copied" : selectedCommunity.code}
-                      </button>
-
-                      {/* WhatsApp-style 3-Dot Menu */}
-                      <div className="relative" ref={commMenuRef}>
-                        <button
-                          type="button"
-                          onClick={() => setShowCommMenu((prev) => !prev)}
-                          className="rounded-xl border border-[#333333] bg-[#222222] p-2 text-neutral-300 hover:text-white hover:border-white transition"
-                          title="More options"
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-
-                        {showCommMenu && (
-                          <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#333333] bg-[#1E1E1E] py-1 shadow-2xl z-40 backdrop-blur-md">
-                            <button
-                              type="button"
-                              onClick={handleToggleFavoriteActiveCommunity}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
-                            >
-                              <Star size={14} className={selectedCommunity.isFavorite ? "fill-white text-white" : "text-neutral-400"} />
-                              <span>{selectedCommunity.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowCommMenu(false);
-                                setClearChatModal({ isOpen: true, type: "community", targetName: selectedCommunity.name });
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
-                            >
-                              <RotateCcw size={14} className="text-neutral-400" />
-                              <span>Clear Chat</span>
-                            </button>
-                            {selectedCommunity.joined && (
-                              <>
-                                <div className="my-1 border-t border-[#333333]" />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowCommMenu(false);
-                                    setCommToLeave(selectedCommunity);
-                                  }}
-                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
-                                >
-                                  <ArrowLeft size={14} className="text-neutral-400" />
-                                  <span>Leave Community</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowCommMenu(false);
-                                    setCommToDelete(selectedCommunity);
-                                  }}
-                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-300 hover:bg-white/10 hover:text-white text-left transition"
-                                >
-                                  <Trash2 size={14} className="text-neutral-400" />
-                                  <span>Delete Community</span>
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Community Description Banner */}
-                  <div className="shrink-0 border-b border-[#222222] bg-[#161616] px-5 py-2.5 flex items-center justify-between text-xs text-[#A3A3A3]">
-                    <span className="truncate max-w-xl">
-                      📌 {selectedCommunity.description}
-                    </span>
-                    <span className="font-mono text-[11px] text-[#737373]">
-                      Code: {selectedCommunity.code}
-                    </span>
-                  </div>
-
-                  {/* Community Chat Stream */}
-                  <div
-                    ref={commChatContainerRef}
-                    onScroll={(e) => {
-                      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-                      isCommAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
-                    }}
-                    className="flex-1 min-h-0 space-y-3 overflow-y-auto no-scrollbar p-4 overscroll-contain"
-                  >
-                    {commChatMessages.length === 0 ? (
-                      <div className="flex h-full flex-col items-center justify-center py-16 text-center">
-                        <Users size={36} className="text-[#444444] mb-2" />
-                        <p className="text-xs font-semibold text-white">
-                          Community Chat Active
-                        </p>
-                        <p className="mt-1 text-xs text-[#737373] max-w-sm">
-                          Share messages, photos, or files with your community using the 📎 icon.
-                        </p>
-                      </div>
-                    ) : (
-                      commChatMessages.map((msg) => (
-                        <ChatBubble
-                          key={msg.id}
-                          msg={msg}
-                          isMe={msg.sender === "me"}
-                          onDelete={(m, isMe) => requestDeleteMessage(m, isMe, "community")}
-                          onReply={(replyContext) => setReplyingTo(replyContext)}
-                          onJumpToMessage={handleJumpToMessage}
-                          isHighlighted={highlightedMsgId === msg.id}
-                          onImageClick={setLightboxImage}
-                          showSenderBadge={true}
-                        />
-                      ))
-                    )}
-                    <div ref={commChatEndRef} />
-                  </div>
-
-                  {/* Quoted Reply banner */}
-                  {replyingTo && (
-                    <div className="shrink-0 flex items-center justify-between border-t border-l-4 border-l-white border-t-[#2A2A2A] bg-[#1E1E1E] px-4 py-2 text-xs">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-white">
-                          <Reply size={12} />
-                          <span>Replying to {replyingTo.senderName || "Message"}</span>
-                        </div>
-                        <p className="truncate text-[11px] text-neutral-300 italic mt-0.5">
-                          {replyingTo.text}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setReplyingTo(null)}
-                        className="ml-3 rounded-full p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white transition"
-                        title="Cancel reply"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Community Chat Input - WhatsApp style (PINNED STATIC AT BOTTOM) */}
-                  <form
-                    onSubmit={handleSendCommMessage}
-                    className="shrink-0 sticky bottom-0 z-20 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => openAttachModal("community")}
-                      title="Attach photos, files or links"
-                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-[#A3A3A3] hover:border-white hover:text-white hover:bg-[#2C2C2C] transition"
-                    >
-                      <Paperclip size={18} />
-                    </button>
-
-                    <input
-                      type="text"
-                      placeholder="Type a message..."
-                      value={commMessageInput}
-                      onChange={(e) => setCommMessageInput(e.target.value)}
-                      className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-4 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
-                    />
-
-                    <button
-                      type="submit"
-                      disabled={!commMessageInput.trim()}
-                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
-                    >
-                      <Send size={15} />
-                    </button>
-                  </form>
-                </div>
-              ) : (
-                /* Not joined preview */
-                <div className="flex-1 min-h-0 flex flex-col justify-center rounded-2xl border border-[#2B2B2B] bg-[#1A1A1A] p-8 text-center space-y-4">
-                  <Users size={40} className="mx-auto text-[#737373]" />
-                  <h3 className="text-lg font-bold text-white">Join {selectedCommunity.name}</h3>
-                  <p className="text-xs text-[#A3A3A3] max-w-md mx-auto leading-relaxed">
-                    {selectedCommunity.description}
-                  </p>
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={(e) => handleJoin(selectedCommunity.id, e)}
-                      className="rounded-xl bg-white px-6 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition"
-                    >
-                      Join Community to Enter Chat
-                    </button>
-                  </div>
-                </div>
-              )
-            ) : (
-              /* Communities Explorer */
-              <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-6">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="relative w-64">
-                      <Search
-                        size={15}
-                        className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#737373]"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Search communities..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full rounded-xl border border-[#333333] bg-[#1A1A1A] py-2 pl-9 pr-3 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
-                      />
-                    </div>
-
-                    <form onSubmit={handleJoinByCode} className="flex items-center gap-1.5">
-                      <input
-                        type="text"
-                        placeholder="Private Code"
-                        value={privateCode}
-                        onChange={(e) => setPrivateCode(e.target.value)}
-                        className="w-32 rounded-xl border border-[#333333] bg-[#1A1A1A] py-2 px-3 text-xs text-white uppercase placeholder-[#737373] focus:border-white focus:outline-none"
-                      />
-                      <button
-                        type="submit"
-                        className="rounded-xl border border-[#444444] bg-[#222222] px-3.5 py-2 text-xs font-semibold text-white hover:border-white transition"
-                      >
-                        Join
-                      </button>
-                    </form>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateModal(true)}
-                    className="btn-premium flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black hover:bg-neutral-100 transition shadow-sm"
-                  >
-                    <Plus size={16} />
-                    Create Community
-                  </button>
-                </div>
-
-                {codeNotice.error && (
-                  <div className="rounded-xl border border-[#444444] bg-[#222222] p-3 text-xs text-white animate-fade-in">
-                    {codeNotice.error}
-                  </div>
-                )}
-                {codeNotice.success && (
-                  <div className="rounded-xl border border-white bg-white/10 p-3 text-xs font-semibold text-white animate-fade-in">
-                    {codeNotice.success}
-                  </div>
-                )}
-
-                {filteredCommunities.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-[#333333] bg-[#1A1A1A]/40 p-12 text-center">
-                    <Users size={36} className="mx-auto text-[#737373] mb-3" />
-                    <h3 className="text-base font-bold text-white">No communities yet</h3>
-                    <p className="mt-1 text-xs text-[#A3A3A3]">
-                      Click "+ Create Community" above to build your own community and add your friends.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                    {filteredCommunities.map((c) => (
-                      <div
-                        key={c.id}
-                        onClick={() => setSelectedCommunity(c)}
-                        className="card-glass cursor-pointer rounded-2xl p-6 transition-all duration-300 hover:border-white/30 group"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-base font-bold text-white flex items-center gap-1.5 group-hover:text-neutral-100 transition-colors">
-                              <span>{c.name}</span>
-                              {c.isFavorite && (
-                                <Star size={13} className="fill-white text-white shrink-0" title="Starred Community" />
-                              )}
-                            </h3>
-                            {c.joined && (
-                              <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white">
-                                Joined
-                              </span>
-                            )}
-                          </div>
-                          <span className="rounded-full border border-[#444444] px-2.5 py-0.5 text-[10px] uppercase font-semibold text-[#A3A3A3]">
-                            {c.category}
-                          </span>
-                        </div>
-                        <p className="mt-3 text-xs leading-relaxed text-[#A3A3A3] line-clamp-2">
-                          {c.description}
-                        </p>
-                        <div className="mt-5 flex items-center justify-between border-t border-[#2B2B2B] pt-4 text-xs">
-                          <span className="text-[#737373]">{c.membersCount} Members</span>
-                          <span className="font-semibold text-white">
-                            {c.joined ? "Open Chat →" : "View Community →"}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ============================================================
-            VIEW 2: WHATSAPP-STYLE FRIENDS & CHAT SECTION
-        ============================================================ */}
-        {mainView === "friends" && (
-          <div className="flex-1 min-h-0 grid grid-cols-1 overflow-hidden rounded-2xl border border-white/10 bg-[#121215]/90 backdrop-blur-2xl shadow-2xl md:grid-cols-12 mt-3">
-            {/* Left Column: Friends List */}
-            <div className={`${activeFriend ? "hidden md:flex" : "flex"} flex-col h-full min-h-0 border-b border-white/10 bg-[#0E0E12]/80 backdrop-blur-xl p-4 md:col-span-4 md:border-b-0 md:border-r md:border-white/10 overflow-hidden`}>
-              <div className="shrink-0 flex items-center justify-between pb-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">
-                  Friends ({friends.length})
-                </span>
+        <div className="flex-1 min-h-0 grid grid-cols-1 overflow-hidden rounded-2xl border border-white/10 bg-[#121215]/90 backdrop-blur-2xl shadow-2xl md:grid-cols-12 mt-3">
+          {/* Left Column: Unified Conversations List */}
+          <div
+            className={`${
+              activeFriend || selectedCommunity ? "hidden md:flex" : "flex"
+            } flex-col h-full min-h-0 border-b border-white/10 bg-[#0E0E12]/80 backdrop-blur-xl p-3 sm:p-4 md:col-span-4 md:border-b-0 md:border-r md:border-white/10 overflow-hidden`}
+          >
+            {/* Header: Chat count & quick actions */}
+            <div className="shrink-0 flex items-center justify-between pb-2.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">
+                Chats ({filteredConversations.length})
+              </span>
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setShowAddFriendModal(true)}
-                  className="btn-glow inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-black shadow-sm"
+                  onClick={() => setShowExploreModal(true)}
+                  className="rounded-lg border border-[#333333] bg-[#1A1A1A] px-2.5 py-1 text-[11px] font-semibold text-neutral-300 hover:text-white hover:border-white transition"
+                  title="Explore and join communities"
                 >
-                  <UserPlus size={14} />
+                  Explore
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFriendModalTab(friendRequests.incoming?.length > 0 ? "requests" : "add");
+                    setShowAddFriendModal(true);
+                  }}
+                  className="btn-glow inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold text-black shadow-sm"
+                  title="Add friend"
+                >
+                  <UserPlus size={13} />
                   Add
+                  {friendRequests.incoming?.length > 0 && (
+                    <span className="flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-black text-[8px] font-black text-white px-0.5">
+                      {friendRequests.incoming.length}
+                    </span>
+                  )}
                 </button>
               </div>
+            </div>
 
-              {/* Search Friends */}
-              <div className="shrink-0 relative mt-2">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737373]"
-                />
-                <input
-                  type="text"
-                  placeholder="Search friends..."
-                  value={friendSearch}
-                  onChange={(e) => setFriendSearch(e.target.value)}
-                  className="w-full rounded-xl border border-[#2A2A2A] bg-[#1E1E1E] py-2 pl-8 pr-3 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
-                />
-              </div>
-
-              {/* Friends List items */}
-              <div className="flex-1 min-h-0 mt-4 space-y-1 overflow-y-auto no-scrollbar">
-                {filteredFriends.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <p className="text-xs text-[#737373]">No friends added yet.</p>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddFriendModal(true)}
-                      className="mt-3 text-xs font-semibold text-white underline"
-                    >
-                      + Add your first friend
-                    </button>
-                  </div>
-                ) : (
-                  filteredFriends.map((f) => {
-                    const isSelected = f.id === activeFriendId;
-                    const hasUnread = Number(f.unreadCount) > 0 && !isSelected;
-                    return (
-                      <div
-                        key={f.id}
-                        onClick={() => selectFriend(f.id)}
-                        className={`flex cursor-pointer items-center justify-between rounded-xl p-3 transition-colors ${
-                          isSelected
-                            ? "bg-[#252525] border border-white/20"
-                            : "hover:bg-[#1E1E1E]"
+            {/* WhatsApp Filter Chips: All | Unread | Friends | Communities */}
+            <div className="shrink-0 flex items-center gap-1.5 py-1.5 overflow-x-auto no-scrollbar">
+              {[
+                { id: "all", label: "All" },
+                {
+                  id: "unread",
+                  label: "Unread",
+                  badge: unifiedConversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0),
+                },
+                { id: "friends", label: "Friends" },
+                { id: "communities", label: "Communities" },
+              ].map((chip) => {
+                const isActive = chatFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setChatFilter(chip.id)}
+                    className={`shrink-0 flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                      isActive
+                        ? "bg-white text-black font-bold shadow-sm"
+                        : "bg-[#1E1E24] text-neutral-400 hover:text-white hover:bg-[#282830]"
+                    }`}
+                  >
+                    <span>{chip.label}</span>
+                    {chip.badge > 0 && (
+                      <span
+                        className={`rounded-full px-1.5 py-0.2 text-[9px] font-bold ${
+                          isActive ? "bg-black text-white" : "bg-white/20 text-white"
                         }`}
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-xs font-bold text-white overflow-hidden">
-                            {f.picture ? (
+                        {chip.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Unified Search Input */}
+            <div className="shrink-0 relative mt-2">
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737373]"
+              />
+              <input
+                type="text"
+                placeholder="Search chats, handles, communities..."
+                value={unifiedSearch}
+                onChange={(e) => setUnifiedSearch(e.target.value)}
+                className="w-full rounded-xl border border-[#2A2A2A] bg-[#1E1E1E] py-2 pl-8 pr-3 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+              />
+            </div>
+
+            {/* Incoming Friend Request Alert Banner */}
+            {friendRequests.incoming && friendRequests.incoming.length > 0 && (
+              <div
+                onClick={() => {
+                  setFriendModalTab("requests");
+                  setShowAddFriendModal(true);
+                }}
+                className="shrink-0 mt-2.5 flex cursor-pointer items-center justify-between gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs transition hover:bg-white/15 shadow-sm"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  <p className="font-semibold text-white truncate text-[11px]">
+                    {friendRequests.incoming.length} incoming friend {friendRequests.incoming.length === 1 ? "request" : "requests"}
+                  </p>
+                </div>
+                <span className="btn-glow shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold text-black">
+                  Review
+                </span>
+              </div>
+            )}
+
+            {/* Unified Conversations List items */}
+            <div className="flex-1 min-h-0 mt-3 space-y-1 overflow-y-auto no-scrollbar">
+              {filteredConversations.length === 0 ? (
+                <div className="flex h-48 flex-col items-center justify-center p-4 text-center">
+                  <MessageSquare size={28} className="text-[#444444] mb-2" />
+                  <p className="text-xs font-semibold text-neutral-300">
+                    No conversations found
+                  </p>
+                  <p className="text-[11px] text-[#737373] max-w-xs mt-1">
+                    {unifiedSearch
+                      ? "Try a different search keyword"
+                      : "Add an accountability friend or join a trending community to get started"}
+                  </p>
+                  <div className="flex items-center gap-2 mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowExploreModal(true)}
+                      className="rounded-lg border border-[#333333] bg-[#1E1E1E] px-3 py-1.5 text-xs font-medium text-white hover:border-white transition"
+                    >
+                      Explore Communities
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFriendModalTab("add");
+                        setShowAddFriendModal(true);
+                      }}
+                      className="btn-glow rounded-lg px-3 py-1.5 text-xs font-bold text-black"
+                    >
+                      Add Friend
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                filteredConversations.map((item) => {
+                  const isFriend = item.type === "friend";
+                  const isSelected = isFriend
+                    ? activeFriendId === item.id
+                    : selectedCommunity?.id === item.id;
+                  const hasUnread = item.unreadCount > 0;
+
+                  return (
+                    <div
+                      key={`${item.type}-${item.id}`}
+                      onClick={() => handleSelectConversation(item)}
+                      className={`flex cursor-pointer items-center justify-between rounded-xl p-3 transition-colors ${
+                        isSelected
+                          ? "bg-[#252525] border border-white/20"
+                          : "hover:bg-[#1E1E1E]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {/* Avatar */}
+                        {isFriend ? (
+                          <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-xs font-bold text-white overflow-hidden">
+                            {item.picture ? (
                               <img
-                                src={f.picture}
-                                alt={f.name}
+                                src={item.picture}
+                                alt={item.name}
                                 className="h-full w-full object-cover"
                                 referrerPolicy="no-referrer"
                               />
                             ) : (
-                              f.name[0]?.toUpperCase() || "F"
+                              item.name[0]?.toUpperCase() || "F"
                             )}
                             <span
                               className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#1E1E1E] ${
-                                (f.handle &&
+                                (item.handle &&
                                   onlineHandles.has(
-                                    f.handle.toLowerCase().replace(/^@/, "")
+                                    item.handle.toLowerCase().replace(/^@/, "")
                                   )) ||
-                                (f.email && onlineEmails.has(f.email.trim().toLowerCase()))
+                                (item.email &&
+                                  onlineEmails.has(item.email.trim().toLowerCase()))
                                   ? "bg-white shadow-[0_0_6px_rgba(255,255,255,0.8)]"
                                   : "bg-neutral-600"
                               }`}
                               title={
-                                (f.handle &&
+                                (item.handle &&
                                   onlineHandles.has(
-                                    f.handle.toLowerCase().replace(/^@/, "")
+                                    item.handle.toLowerCase().replace(/^@/, "")
                                   )) ||
-                                (f.email && onlineEmails.has(f.email.trim().toLowerCase()))
+                                (item.email &&
+                                  onlineEmails.has(item.email.trim().toLowerCase()))
                                   ? "Online"
                                   : "Offline"
                               }
                             />
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <p className={`truncate text-xs ${hasUnread ? "font-bold text-white" : "font-semibold text-white"}`}>
-                                {f.name}
-                              </p>
-                              {f.isFavorite && (
-                                <Star size={11} className="fill-white text-white shrink-0" title="Starred Friend" />
-                              )}
-                              {f.handle && (
-                                <span className="font-mono text-[10px] text-[#A3A3A3]">
-                                  @{f.handle.replace(/^@/, "")}
-                                </span>
-                              )}
-                            </div>
-                            <p className={`truncate text-[11px] ${hasUnread ? "font-medium text-neutral-200" : "text-[#737373]"}`}>
-                              {f.lastMessage || "Click to start chatting"}
-                            </p>
+                        ) : (
+                          <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-white">
+                            <Users size={18} className="text-neutral-300" />
                           </div>
-                        </div>
+                        )}
 
-                        <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
-                          {f.lastMessageTime && (
-                            <span className={`text-[10px] ${hasUnread ? "font-bold text-white" : "text-[#737373]"}`}>
-                              {f.lastMessageTime}
-                            </span>
-                          )}
-                          {hasUnread && (
-                            <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white px-1.5 text-[10px] font-black text-black shadow-[0_0_10px_rgba(255,255,255,0.4)] animate-in zoom-in-75 duration-200">
-                              {f.unreadCount > 99 ? "99+" : f.unreadCount}
-                            </span>
-                          )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p
+                              className={`truncate text-xs ${
+                                hasUnread ? "font-bold text-white" : "font-semibold text-white"
+                              }`}
+                            >
+                              {item.name}
+                            </p>
+                            {item.isFavorite && (
+                              <Star
+                                size={11}
+                                className="fill-white text-white shrink-0"
+                                title="Favorited"
+                              />
+                            )}
+                            {isFriend && item.handle && (
+                              <span className="font-mono text-[10px] text-[#A3A3A3]">
+                                @{item.handle.replace(/^@/, "")}
+                              </span>
+                            )}
+                            {!isFriend && (
+                              <span className="rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.2 text-[9px] font-bold text-neutral-400 uppercase">
+                                {item.category}
+                              </span>
+                            )}
+                          </div>
+                          <p
+                            className={`truncate text-[11px] ${
+                              hasUnread ? "font-medium text-neutral-200" : "text-[#737373]"
+                            }`}
+                          >
+                            {item.lastMessage || (isFriend ? "Click to start chatting" : "Community group chat")}
+                          </p>
                         </div>
                       </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
 
-            {/* Right Column: 1-on-1 Chat Box */}
-            <div className={`${activeFriend ? "flex" : "hidden md:flex"} flex-col h-full min-h-0 overflow-hidden bg-[#121212] md:col-span-8`}>
+                      <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
+                        {item.lastMessageTime && (
+                          <span
+                            className={`text-[10px] ${
+                              hasUnread ? "font-bold text-white" : "text-[#737373]"
+                            }`}
+                          >
+                            {item.lastMessageTime}
+                          </span>
+                        )}
+                        {hasUnread && (
+                          <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white px-1.5 text-[10px] font-black text-black shadow-[0_0_10px_rgba(255,255,255,0.4)] animate-in zoom-in-75 duration-200">
+                            {item.unreadCount > 99 ? "99+" : item.unreadCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Chat Box */}
+          <div
+            className={`${
+              activeFriend || selectedCommunity ? "flex" : "hidden md:flex"
+            } flex-col h-full min-h-0 overflow-hidden bg-[#121212] md:col-span-8`}
+          >
               {activeFriend ? (
                 <>
                   {/* Chat Header */}
@@ -2420,6 +2704,8 @@ export default function Communities() {
                     </button>
                   </form>
                 </>
+              ) : selectedCommunity ? (
+                renderCommunityChatPane()
               ) : (
                 <div className="relative flex h-full flex-col items-center justify-center p-8 text-center select-none overflow-hidden bg-[#121212]">
                   {/* Subtle radial ambient background glow */}
@@ -2435,28 +2721,38 @@ export default function Communities() {
 
                   {/* Heading & Tagline */}
                   <h2 className="mt-6 text-xl sm:text-2xl font-bold tracking-tight text-white">
-                    Share proof with friends
+                    ONUSLY Unified Chat
                   </h2>
                   <p className="mt-2.5 max-w-sm text-xs sm:text-sm leading-relaxed text-[#A3A3A3]">
-                    Select an accountability partner from the left to exchange proof, verify completed goals, and stay locked in together.
+                    Select an accountability partner or joined community from the left to exchange proof, verify completed goals, and stay locked in.
                   </p>
 
-                  {/* Quick Action / Guide Pill */}
-                  {friends.length === 0 ? (
+                  <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                     <button
                       type="button"
-                      onClick={() => setShowAddFriendModal(true)}
-                      className="mt-6 flex items-center gap-2 rounded-xl border border-white bg-white px-4 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-lg"
+                      onClick={() => {
+                        setFriendModalTab(friendRequests.incoming?.length > 0 ? "requests" : "add");
+                        setShowAddFriendModal(true);
+                      }}
+                      className="flex items-center gap-2 rounded-xl border border-white bg-white px-4 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-lg"
                     >
                       <UserPlus size={14} />
-                      Add your first friend
+                      Add Friend
+                      {friendRequests.incoming?.length > 0 && (
+                        <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-black text-[9px] font-black text-white px-1">
+                          {friendRequests.incoming.length}
+                        </span>
+                      )}
                     </button>
-                  ) : (
-                    <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-[#2B2B2B] bg-[#181818] px-4 py-1.5 text-xs text-[#8A8A8A]">
-                      <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse shadow-[0_0_6px_rgba(255,255,255,0.8)]" />
-                      <span>Select a friend from the left sidebar to start</span>
-                    </div>
-                  )}
+                    <button
+                      type="button"
+                      onClick={() => setShowExploreModal(true)}
+                      className="flex items-center gap-2 rounded-xl border border-[#333333] bg-[#1E1E1E] px-4 py-2.5 text-xs font-semibold text-white hover:border-white transition"
+                    >
+                      <Users size={14} />
+                      Explore Communities
+                    </button>
+                  </div>
 
                   {/* WhatsApp-style Security & Verification footer */}
                   <div className="mt-12 flex items-center gap-2 text-[11px] text-[#555555]">
@@ -2467,7 +2763,6 @@ export default function Communities() {
               )}
             </div>
           </div>
-        )}
 
         {/* ============================================================
             WHATSAPP-STYLE ATTACHMENT MODAL (No goal required)
@@ -2771,116 +3066,452 @@ export default function Communities() {
         )}
 
         {/* ============================================================
-            ADD FRIEND MODAL
+            EXPLORE COMMUNITIES MODAL (WhatsApp Discovery & Trending)
         ============================================================ */}
-        {showAddFriendModal && (
+        {showExploreModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-2xl border border-[#333333] bg-[#1A1A1A] p-6 shadow-2xl">
-              <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
-                <h3 className="text-base font-bold text-white">
-                  Add Accountability Partner
-                </h3>
+            <div className="w-full max-w-2xl rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl max-h-[85vh] flex flex-col">
+              {/* Header */}
+              <div className="shrink-0 flex items-center justify-between border-b border-[#2A2A2A] pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20">
+                    <Compass size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Explore Communities</h3>
+                    <p className="text-xs text-[#A3A3A3]">
+                      Discover trending accountability groups or join with an invite code
+                    </p>
+                  </div>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowAddFriendModal(false)}
-                  className="rounded-lg p-1 text-[#737373] hover:text-white"
+                  onClick={() => setShowExploreModal(false)}
+                  className="rounded-lg p-1 text-[#737373] hover:text-white transition"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              {friendError && (
-                <div className="mt-4 rounded-xl border border-white/20 bg-white/[0.04] p-3 text-xs text-neutral-300">
-                  {friendError}
-                </div>
+              {/* Private Code Quick Join bar */}
+              <form onSubmit={handleJoinByCode} className="shrink-0 mt-4 flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Have an invite code? (e.g. FOCUS5)"
+                  value={privateCode}
+                  onChange={(e) => setPrivateCode(e.target.value.toUpperCase())}
+                  className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-3.5 py-2 text-xs font-mono text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={!privateCode.trim()}
+                  className="rounded-xl border border-white bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition disabled:opacity-40"
+                >
+                  Join Code
+                </button>
+              </form>
+              {codeNotice.error && (
+                <p className="mt-1.5 text-xs text-rose-400">{codeNotice.error}</p>
+              )}
+              {codeNotice.success && (
+                <p className="mt-1.5 text-xs text-emerald-400">{codeNotice.success}</p>
               )}
 
-              <form onSubmit={handleAddFriendSubmit} className="mt-4 space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-white mb-1.5">
-                    Friend's ONUSLY Handle (Tag)
-                  </label>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <AtSign
-                        size={14}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737373]"
-                      />
-                      <input
-                        type="text"
-                        placeholder="e.g. himanshu or @robert"
-                        value={newFriendHandle}
-                        onChange={(e) => {
-                          setNewFriendHandle(e.target.value);
-                          setVerifiedPartner(null);
-                        }}
-                        className="w-full rounded-xl border border-[#333333] bg-[#141414] py-2 pl-8 pr-3 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
-                        required
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleVerifyTag}
-                      disabled={verifyingHandle || !newFriendHandle.trim()}
-                      className="rounded-xl border border-[#444444] bg-[#222222] px-3 py-2 text-xs font-semibold text-white hover:border-white disabled:opacity-40 transition"
-                    >
-                      {verifyingHandle ? (
-                        <Loader2 size={13} className="animate-spin" />
-                      ) : (
-                        "Verify"
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {verifiedPartner && (
-                  <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/5 p-3">
-                    <div className="h-9 w-9 rounded-full overflow-hidden bg-neutral-800 border border-white/20 flex items-center justify-center text-xs font-bold text-white">
-                      {verifiedPartner.picture ? (
-                        <img
-                          src={verifiedPartner.picture}
-                          alt="avatar"
-                          className="h-full w-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        verifiedPartner.name?.[0]?.toUpperCase() || "U"
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-white truncate">
-                        {verifiedPartner.name}
-                      </p>
-                      <p className="font-mono text-[11px] text-neutral-400">
-                        @{verifiedPartner.handle}
-                      </p>
-                    </div>
-                    <Check size={16} className="text-white" />
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-xs font-bold text-white mb-1.5">
-                    Display Name
-                  </label>
+              {/* Category Pills & Search */}
+              <div className="shrink-0 mt-4 space-y-2.5">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737373]" />
                   <input
                     type="text"
-                    placeholder="Nickname or Real Name"
-                    value={newFriendName}
-                    onChange={(e) => setNewFriendName(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                    placeholder="Search trending communities..."
+                    value={exploreSearch}
+                    onChange={(e) => setExploreSearch(e.target.value)}
+                    className="w-full rounded-xl border border-[#333333] bg-[#121212] py-2 pl-8 pr-3 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
                   />
                 </div>
 
-                <div className="pt-2">
-                  <button
-                    type="submit"
-                    className="w-full rounded-xl bg-white py-3 text-xs font-bold text-black hover:bg-neutral-200 transition"
-                  >
-                    Add Partner
-                  </button>
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                  {["All", "Coding & Tech", "Health & Fitness", "Academic Study", "Daily Routine", "General Focus"].map((cat) => {
+                    const isSel = exploreCategory === cat;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setExploreCategory(cat)}
+                        className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                          isSel
+                            ? "bg-white text-black font-bold"
+                            : "bg-[#222228] text-neutral-400 hover:text-white"
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    );
+                  })}
                 </div>
-              </form>
+              </div>
+
+              {/* Communities List */}
+              <div className="flex-1 min-h-0 mt-4 overflow-y-auto no-scrollbar space-y-2.5 pr-1">
+                {(() => {
+                  const items = (trendingCommunities.length > 0 ? trendingCommunities : communities).filter((comm) => {
+                    const matchCat = exploreCategory === "All" || comm.category === exploreCategory;
+                    const matchSearch =
+                      !exploreSearch.trim() ||
+                      comm.name.toLowerCase().includes(exploreSearch.toLowerCase()) ||
+                      (comm.description && comm.description.toLowerCase().includes(exploreSearch.toLowerCase()));
+                    return matchCat && matchSearch;
+                  });
+
+                  if (items.length === 0) {
+                    return (
+                      <div className="py-12 text-center">
+                        <Users size={32} className="mx-auto text-neutral-600 mb-2" />
+                        <p className="text-xs font-semibold text-neutral-300">No communities found</p>
+                        <p className="text-[11px] text-[#737373] mt-1">Try another category or search term</p>
+                      </div>
+                    );
+                  }
+
+                  return items.map((comm) => {
+                    const isAlreadyJoined = communities.some((c) => c.id === comm.id && c.joined);
+                    return (
+                      <div
+                        key={comm.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#2B2B2B] bg-[#121214] p-3.5 hover:border-white/20 transition"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-white truncate">{comm.name}</h4>
+                            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[9px] font-bold text-neutral-400 uppercase">
+                              {comm.category}
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#A3A3A3] mt-1 line-clamp-2">
+                            {comm.description || "Accountability community"}
+                          </p>
+                          <div className="flex items-center gap-3 mt-2 text-[10px] text-[#737373]">
+                            <span>{comm.members || comm.membersCount || 1} members</span>
+                            <span>•</span>
+                            <span>{comm.requiredApprovals || 2} approvals required</span>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-2">
+                          {isAlreadyJoined ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const found = communities.find((c) => c.id === comm.id);
+                                if (found) {
+                                  setActiveFriendId(null);
+                                  setSelectedCommunity(found);
+                                  setShowExploreModal(false);
+                                }
+                              }}
+                              className="rounded-xl border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 transition"
+                            >
+                              Open Chat
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleJoinTrendingCommunity(comm)}
+                              className="btn-glow rounded-xl px-4 py-1.5 text-xs font-bold text-black transition"
+                            >
+                              Join
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+
+              {/* Footer: Create Community prompt */}
+              <div className="shrink-0 mt-4 pt-3 border-t border-[#2A2A2A] flex items-center justify-between">
+                <span className="text-xs text-[#737373]">Want to create a custom group?</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExploreModal(false);
+                    setShowCreateModal(true);
+                  }}
+                  className="rounded-xl border border-[#333333] bg-[#222228] px-3 py-1.5 text-xs font-bold text-white hover:border-white transition"
+                >
+                  + Create Community
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================
+            ADD FRIEND & REQUESTS MODAL
+        ============================================================ */}
+        {showAddFriendModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="shrink-0 flex items-center justify-between border-b border-[#2A2A2A] pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-black">
+                    <UserPlus size={16} />
+                  </div>
+                  <h3 className="text-sm font-bold text-white">Accountability Friends</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddFriendModal(false);
+                    setFriendError("");
+                    setFriendSuccess("");
+                  }}
+                  className="rounded-lg p-1 text-[#737373] hover:text-white transition"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Tab Switcher: Add Friend vs Pending Requests */}
+              <div className="shrink-0 flex border-b border-[#2A2A2A] mt-3">
+                <button
+                  type="button"
+                  onClick={() => setFriendModalTab("add")}
+                  className={`flex-1 py-2 text-xs font-bold text-center border-b-2 transition ${
+                    friendModalTab === "add"
+                      ? "border-white text-white"
+                      : "border-transparent text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  Send Request
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFriendModalTab("requests")}
+                  className={`flex-1 py-2 text-xs font-bold text-center border-b-2 flex items-center justify-center gap-1.5 transition ${
+                    friendModalTab === "requests"
+                      ? "border-white text-white"
+                      : "border-transparent text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  <span>Friend Requests</span>
+                  {friendRequests.incoming?.length > 0 ? (
+                    <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black">
+                      {friendRequests.incoming.length}
+                    </span>
+                  ) : friendRequests.outgoing?.length > 0 ? (
+                    <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white/20 px-1 text-[9px] font-bold text-neutral-300">
+                      {friendRequests.outgoing.length}
+                    </span>
+                  ) : null}
+                </button>
+              </div>
+
+              {/* Status alerts */}
+              {friendError && (
+                <div className="mt-3 rounded-xl border border-white/20 bg-white/[0.04] p-3 text-xs text-neutral-300">
+                  {friendError}
+                </div>
+              )}
+              {friendSuccess && (
+                <div className="mt-3 rounded-xl border border-white/20 bg-white/[0.08] p-3 text-xs text-white">
+                  {friendSuccess}
+                </div>
+              )}
+
+              {/* TAB 1: SEND FRIEND REQUEST */}
+              {friendModalTab === "add" && (
+                <form onSubmit={handleSendFriendRequest} className="mt-4 space-y-4 overflow-y-auto pr-1">
+                  <div>
+                    <label className="block text-xs font-bold text-white mb-1.5">
+                      Friend's ONUSLY Handle (@tag)
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <AtSign
+                          size={14}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737373]"
+                        />
+                        <input
+                          type="text"
+                          placeholder="e.g. himanshu or @robert"
+                          value={newFriendHandle}
+                          onChange={(e) => {
+                            setNewFriendHandle(e.target.value);
+                            setVerifiedPartner(null);
+                          }}
+                          className="w-full rounded-xl border border-[#333333] bg-[#121212] py-2 pl-8 pr-3 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleVerifyTag}
+                        disabled={verifyingHandle || !newFriendHandle.trim()}
+                        className="rounded-xl border border-[#444444] bg-[#222222] px-3 py-2 text-xs font-semibold text-white hover:border-white disabled:opacity-40 transition"
+                      >
+                        {verifyingHandle ? <Loader2 size={13} className="animate-spin" /> : "Verify"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {verifiedPartner && (
+                    <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/5 p-3">
+                      <div className="h-9 w-9 rounded-full overflow-hidden bg-neutral-800 border border-white/20 flex items-center justify-center text-xs font-bold text-white">
+                        {verifiedPartner.picture ? (
+                          <img
+                            src={verifiedPartner.picture}
+                            alt="avatar"
+                            className="h-full w-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          verifiedPartner.name?.[0]?.toUpperCase() || "U"
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-white truncate">{verifiedPartner.name}</p>
+                        <p className="font-mono text-[11px] text-neutral-400">@{verifiedPartner.handle}</p>
+                      </div>
+                      <Check size={16} className="text-white" />
+                    </div>
+                  )}
+
+                  <div className="relative flex items-center justify-center py-1">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-[#2A2A2A]" />
+                    </div>
+                    <span className="relative bg-[#161618] px-2 text-[10px] uppercase font-bold text-[#737373]">
+                      Or by email
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-white mb-1.5">
+                      Friend's Google Email
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="e.g. partner@gmail.com"
+                      value={newFriendEmail}
+                      onChange={(e) => setNewFriendEmail(e.target.value)}
+                      className="w-full rounded-xl border border-[#333333] bg-[#121212] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      disabled={sendingRequest || (!newFriendHandle.trim() && !newFriendEmail.trim())}
+                      className="btn-glow w-full rounded-xl bg-white py-3 text-xs font-bold text-black hover:bg-neutral-200 disabled:opacity-40 transition flex items-center justify-center gap-2"
+                    >
+                      {sendingRequest ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          <span>Sending Request...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send size={14} />
+                          <span>Send Friend Request</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* TAB 2: INCOMING & OUTGOING REQUESTS */}
+              {friendModalTab === "requests" && (
+                <div className="mt-4 space-y-4 overflow-y-auto pr-1">
+                  {/* Incoming Requests */}
+                  <div>
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-2">
+                      Incoming Requests ({friendRequests.incoming?.length || 0})
+                    </h4>
+                    {(!friendRequests.incoming || friendRequests.incoming.length === 0) ? (
+                      <div className="rounded-xl border border-[#2B2B2B] bg-[#121214] p-4 text-center">
+                        <UserCheck size={24} className="mx-auto text-neutral-600 mb-1" />
+                        <p className="text-xs text-neutral-400">No pending friend requests</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {friendRequests.incoming.map((req) => (
+                          <div
+                            key={req.id}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-[#2B2B2B] bg-[#121214] p-3"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold text-white truncate">
+                                {req.senderName || `@${req.senderHandle || "friend"}`}
+                              </p>
+                              {req.senderHandle && (
+                                <p className="font-mono text-[10px] text-neutral-400">
+                                  @{req.senderHandle.replace(/^@/, "")}
+                                </p>
+                              )}
+                              <p className="text-[10px] text-neutral-500 mt-0.5">
+                                Sent {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : "recently"}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleRespondFriendRequest(req.id, "accept", req)}
+                                className="btn-glow rounded-lg px-2.5 py-1 text-xs font-bold text-black shadow-sm"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRespondFriendRequest(req.id, "decline", req)}
+                                className="rounded-lg border border-[#444444] px-2.5 py-1 text-xs font-semibold text-neutral-300 hover:text-white hover:border-white transition"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Outgoing Requests */}
+                  {friendRequests.outgoing && friendRequests.outgoing.length > 0 && (
+                    <div className="pt-2 border-t border-[#2A2A2A]">
+                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-2">
+                        Sent Requests ({friendRequests.outgoing.length})
+                      </h4>
+                      <div className="space-y-1.5">
+                        {friendRequests.outgoing.map((req) => (
+                          <div
+                            key={req.id}
+                            className="flex items-center justify-between gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="font-semibold text-neutral-200 truncate">
+                                {req.recipientName || (req.recipientHandle ? `@${req.recipientHandle.replace(/^@/, '')}` : '') || req.recipientEmail || req.recipientId}
+                              </p>
+                              {req.recipientEmail && (
+                                <p className="font-mono text-[10px] text-neutral-400 truncate">
+                                  {req.recipientEmail}
+                                </p>
+                              )}
+                              <span className="text-[10px] text-neutral-500">
+                                {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : "Pending"}
+                              </span>
+                            </div>
+                            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-neutral-400 font-medium">
+                              Pending
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
