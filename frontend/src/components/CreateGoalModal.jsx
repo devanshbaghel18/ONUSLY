@@ -69,19 +69,74 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
     const trimmed = customInput.trim();
     if (!trimmed) return;
 
-    if (customTargets.some((t) => t.value.toLowerCase() === trimmed.toLowerCase())) {
-      setCustomInput("");
-      return;
-    }
+    const lower = trimmed.toLowerCase();
+    const cleanDomain = lower
+      .replace(/^(?:https?:\/\/)?(?:www\.)?/i, "")
+      .split("/")[0]
+      .split("?")[0];
 
-    setCustomTargets((prev) => [
-      ...prev,
-      {
+    // Check if entered target matches any entry in APP_CATALOG
+    const catalogMatch = APP_CATALOG.find((item) => {
+      const matchPkg =
+        item.packageName?.toLowerCase() === lower ||
+        (Array.isArray(item.packageNames) &&
+          item.packageNames.some((p) => p.toLowerCase() === lower));
+      const matchDom =
+        Array.isArray(item.domains) &&
+        item.domains.some((d) => {
+          const dClean = d.toLowerCase().replace(/^(?:www\.)?/i, "");
+          return dClean === cleanDomain || dClean === lower || d.toLowerCase() === lower;
+        });
+      return matchPkg || matchDom;
+    });
+
+    const newTargets = [];
+    if (!customTargets.some((t) => t.value.toLowerCase() === trimmed.toLowerCase())) {
+      newTargets.push({
         id: `custom-${Date.now()}-${Math.random()}`,
         type: customType,
         value: trimmed,
-      },
-    ]);
+      });
+    }
+
+    // If user adds a custom website domain in APP_CATALOG (e.g. instagram.com),
+    // also add the mapped package name (com.instagram.android) to apps so the phone app is also blocked.
+    // If user adds a custom app package in APP_CATALOG, also add the mapped domains.
+    if (catalogMatch) {
+      if (customType === "domain" && catalogMatch.packageName) {
+        if (
+          !customTargets.some(
+            (t) => t.value.toLowerCase() === catalogMatch.packageName.toLowerCase()
+          ) &&
+          !newTargets.some(
+            (t) => t.value.toLowerCase() === catalogMatch.packageName.toLowerCase()
+          )
+        ) {
+          newTargets.push({
+            id: `custom-pkg-${Date.now()}-${Math.random()}`,
+            type: "app",
+            value: catalogMatch.packageName,
+          });
+        }
+      } else if (customType === "app" && Array.isArray(catalogMatch.domains)) {
+        catalogMatch.domains.forEach((d) => {
+          if (
+            !customTargets.some((t) => t.value.toLowerCase() === d.toLowerCase()) &&
+            !newTargets.some((t) => t.value.toLowerCase() === d.toLowerCase())
+          ) {
+            newTargets.push({
+              id: `custom-dom-${Date.now()}-${Math.random()}`,
+              type: "domain",
+              value: d,
+            });
+          }
+        });
+      }
+    }
+
+    if (newTargets.length > 0) {
+      setCustomTargets((prev) => [...prev, ...newTargets]);
+    }
     setCustomInput("");
   };
 
@@ -106,15 +161,48 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
       const item = APP_CATALOG.find((c) => c.id === catId);
       if (item) {
         if (item.packageName) appsSet.add(item.packageName);
+        if (Array.isArray(item.packageNames)) {
+          item.packageNames.forEach((pkg) => appsSet.add(pkg));
+        }
         (item.domains || []).forEach((d) => domainsSet.add(d));
       }
     });
 
     customTargets.forEach((ct) => {
+      const trimmedVal = ct.value.trim();
+      const lower = trimmedVal.toLowerCase();
+      const cleanDomain = lower
+        .replace(/^(?:https?:\/\/)?(?:www\.)?/i, "")
+        .split("/")[0]
+        .split("?")[0];
+
+      const catalogMatch = APP_CATALOG.find((item) => {
+        const matchPkg =
+          item.packageName?.toLowerCase() === lower ||
+          (Array.isArray(item.packageNames) &&
+            item.packageNames.some((p) => p.toLowerCase() === lower));
+        const matchDom =
+          Array.isArray(item.domains) &&
+          item.domains.some((d) => {
+            const dClean = d.toLowerCase().replace(/^(?:www\.)?/i, "");
+            return dClean === cleanDomain || dClean === lower || d.toLowerCase() === lower;
+          });
+        return matchPkg || matchDom;
+      });
+
       if (ct.type === "app") {
-        appsSet.add(ct.value);
+        appsSet.add(trimmedVal);
+        if (catalogMatch && Array.isArray(catalogMatch.domains)) {
+          catalogMatch.domains.forEach((d) => domainsSet.add(d));
+        }
       } else {
-        domainsSet.add(ct.value);
+        domainsSet.add(trimmedVal);
+        if (catalogMatch) {
+          if (catalogMatch.packageName) appsSet.add(catalogMatch.packageName);
+          if (Array.isArray(catalogMatch.packageNames)) {
+            catalogMatch.packageNames.forEach((pkg) => appsSet.add(pkg));
+          }
+        }
       }
     });
 

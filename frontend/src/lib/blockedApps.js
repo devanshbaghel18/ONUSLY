@@ -47,6 +47,38 @@ export const APP_CATALOG = [
     packageName: "tv.twitch.android.app",
     domains: ["twitch.tv"],
   },
+  {
+    id: "tiktok",
+    name: "TikTok",
+    packageName: "com.zhiliaoapp.musically",
+    packageNames: ["com.zhiliaoapp.musically", "com.ss.android.ugc.trill"],
+    domains: ["tiktok.com"],
+  },
+  {
+    id: "facebook",
+    name: "Facebook",
+    packageName: "com.facebook.katana",
+    packageNames: ["com.facebook.katana", "com.facebook.orca"],
+    domains: ["facebook.com"],
+  },
+  {
+    id: "snapchat",
+    name: "Snapchat",
+    packageName: "com.snapchat.android",
+    domains: ["snapchat.com"],
+  },
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    packageName: "com.linkedin.android",
+    domains: ["linkedin.com"],
+  },
+  {
+    id: "pinterest",
+    name: "Pinterest",
+    packageName: "com.pinterest",
+    domains: ["pinterest.com"],
+  },
 ];
 
 // Backward-compatibility alias
@@ -58,12 +90,30 @@ export const APPS_TO_BLOCK = APP_CATALOG.map((item) => ({
 }));
 
 export function getFriendlyTargetName(target) {
-  if (!target) return "";
+  if (!target || typeof target !== "string") return "";
+  const clean = target.trim().toLowerCase();
+  const cleanDomain = clean
+    .replace(/^(?:https?:\/\/)?(?:www\.)?/i, "")
+    .split("/")[0]
+    .split("?")[0];
+
   const found = APP_CATALOG.find(
     (item) =>
-      item.packageName === target ||
-      item.domains.includes(target) ||
-      item.id === target
+      item.id?.toLowerCase() === clean ||
+      item.packageName?.toLowerCase() === clean ||
+      (Array.isArray(item.packageNames) &&
+        item.packageNames.some((pkg) => pkg.toLowerCase() === clean)) ||
+      (Array.isArray(item.domains) &&
+        item.domains.some((d) => {
+          const dLower = d.toLowerCase();
+          const dClean = dLower.replace(/^(?:www\.)?/i, "");
+          return (
+            dLower === clean ||
+            dClean === clean ||
+            dClean === cleanDomain ||
+            dLower === cleanDomain
+          );
+        }))
   );
   return found ? found.name : target;
 }
@@ -79,7 +129,7 @@ export function getFriendlyTargetName(target) {
  */
 export function getUniqueDisplayTargets(apps = [], domains = [], fallback = []) {
   const primary = [...(apps || []), ...(domains || [])];
-  const items = primary.length > 0 ? primary : (fallback || []);
+  const items = primary.length > 0 ? primary : fallback || [];
   const seenLabels = new Set();
   const results = [];
 
