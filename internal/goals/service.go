@@ -68,6 +68,13 @@ func (s *Service) CreateWithInput(
 		domains = []string{}
 	}
 
+	if len(apps) > 0 || len(domains) > 0 {
+		apps, domains, err = ExpandAssociatedTargets(apps, domains)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	hasTargets := len(apps) > 0 || len(domains) > 0
 	approvalType := ""
 	approverID := ""
@@ -305,30 +312,61 @@ func (s *Service) Update(
 		}
 	}
 
-	if input.BlockedApps != nil {
-		normalizedApps, err := NormalizeAndValidateApps(*input.BlockedApps)
-		if err != nil {
-			return nil, err
-		}
-		if goal.Status != "completed" && hasExistingTargets {
-			if !CheckTargetsSubset(goal.BlockedApps, normalizedApps) {
-				return nil, ErrTargetsLocked
-			}
-		}
-		input.BlockedApps = &normalizedApps
-	}
+	if input.BlockedApps != nil || input.BlockedDomains != nil {
+		var candidateApps []string
+		var candidateDomains []string
 
-	if input.BlockedDomains != nil {
-		normalizedDomains, err := NormalizeAndValidateDomains(*input.BlockedDomains)
-		if err != nil {
-			return nil, err
-		}
-		if goal.Status != "completed" && hasExistingTargets {
-			if !CheckTargetsSubset(goal.BlockedDomains, normalizedDomains) {
-				return nil, ErrTargetsLocked
+		if input.BlockedApps != nil {
+			normalizedApps, err := NormalizeAndValidateApps(*input.BlockedApps)
+			if err != nil {
+				return nil, err
 			}
+			if goal.Status != "completed" && hasExistingTargets {
+				if !CheckTargetsSubset(goal.BlockedApps, normalizedApps) {
+					return nil, ErrTargetsLocked
+				}
+			}
+			candidateApps = normalizedApps
+		} else {
+			candidateApps = goal.BlockedApps
 		}
-		input.BlockedDomains = &normalizedDomains
+
+		if input.BlockedDomains != nil {
+			normalizedDomains, err := NormalizeAndValidateDomains(*input.BlockedDomains)
+			if err != nil {
+				return nil, err
+			}
+			if goal.Status != "completed" && hasExistingTargets {
+				if !CheckTargetsSubset(goal.BlockedDomains, normalizedDomains) {
+					return nil, ErrTargetsLocked
+				}
+			}
+			candidateDomains = normalizedDomains
+		} else {
+			candidateDomains = goal.BlockedDomains
+		}
+
+		if len(candidateApps) > 0 || len(candidateDomains) > 0 {
+			expandedApps, expandedDomains, err := ExpandAssociatedTargets(candidateApps, candidateDomains)
+			if err != nil {
+				return nil, err
+			}
+			if goal.Status != "completed" && hasExistingTargets {
+				if !CheckTargetsSubset(goal.BlockedApps, expandedApps) {
+					return nil, ErrTargetsLocked
+				}
+				if !CheckTargetsSubset(goal.BlockedDomains, expandedDomains) {
+					return nil, ErrTargetsLocked
+				}
+			}
+			input.BlockedApps = &expandedApps
+			input.BlockedDomains = &expandedDomains
+		} else {
+			emptyApps := []string{}
+			emptyDomains := []string{}
+			input.BlockedApps = &emptyApps
+			input.BlockedDomains = &emptyDomains
+		}
 	}
 
 	isTargeted := hasExistingTargets || (input.BlockedApps != nil && len(*input.BlockedApps) > 0) || (input.BlockedDomains != nil && len(*input.BlockedDomains) > 0)

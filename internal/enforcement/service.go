@@ -80,8 +80,15 @@ func (s *Service) GetBlocklist(ctx context.Context, userID string) (*BlocklistRe
 
 		apps := append([]string(nil), g.BlockedApps...)
 		domains := append([]string(nil), g.BlockedDomains...)
-		sort.Strings(apps)
-		sort.Strings(domains)
+
+		expandedApps, expandedDomains, err := goals.ExpandAssociatedTargets(apps, domains)
+		if err == nil {
+			apps = expandedApps
+			domains = expandedDomains
+		} else {
+			sort.Strings(apps)
+			sort.Strings(domains)
+		}
 		if apps == nil {
 			apps = []string{}
 		}
