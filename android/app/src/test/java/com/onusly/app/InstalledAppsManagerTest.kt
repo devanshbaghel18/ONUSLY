@@ -65,6 +65,24 @@ class InstalledAppsManagerTest {
     }
 
     @Test
+    fun testIsSystemOrExcluded_ThirdPartyAppsWithEmergencyOrTelecom_AreSelectable() {
+        val thirdPartyApps = listOf(
+            "com.emergency.response.simulator",
+            "com.telecom.customerapp",
+            "com.telecom.billing",
+            "com.random.settingswidget",
+            "com.fake.dialer"
+        )
+
+        for (pkg in thirdPartyApps) {
+            assertFalse(
+                "Third-party app '$pkg' must NOT be excluded as a system app",
+                InstalledAppsManager.isSystemOrExcluded(pkg)
+            )
+        }
+    }
+
+    @Test
     fun testFilterApps_EmptyOrNullQueryReturnsAll() {
         val list = listOf(
             InstalledAppInfo("com.instagram.android", "Instagram", null),

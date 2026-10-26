@@ -32,6 +32,11 @@ class LockActivity : AppCompatActivity() {
         const val EXTRA_BLOCKED_PACKAGE = "extra_blocked_package"
         const val EXTRA_GOAL_TITLES = "extra_goal_titles"
         const val EXTRA_GOAL_STATUSES = "extra_goal_statuses"
+
+        fun isProofSubmittedState(goalStatuses: List<String>): Boolean {
+            val hasActive = goalStatuses.any { it.equals("active", ignoreCase = true) }
+            return goalStatuses.isNotEmpty() && !hasActive && goalStatuses.all { it.equals("proof_submitted", ignoreCase = true) }
+        }
     }
 
     private var blockedPackage: String? = null
@@ -100,6 +105,7 @@ class LockActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         btnCheckAgain = findViewById(R.id.btnCheckAgain)
         btnOpenDashboard = findViewById(R.id.btnOpenDashboard)
+        btnOpenDashboard.text = "Return to ONUSLY App"
         btnGoHome = findViewById(R.id.btnGoHome)
     }
 
@@ -122,22 +128,11 @@ class LockActivity : AppCompatActivity() {
         }
 
         btnOpenDashboard.setOnClickListener {
-            val app = application as OnuslyApplication
-            var url = app.syncRepository.getBaseUrl()
-            // If baseUrl is backend 8080, direct to web frontend on 5173 if local, or same origin
-            val dashboardUrl = if (url.contains(":8080")) {
-                url.replace(":8080", ":5173")
-            } else {
-                url
+            val mainIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
-            try {
-                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(dashboardUrl)).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                startActivity(browserIntent)
-            } catch (e: Exception) {
-                Toast.makeText(this, "Could not open browser: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
+            startActivity(mainIntent)
+            finish()
         }
 
         btnGoHome.setOnClickListener {
@@ -170,19 +165,21 @@ class LockActivity : AppCompatActivity() {
             tvGoalTitles.text = "Active ONUSLY Commitment"
         }
 
-        val hasActive = goalStatuses.any { it.equals("active", ignoreCase = true) }
-        val isProofSubmitted = !hasActive && goalStatuses.all { it.equals("proof_submitted", ignoreCase = true) }
+        val isProofSubmitted = isProofSubmittedState(goalStatuses)
+        val domainNotice = "Web domain targets are enforced by the ONUSLY Chrome extension. Native app targets are locked by Android Accessibility."
 
         if (isProofSubmitted) {
             tvStatusHeader.text = "PROOF SUBMITTED"
-            tvInstructionText.text = getString(R.string.proof_submitted_instruction)
+            tvInstructionText.text = "${getString(R.string.proof_submitted_instruction)}\n\n$domainNotice"
+            btnOpenDashboard.text = "Return to ONUSLY App"
             cardInstruction.setCardBackgroundColor(ContextCompat.getColor(this, R.color.surface))
             cardInstruction.strokeColor = ContextCompat.getColor(this, R.color.primary)
             tvStatusHeader.setTextColor(ContextCompat.getColor(this, R.color.primary))
             ivLockIcon.setColorFilter(ContextCompat.getColor(this, R.color.primary))
         } else {
             tvStatusHeader.text = "GOAL IN PROGRESS"
-            tvInstructionText.text = getString(R.string.active_goal_instruction)
+            tvInstructionText.text = "${getString(R.string.active_goal_instruction)}\n\n$domainNotice"
+            btnOpenDashboard.text = "Submit Proof in App"
             cardInstruction.setCardBackgroundColor(ContextCompat.getColor(this, R.color.warning_bg))
             cardInstruction.strokeColor = ContextCompat.getColor(this, R.color.warning)
             tvStatusHeader.setTextColor(ContextCompat.getColor(this, R.color.warning))
@@ -191,15 +188,16 @@ class LockActivity : AppCompatActivity() {
 
         val app = application as OnuslyApplication
         val cache = app.syncRepository.getActiveCache()
-        if (cache != null) {
+        val syncLine = if (cache != null) {
             val dateStr = if (cache.lastSyncTimestamp > 0) {
                 val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                 sdf.format(Date(cache.lastSyncTimestamp))
             } else "Never"
-            tvSyncStatus.text = "Last sync: $dateStr • Version: ${cache.version}"
+            "Last sync: $dateStr • Version: ${cache.version}"
         } else {
-            tvSyncStatus.text = "No blocklist cached"
+            "No blocklist cached"
         }
+        tvSyncStatus.text = "$syncLine\n\n$domainNotice"
     }
 
     private fun checkIfStillBlocked() {

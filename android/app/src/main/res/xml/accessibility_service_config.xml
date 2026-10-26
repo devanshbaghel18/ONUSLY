@@ -1,8 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    ONUSLY Accessibility Service Configuration
+    ONUS-MED-04: Multi-window and Picture-in-Picture window evaluation.
+
+    Design & Privacy Architecture:
+    - android:canRetrieveWindowContent is strictly set to "false" to protect user privacy
+      and ensure zero access to user keystrokes, personal messages, or sensitive screen content.
+    - Limitation Notice: Under canRetrieveWindowContent="false", AccessibilityWindowInfo.getRoot()
+      returns null on standard Android runtimes. Package-level blocking therefore operates via
+      typeWindowStateChanged and typeWindowsChanged events, while flagRetrieveInteractiveWindows
+      enables interactive window enumeration and evaluation wherever window package details
+      are available without violating content privacy boundaries.
+    - android:accessibilityFlags includes flagReportViewIds and flagRetrieveInteractiveWindows.
+-->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/accessibility_service_description"
-    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="100"
     android:canRetrieveWindowContent="false"
-    android:accessibilityFlags="flagDefault" />
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows" />

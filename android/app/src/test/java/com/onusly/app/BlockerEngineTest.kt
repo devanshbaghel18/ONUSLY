@@ -144,4 +144,132 @@ class BlockerEngineTest {
         assertFalse(BlockerEngine.evaluatePackage("com.android.systemui", cache).isBlocked)
         assertFalse(BlockerEngine.evaluatePackage("com.google.android.apps.nexuslauncher", cache).isBlocked)
     }
+
+    @Test
+    fun testCriticalSystemAppsAndLaunchers_NeverBlockedEvenIfInBlocklist() {
+        val criticalApps = listOf(
+            // Google / AOSP
+            "com.android.phone",
+            "com.android.incallui",
+            "com.android.server.telecom",
+            "com.google.android.dialer",
+            "com.google.android.emergency",
+            "com.google.android.apps.safetyhub",
+            "com.google.android.apps.nexuslauncher",
+
+            // Samsung
+            "com.samsung.android.dialer",
+            "com.samsung.android.incallui",
+            "com.samsung.android.emergency",
+            "com.sec.android.app.launcher",
+
+            // Xiaomi
+            "com.miui.home",
+            "com.miui.incallui",
+            "com.miui.emergency",
+
+            // Oppo / ColorOS
+            "com.oppo.launcher",
+            "com.coloros.dialer",
+            "com.oppo.emergency",
+
+            // OnePlus
+            "com.oneplus.launcher",
+            "com.oneplus.dialer",
+            "com.oneplus.emergency",
+
+            // Vivo
+            "com.vivo.launcher",
+            "com.vivo.dialer",
+            "com.vivo.emergency",
+
+            // Huawei
+            "com.huawei.android.launcher",
+            "com.huawei.android.incallui",
+            "com.huawei.emergency",
+
+            // Motorola
+            "com.motorola.launcher",
+            "com.motorola.incallui",
+            "com.motorola.dialer",
+            "com.motorola.emergency"
+        )
+
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Rogue Block", "active", criticalApps, emptyList())
+            )
+        )
+
+        for (pkg in criticalApps) {
+            val result = BlockerEngine.evaluatePackage(pkg, cache)
+            assertFalse("Critical app '$pkg' must never be blocked", result.isBlocked)
+            assertTrue("Matching targets must be empty for critical app '$pkg'", result.matchingTargets.isEmpty())
+        }
+    }
+
+    @Test
+    fun testThirdPartyAppsContainingEmergencyOrTelecom_CanBeBlocked() {
+        val thirdPartyApps = listOf(
+            "com.emergency.response.simulator",
+            "com.telecom.customerapp",
+            "com.telecom.billing",
+            "com.thirdparty.emergencyapp",
+            "com.random.settingswidget"
+        )
+
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Block Third Party Apps", "active", thirdPartyApps, emptyList())
+            )
+        )
+
+        for (pkg in thirdPartyApps) {
+            val result = BlockerEngine.evaluatePackage(pkg, cache)
+            assertTrue("Third party app '$pkg' must be blockable", result.isBlocked)
+            assertEquals("Matching targets must match for third party app '$pkg'", 1, result.matchingTargets.size)
+        }
+    }
+
+    @Test
+    fun testCaseInsensitiveMatching_TargetBlocksPackage() {
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Focus Goal", "active", listOf("COM.INSTAGRAM.ANDROID"), emptyList())
+            )
+        )
+
+        val resultBlocked = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+        assertTrue("Upper-case target COM.INSTAGRAM.ANDROID must block lower-case package", resultBlocked.isBlocked)
+        assertEquals(1, resultBlocked.matchingTargets.size)
+        assertEquals("Focus Goal", resultBlocked.matchingTargets[0].goalTitle)
+
+        // Lower-case target with upper-case package
+        val cacheLower = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g2", "Focus Goal 2", "active", listOf("com.instagram.android"), emptyList())
+            )
+        )
+
+        val resultUpper = BlockerEngine.evaluatePackage("COM.INSTAGRAM.ANDROID", cacheLower)
+        assertTrue("Lower-case target must block upper-case package COM.INSTAGRAM.ANDROID", resultUpper.isBlocked)
+        assertEquals(1, resultUpper.matchingTargets.size)
+        assertEquals("Focus Goal 2", resultUpper.matchingTargets[0].goalTitle)
+    }
 }

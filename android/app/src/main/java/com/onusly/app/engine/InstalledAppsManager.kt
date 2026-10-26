@@ -6,21 +6,54 @@ import com.onusly.app.data.model.InstalledAppInfo
 
 object InstalledAppsManager {
 
+    val SYSTEM_PLATFORM_PREFIXES = listOf(
+        "android",
+        "com.android.",
+        "com.google.android.",
+        "com.samsung.android.",
+        "com.sec.android.",
+        "com.miui.",
+        "com.oppo.",
+        "com.coloros.",
+        "com.oplus.",
+        "com.vivo.",
+        "com.bbk.",
+        "com.huawei.",
+        "com.motorola.",
+        "com.lge."
+    )
+
     fun isSystemOrExcluded(
         packageName: String,
         allowedPackages: Set<String> = BlockerEngine.ALWAYS_ALLOWED_PACKAGES
     ): Boolean {
         val clean = packageName.trim()
         if (clean.isBlank()) return true
-        if (allowedPackages.contains(clean)) return true
-
         val lower = clean.lowercase()
+        if (lower == "android") return true
+        if (allowedPackages.any { it.equals(clean, ignoreCase = true) }) return true
+
+        val hasSystemPrefix = SYSTEM_PLATFORM_PREFIXES.any { prefix ->
+            if (prefix == "android") {
+                lower == "android" || lower.startsWith("android.")
+            } else {
+                lower.startsWith(prefix)
+            }
+        }
+
+        if (!hasSystemPrefix) {
+            return false
+        }
+
         return lower.contains("settings") ||
                 lower.contains("launcher") ||
                 lower.contains("systemui") ||
                 lower.contains("dialer") ||
                 lower.contains("telecom") ||
-                lower.contains("emergency")
+                lower.contains("emergency") ||
+                lower.contains("incallui") ||
+                lower.contains("cellbroadcast") ||
+                lower.contains("safetyhub")
     }
 
     fun getInstalledApps(context: Context): List<InstalledAppInfo> {

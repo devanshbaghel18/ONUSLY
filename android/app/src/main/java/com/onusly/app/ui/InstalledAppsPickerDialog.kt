@@ -16,6 +16,7 @@ import com.onusly.app.data.model.InstalledAppInfo
 import com.onusly.app.engine.InstalledAppsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -27,6 +28,7 @@ class InstalledAppsPickerDialog(
 
     private val dialog = Dialog(context, android.R.style.Theme_Material_Dialog)
     private var allApps: List<InstalledAppInfo> = emptyList()
+    private var scanJob: Job? = null
 
     fun show() {
         val view = LayoutInflater.from(context).inflate(R.layout.dialog_app_picker, null)
@@ -50,12 +52,28 @@ class InstalledAppsPickerDialog(
         rvInstalledApps.adapter = adapter
         tvSelectedCount.text = "${adapter.selectedPackages.size} selected"
 
-        // Load apps asynchronously on IO dispatcher
-        CoroutineScope(Dispatchers.Main).launch {
+        // Load apps asynchronously on IO dispatcher - store scan job
+        scanJob = CoroutineScope(Dispatchers.Main).launch {
             allApps = withContext(Dispatchers.IO) {
                 InstalledAppsManager.getInstalledApps(context)
             }
-            adapter.setApps(allApps)
+            val currentQuery = etSearchApps.text?.toString()
+            if (!currentQuery.isNullOrBlank()) {
+                val filtered = InstalledAppsManager.filterApps(allApps, currentQuery)
+                adapter.setApps(filtered)
+            } else {
+                adapter.setApps(allApps)
+            }
+        }
+
+        dialog.setOnDismissListener {
+            scanJob?.cancel()
+            scanJob = null
+        }
+
+        dialog.setOnCancelListener {
+            scanJob?.cancel()
+            scanJob = null
         }
 
         etSearchApps.addTextChangedListener(object : TextWatcher {
