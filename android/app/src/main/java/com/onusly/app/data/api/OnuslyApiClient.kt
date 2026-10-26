@@ -32,27 +32,81 @@ class OnuslyApiException(
     override val message: String
 ) : Exception(message)
 
+data class ApprovalResponse(
+    val id: String,
+    val goalId: String,
+    val proofId: String,
+    val approverId: String,
+    val decision: String,
+    val comment: String = "",
+    val decidedAt: String = ""
+) {
+    companion object {
+        fun fromJson(json: JSONObject): ApprovalResponse {
+            val decision = when {
+                json.has("decision") -> json.optString("decision", "")
+                json.has("status") -> json.optString("status", "")
+                else -> ""
+            }
+            return ApprovalResponse(
+                id = json.optString("id", ""),
+                goalId = json.optString("goalId", ""),
+                proofId = json.optString("proofId", ""),
+                approverId = json.optString("approverId", ""),
+                decision = decision,
+                comment = json.optString("comment", ""),
+                decidedAt = json.optString("decidedAt", "")
+            )
+        }
+
+        fun parseList(body: String): List<ApprovalResponse> {
+            val list = mutableListOf<ApprovalResponse>()
+            val trimmed = body.trim()
+            if (trimmed.isNotEmpty() && trimmed != "null") {
+                val jsonArr = org.json.JSONArray(trimmed)
+                for (i in 0 until jsonArr.length()) {
+                    list.add(fromJson(jsonArr.getJSONObject(i)))
+                }
+            }
+            return list
+        }
+    }
+}
+
 class OnuslyApiClient(
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
-        .build()
+        .build(),
+    var defaultBaseUrl: String = "http://10.0.2.2:8080",
+    var defaultJwtToken: String = ""
 ) {
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    private fun extractErrorMessage(response: Response, responseBody: String): String {
-        return try {
-            val json = JSONObject(responseBody)
+    fun extractErrorMessage(response: Response, responseBody: String): String {
+        val trimmedBody = responseBody.trim()
+        val rawMessage = try {
+            val json = JSONObject(trimmedBody)
             when {
-                json.has("error") -> json.getString("error")
-                json.has("message") -> json.getString("message")
-                else -> responseBody.ifBlank { "HTTP ${response.code}" }
+                json.has("error") && json.optString("error").isNotBlank() -> json.optString("error").trim()
+                json.has("message") && json.optString("message").isNotBlank() -> json.optString("message").trim()
+                else -> trimmedBody.ifBlank { "HTTP ${response.code}" }
             }
         } catch (_: Exception) {
-            responseBody.ifBlank { "HTTP ${response.code}" }
+            trimmedBody.ifBlank { "HTTP ${response.code}" }
         }
+        return rawMessage.take(300)
+    }
+
+    fun extractErrorMessage(response: Response): String {
+        val bodyString = try {
+            response.peekBody(1024 * 1024).string()
+        } catch (_: Exception) {
+            ""
+        }
+        return extractErrorMessage(response, bodyString)
     }
 
     private suspend fun executeRequest(request: Request): Result<String> = withContext(Dispatchers.IO) {
@@ -191,6 +245,31 @@ class OnuslyApiClient(
     }
 
     // --- Approvals API ---
+
+    suspend fun getApprovals(
+        baseUrl: String,
+        jwtToken: String,
+        goalId: String
+    ): Result<List<ApprovalResponse>> {
+        val url = "${baseUrl.trimEnd('/')}/goals/${URLEncoder.encode(goalId, "UTF-8")}/approvals"
+        val request = Request.Builder()
+            .url(url)
+            .apply {
+                if (jwtToken.isNotBlank()) {
+                    addHeader("Authorization", "Bearer $jwtToken")
+                }
+            }
+            .get()
+            .build()
+
+        return executeRequest(request).mapCatching { body ->
+            ApprovalResponse.parseList(body)
+        }
+    }
+
+    suspend fun getApprovals(goalId: String): Result<List<ApprovalResponse>> {
+        return getApprovals(defaultBaseUrl, defaultJwtToken, goalId)
+    }
 
     suspend fun decideApproval(
         baseUrl: String,

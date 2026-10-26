@@ -18,6 +18,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -236,5 +237,46 @@ class Slice5SecurityHardeningTest {
         assertTrue(bobSaved)
         assertEquals("USER#bob", blocklistCache.getRawCachedUserId())
         assertEquals("USER#bob", syncRepository.getActiveCache()?.userId)
+    }
+
+    @Test
+    fun testSignedOutState_BlocklistCacheGetCacheReturnsNull() {
+        // Initial state: signed out
+        assertFalse(authManager.isSignedIn())
+        assertNull(authManager.getUserId())
+        assertNull(
+            "Signed-out state before login must produce null from blocklistCache",
+            blocklistCache.getCache(authManager.getUserId())
+        )
+
+        // Sign in as Alice and save cache
+        signInAs("USER#alice", "alice@example.com")
+        val aliceBlocklist = BlocklistResponse(
+            userId = "USER#alice",
+            version = "W/\"v1\"",
+            generatedAt = "2026-10-20T00:00:00Z",
+            targets = listOf(BlocklistTarget("g1", "Alice Goal", "active", listOf("com.insta"), emptyList()))
+        )
+        assertTrue(blocklistCache.saveCache(aliceBlocklist, "USER#alice"))
+        assertNotNull(blocklistCache.getCache(authManager.getUserId()))
+
+        // Clear session so user is signed out, but cache is still populated on disk
+        authManager.clearSession()
+        assertFalse(authManager.isSignedIn())
+        assertNull(authManager.getUserId())
+
+        // Signed-out state (authManager.getUserId() == null) must NEVER receive cached blocklists
+        assertNull(
+            "Signed-out state after clearSession must produce null from blocklistCache",
+            blocklistCache.getCache(authManager.getUserId())
+        )
+        assertNull(syncRepository.getActiveCache())
+
+        // Also test after full sign out
+        syncRepository.onUserSignOut()
+        assertNull(
+            "Signed-out state after onUserSignOut must produce null from blocklistCache",
+            blocklistCache.getCache(authManager.getUserId())
+        )
     }
 }

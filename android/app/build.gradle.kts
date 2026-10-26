@@ -87,6 +87,9 @@ dependencies {
     // Google Sign-In
     implementation("com.google.android.gms:play-services-auth:21.2.0")
 
+    // Security & Encrypted Storage
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // Networking & Async
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
