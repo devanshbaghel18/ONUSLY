@@ -112,35 +112,54 @@ class SyncRepository(
                 if (result.response.userId != currentUserId) {
                     return SyncResult.Error(403, "Response userId does not match authenticated user")
                 }
+                if (authManager.getUserId() != currentUserId) {
+                    return SyncResult.Error(401, "Session invalidated during sync")
+                }
                 val saved = blocklistCache.saveCache(result.response, currentUserId)
                 if (saved) {
                     refreshFlowFromCache()
                 }
             }
             is SyncResult.NotModified -> {
-                blocklistCache.updateLastSyncTimestamp(System.currentTimeMillis())
+                blocklistCache.updateLastSyncTimestamp(System.currentTimeMillis(), currentUserId)
                 refreshFlowFromCache()
             }
             is SyncResult.Error -> {
-                // Keep existing cache
-                refreshFlowFromCache()
+                if (result.statusCode == 401 || result.message.contains("401") || result.message.contains("Unauthorized", ignoreCase = true)) {
+                    onUserSignOut()
+                } else {
+                    // Keep existing cache
+                    refreshFlowFromCache()
+                }
             }
         }
 
         return result
     }
 
+    fun notifySessionExpiration() {
+        onUserSignOut()
+    }
+
+    private var isSigningOut = false
+
     fun onUserSignOut() {
-        blocklistCache.clear()
-        authManager.clearSession()
-        _cachedBlocklistFlow.value = null
-        synchronized(signOutListeners) {
-            for (listener in signOutListeners) {
-                try {
-                    listener()
-                } catch (_: Exception) {
+        if (isSigningOut) return
+        isSigningOut = true
+        try {
+            blocklistCache.clear()
+            authManager.notifyTokenExpired()
+            _cachedBlocklistFlow.value = null
+            synchronized(signOutListeners) {
+                for (listener in signOutListeners) {
+                    try {
+                        listener()
+                    } catch (_: Exception) {
+                    }
                 }
             }
+        } finally {
+            isSigningOut = false
         }
     }
 }

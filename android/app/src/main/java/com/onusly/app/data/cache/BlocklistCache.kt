@@ -9,7 +9,7 @@ import com.onusly.app.data.model.CachedBlocklist
 interface BlocklistCache {
     fun getCache(expectedUserId: String? = null): CachedBlocklist?
     fun saveCache(response: BlocklistResponse, expectedUserId: String): Boolean
-    fun updateLastSyncTimestamp(timestamp: Long)
+    fun updateLastSyncTimestamp(timestamp: Long, expectedUserId: String? = null)
     fun clear()
     fun getRawCachedUserId(): String?
 }
@@ -31,13 +31,14 @@ class SharedPreferencesBlocklistCache(
 
     @Synchronized
     override fun getCache(expectedUserId: String?): CachedBlocklist? {
+        if (expectedUserId.isNullOrBlank()) {
+            return null
+        }
         val json = prefs.getString(KEY_CACHED_JSON, null) ?: return null
         val cached = BlocklistParser.parseCached(json) ?: return null
 
-        if (expectedUserId != null && expectedUserId.isNotBlank()) {
-            if (cached.userId != expectedUserId) {
-                return null
-            }
+        if (cached.userId != expectedUserId) {
+            return null
         }
         return cached
     }
@@ -75,8 +76,16 @@ class SharedPreferencesBlocklistCache(
     }
 
     @Synchronized
-    override fun updateLastSyncTimestamp(timestamp: Long) {
-        val current = getCache() ?: return
+    override fun updateLastSyncTimestamp(timestamp: Long, expectedUserId: String?) {
+        val targetUserId = if (expectedUserId != null) {
+            if (expectedUserId.isBlank()) return
+            expectedUserId
+        } else {
+            prefs.getString(KEY_CACHED_USER_ID, null)
+        }
+        if (targetUserId.isNullOrBlank()) return
+
+        val current = getCache(targetUserId) ?: return
         val updated = current.copy(lastSyncTimestamp = timestamp)
         val json = BlocklistParser.cachedToJson(updated)
         prefs.edit()

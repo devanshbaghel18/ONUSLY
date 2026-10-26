@@ -30,6 +30,34 @@ class BlocklistCacheTest {
     }
 
     @Test
+    fun testEmptyCacheReturnsNull() {
+        assertNull(cache.getCache())
+        assertNull(cache.getCache(null))
+        assertNull(cache.getCache(""))
+        assertNull(cache.getCache("   "))
+    }
+
+    @Test
+    fun testGetCache_NullOrBlankUserId_AlwaysReturnsNullOnPopulatedCache() {
+        val response = BlocklistResponse(
+            userId = "user_alice",
+            version = "v1-1111222233334444",
+            generatedAt = "2026-10-08T12:00:00Z",
+            targets = listOf(
+                BlocklistTarget("g1", "Goal 1", "active", listOf("com.app.a"), listOf("a.com"))
+            )
+        )
+        val saved = cache.saveCache(response, expectedUserId = "user_alice")
+        assertTrue(saved)
+        assertNotNull(cache.getCache("user_alice"))
+
+        assertNull("Calling getCache() with default null must return null on populated cache", cache.getCache())
+        assertNull("Calling getCache(null) must return null on populated cache", cache.getCache(null))
+        assertNull("Calling getCache(\"\") must return null on populated cache", cache.getCache(""))
+        assertNull("Calling getCache(\"   \") must return null on populated cache", cache.getCache("   "))
+    }
+
+    @Test
     fun testSaveAndRetrieveCacheForSameUser() {
         val response = BlocklistResponse(
             userId = "user_alice",
@@ -145,6 +173,33 @@ class BlocklistCacheTest {
         assertNotNull(updated)
         assertEquals(newTimestamp, updated!!.lastSyncTimestamp)
         assertEquals("v1-etag1", updated.version)
+    }
+
+    @Test
+    fun testUpdateLastSyncTimestamp_WithExpectedUserId() {
+        val response = BlocklistResponse(
+            userId = "user_alice",
+            version = "v1-etag1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            targets = emptyList()
+        )
+        cache.saveCache(response, "user_alice")
+
+        // Updating with wrong expected user does not modify timestamp
+        val wrongUserTimestamp = 1000L
+        cache.updateLastSyncTimestamp(wrongUserTimestamp, expectedUserId = "user_bob")
+        assertTrue(cache.getCache("user_alice")!!.lastSyncTimestamp != wrongUserTimestamp)
+
+        // Updating with blank expected user does not modify timestamp
+        cache.updateLastSyncTimestamp(2000L, expectedUserId = "   ")
+        assertTrue(cache.getCache("user_alice")!!.lastSyncTimestamp != 2000L)
+
+        // Updating with correct expected user updates timestamp
+        val correctTimestamp = 1791465000000L
+        cache.updateLastSyncTimestamp(correctTimestamp, expectedUserId = "user_alice")
+        val updated = cache.getCache("user_alice")
+        assertNotNull(updated)
+        assertEquals(correctTimestamp, updated!!.lastSyncTimestamp)
     }
 }
 
