@@ -45,6 +45,9 @@ class OnuslyApplication : Application() {
             getBaseUrl = { syncRepository.getBaseUrl() },
             getToken = { authManager.getJwtToken() }
         )
+        syncRepository.addSignOutListener {
+            realtimeWebSocketManager.disconnect()
+        }
 
         // Startup sync if signed in
         if (authManager.isSignedIn()) {

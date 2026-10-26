@@ -73,9 +73,13 @@ class GoalsRepository(
                 _isOfflineFlow.value = false
                 _goalsFlow.value = goals
             }
-        }.onFailure {
+        }.onFailure { err ->
             if (!callerUserId.isNullOrBlank() && authManager.getUserId() == callerUserId) {
-                _isOfflineFlow.value = true
+                if ((err as? OnuslyApiException)?.statusCode == 401) {
+                    syncRepository.notifySessionExpiration()
+                } else {
+                    _isOfflineFlow.value = true
+                }
             }
         }
         return result
@@ -91,67 +95,91 @@ class GoalsRepository(
     suspend fun createGoal(request: CreateGoalRequest): Result<MutationResult<Goal>> {
         val (baseUrl, token) = getAuth()
             ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
+        val callerUserId = authManager.getUserId()
+            ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
 
         val result = apiClient.createGoal(baseUrl, token, request)
         return result.map { createdGoal ->
-            val updated = _goalsFlow.value.toMutableList()
-            updated.add(0, createdGoal)
-            _goalsFlow.value = updated
+            if (authManager.getUserId() == callerUserId) {
+                val updated = _goalsFlow.value.toMutableList()
+                updated.add(0, createdGoal)
+                _goalsFlow.value = updated
 
-            val syncRes = syncRepository.syncBlocklist()
-            val syncOk = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
-            val syncErr = if (syncRes is SyncResult.Error) syncRes.message else null
-            MutationResult(createdGoal, syncOk, syncErr)
+                val syncRes = syncRepository.syncBlocklist()
+                val syncOk = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
+                val syncErr = if (syncRes is SyncResult.Error) syncRes.message else null
+                MutationResult(createdGoal, syncOk, syncErr)
+            } else {
+                MutationResult(createdGoal, syncSucceeded = false, syncError = "Account changed during operation")
+            }
         }
     }
 
     suspend fun updateGoal(goalId: String, request: UpdateGoalRequest): Result<MutationResult<Goal>> {
         val (baseUrl, token) = getAuth()
             ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
+        val callerUserId = authManager.getUserId()
+            ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
 
         val result = apiClient.updateGoal(baseUrl, token, goalId, request)
         return result.map { updatedGoal ->
-            val updated = _goalsFlow.value.map { if (it.id == goalId) updatedGoal else it }
-            _goalsFlow.value = updated
+            if (authManager.getUserId() == callerUserId) {
+                val updated = _goalsFlow.value.map { if (it.id == goalId) updatedGoal else it }
+                _goalsFlow.value = updated
 
-            val syncRes = syncRepository.syncBlocklist()
-            val syncOk = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
-            val syncErr = if (syncRes is SyncResult.Error) syncRes.message else null
-            MutationResult(updatedGoal, syncOk, syncErr)
+                val syncRes = syncRepository.syncBlocklist()
+                val syncOk = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
+                val syncErr = if (syncRes is SyncResult.Error) syncRes.message else null
+                MutationResult(updatedGoal, syncOk, syncErr)
+            } else {
+                MutationResult(updatedGoal, syncSucceeded = false, syncError = "Account changed during operation")
+            }
         }
     }
 
     suspend fun deleteGoal(goalId: String): Result<MutationResult<Unit>> {
         val (baseUrl, token) = getAuth()
             ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
+        val callerUserId = authManager.getUserId()
+            ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
 
         val result = apiClient.deleteGoal(baseUrl, token, goalId)
         return result.map {
-            val updated = _goalsFlow.value.filterNot { it.id == goalId }
-            _goalsFlow.value = updated
+            if (authManager.getUserId() == callerUserId) {
+                val updated = _goalsFlow.value.filterNot { it.id == goalId }
+                _goalsFlow.value = updated
 
-            val syncRes = syncRepository.syncBlocklist()
-            val syncOk = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
-            val syncErr = if (syncRes is SyncResult.Error) syncRes.message else null
-            MutationResult(Unit, syncOk, syncErr)
+                val syncRes = syncRepository.syncBlocklist()
+                val syncOk = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
+                val syncErr = if (syncRes is SyncResult.Error) syncRes.message else null
+                MutationResult(Unit, syncOk, syncErr)
+            } else {
+                MutationResult(Unit, syncSucceeded = false, syncError = "Account changed during operation")
+            }
         }
     }
 
     suspend fun submitProof(goalId: String, request: CreateProofRequest): Result<MutationResult<Proof>> {
         val (baseUrl, token) = getAuth()
             ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
+        val callerUserId = authManager.getUserId()
+            ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
 
         val result = apiClient.submitProof(baseUrl, token, goalId, request)
         return result.map { proof ->
-            val updated = _goalsFlow.value.map {
-                if (it.id == goalId) it.copy(status = "proof_submitted") else it
-            }
-            _goalsFlow.value = updated
+            if (authManager.getUserId() == callerUserId) {
+                val updated = _goalsFlow.value.map {
+                    if (it.id == goalId) it.copy(status = "proof_submitted") else it
+                }
+                _goalsFlow.value = updated
 
-            val syncRes = syncRepository.syncBlocklist()
-            val syncOk = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
-            val syncErr = if (syncRes is SyncResult.Error) syncRes.message else null
-            MutationResult(proof, syncOk, syncErr)
+                val syncRes = syncRepository.syncBlocklist()
+                val syncOk = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
+                val syncErr = if (syncRes is SyncResult.Error) syncRes.message else null
+                MutationResult(proof, syncOk, syncErr)
+            } else {
+                MutationResult(proof, syncSucceeded = false, syncError = "Account changed during operation")
+            }
         }
     }
 
@@ -162,6 +190,27 @@ class GoalsRepository(
         return apiClient.getProofs(baseUrl, token, goalId, ownerId)
     }
 
+    suspend fun getApprovals(goalId: String): Result<List<ApprovalResult>> {
+        val (baseUrl, token) = getAuth()
+            ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
+
+        val result = apiClient.getApprovals(baseUrl, token, goalId)
+        return result.map { list ->
+            list.map { resp ->
+                ApprovalResult(
+                    id = resp.id,
+                    goalId = resp.goalId,
+                    proofId = resp.proofId,
+                    ownerId = "",
+                    approverId = resp.approverId,
+                    status = resp.decision,
+                    comment = resp.comment,
+                    decidedAt = resp.decidedAt
+                )
+            }
+        }
+    }
+
     suspend fun decideApproval(
         goalId: String,
         proofId: String,
@@ -169,19 +218,32 @@ class GoalsRepository(
     ): Result<MutationResult<ApprovalResult>> {
         val (baseUrl, token) = getAuth()
             ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
+        val callerUserId = authManager.getUserId()
+            ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
 
         val result = apiClient.decideApproval(baseUrl, token, goalId, proofId, request)
         return result.map { decision ->
-            val newStatus = if (decision.status.equals("approved", ignoreCase = true)) "completed" else "active"
-            val updated = _goalsFlow.value.map {
-                if (it.id == goalId) it.copy(status = newStatus) else it
-            }
-            _goalsFlow.value = updated
+            if (authManager.getUserId() == callerUserId) {
+                val newStatus = if (decision.status.equals("approved", ignoreCase = true)) "completed" else "active"
+                val updated = _goalsFlow.value.map {
+                    if (it.id == goalId) it.copy(status = newStatus) else it
+                }
+                _goalsFlow.value = updated
 
-            val syncRes = syncRepository.syncBlocklist()
-            val syncOk = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
-            val syncErr = if (syncRes is SyncResult.Error) syncRes.message else null
-            MutationResult(decision, syncOk, syncErr)
+                // Only sync local blocklist if the local user is the owner of the goal being decided
+                val isLocalOwner = request.ownerId == callerUserId
+                val (syncOk, syncErr) = if (isLocalOwner) {
+                    val syncRes = syncRepository.syncBlocklist()
+                    val ok = syncRes is SyncResult.Success || syncRes is SyncResult.NotModified
+                    val err = if (syncRes is SyncResult.Error) syncRes.message else null
+                    Pair(ok, err)
+                } else {
+                    Pair(true, null)
+                }
+                MutationResult(decision, syncOk, syncErr)
+            } else {
+                MutationResult(decision, syncSucceeded = false, syncError = "Account changed during operation")
+            }
         }
     }
 

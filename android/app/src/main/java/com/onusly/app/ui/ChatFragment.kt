@@ -49,6 +49,7 @@ class ChatFragment : Fragment() {
     private lateinit var etSearchConversations: EditText
     private lateinit var pbConversationsLoading: ProgressBar
     private lateinit var layoutEmptyConversations: LinearLayout
+    private lateinit var tvEmptyConversations: View
     private lateinit var btnEmptyAddFriend: MaterialButton
     private lateinit var btnEmptyExplore: MaterialButton
     private lateinit var rvConversations: RecyclerView
@@ -56,6 +57,7 @@ class ChatFragment : Fragment() {
 
     // View 2: Active Chat Thread
     private lateinit var layoutChatThreadView: LinearLayout
+    private lateinit var layoutChatThread: View
     private lateinit var btnBackToConversations: ImageButton
     private lateinit var tvPartnerName: TextView
     private lateinit var tvPartnerSubtitle: TextView
@@ -72,6 +74,7 @@ class ChatFragment : Fragment() {
     private var activeFilter: String = "all" // "all" | "friends" | "communities"
     private var currentPeer: String = ""
     private var currentConversation: ConversationItem? = null
+    private var currentUserHandle: String = ""
 
     // Polling & Realtime Jobs
     private var chatPollJob: Job? = null
@@ -97,17 +100,35 @@ class ChatFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        if (currentConversation != null) {
-            loadMessages(currentPeer)
-        } else {
-            loadConversations()
+        if (!isHidden) {
+            fetchCurrentUserProfile()
+            if (currentConversation != null) {
+                loadMessages(currentPeer)
+            } else {
+                loadConversations()
+            }
+            startActivePoll()
         }
-        startActivePoll()
     }
 
     override fun onPause() {
         super.onPause()
         stopActivePoll()
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (hidden) {
+            stopActivePoll()
+        } else {
+            fetchCurrentUserProfile()
+            if (currentConversation != null) {
+                loadMessages(currentPeer)
+            } else {
+                loadConversations()
+            }
+            startActivePoll()
+        }
     }
 
     override fun onDestroyView() {
@@ -130,12 +151,14 @@ class ChatFragment : Fragment() {
         etSearchConversations = view.findViewById(R.id.etSearchConversations)
         pbConversationsLoading = view.findViewById(R.id.pbConversationsLoading)
         layoutEmptyConversations = view.findViewById(R.id.layoutEmptyConversations)
+        tvEmptyConversations = layoutEmptyConversations
         btnEmptyAddFriend = view.findViewById(R.id.btnEmptyAddFriend)
         btnEmptyExplore = view.findViewById(R.id.btnEmptyExplore)
         rvConversations = view.findViewById(R.id.rvConversations)
 
         // View 2
         layoutChatThreadView = view.findViewById(R.id.layoutChatThreadView)
+        layoutChatThread = layoutChatThreadView
         btnBackToConversations = view.findViewById(R.id.btnBackToConversations)
         tvPartnerName = view.findViewById(R.id.tvChatPartnerName)
         tvPartnerSubtitle = view.findViewById(R.id.tvChatPartnerSubtitle)
@@ -153,7 +176,7 @@ class ChatFragment : Fragment() {
 
         val userId = session?.userId ?: ""
         val email = session?.email ?: ""
-        val handle = ""
+        val handle = currentUserHandle
 
         // 1. Conversations List Adapter
         conversationsAdapter = ConversationsAdapter { item ->
@@ -174,6 +197,25 @@ class ChatFragment : Fragment() {
             stackFromEnd = true
         }
         rvMessages.adapter = messagesAdapter
+
+        fetchCurrentUserProfile()
+    }
+
+    private fun fetchCurrentUserProfile() {
+        val app = (activity?.application as? OnuslyApplication) ?: return
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            val result = app.goalsRepository.getMyProfile()
+            result.onSuccess { profile ->
+                if (profile.handle.isNotBlank()) {
+                    withContext(Dispatchers.Main) {
+                        currentUserHandle = profile.handle
+                        if (::messagesAdapter.isInitialized) {
+                            messagesAdapter.updateCurrentUserHandle(profile.handle)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun setupListeners() {
@@ -271,9 +313,11 @@ class ChatFragment : Fragment() {
 
     private fun startActivePoll() {
         stopActivePoll()
+        val app = (activity?.application as? OnuslyApplication) ?: return
         if (currentConversation != null && currentPeer.isNotBlank()) {
             chatPollJob = viewLifecycleOwner.lifecycleScope.launch {
                 while (isActive) {
+                    if (!app.authManager.isSignedIn()) break
                     delay(1500)
                     if (currentConversation != null && currentPeer.isNotBlank()) {
                         loadMessages(currentPeer, silent = true)
@@ -283,6 +327,7 @@ class ChatFragment : Fragment() {
         } else {
             conversationsPollJob = viewLifecycleOwner.lifecycleScope.launch {
                 while (isActive) {
+                    if (!app.authManager.isSignedIn()) break
                     delay(3500)
                     if (currentConversation == null) {
                         loadConversations(silent = true)
@@ -300,7 +345,8 @@ class ChatFragment : Fragment() {
     }
 
     private fun loadConversations(silent: Boolean = false) {
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
+        val callerUserId = app.authManager.getUserId() ?: return
         if (!silent) {
             pbConversationsLoading.visibility = View.VISIBLE
         }
@@ -346,6 +392,7 @@ class ChatFragment : Fragment() {
             }
 
             withContext(Dispatchers.Main) {
+                if (app.authManager.getUserId() != callerUserId) return@withContext
                 if (!silent) {
                     pbConversationsLoading.visibility = View.GONE
                 }
@@ -426,8 +473,41 @@ class ChatFragment : Fragment() {
         startActivePoll()
     }
 
+    fun clearLocalData() {
+        stopActivePoll()
+        currentUserHandle = ""
+        allConversations.clear()
+        currentConversation = null
+        currentPeer = ""
+        if (::conversationsAdapter.isInitialized) {
+            conversationsAdapter.setItems(emptyList())
+        }
+        if (::messagesAdapter.isInitialized) {
+            messagesAdapter.setMessages(emptyList())
+        }
+        if (::tvEmptyConversations.isInitialized) {
+            tvEmptyConversations.visibility = View.VISIBLE
+        }
+        if (::layoutEmptyConversations.isInitialized) {
+            layoutEmptyConversations.visibility = View.VISIBLE
+        }
+        if (::rvConversations.isInitialized) {
+            rvConversations.visibility = View.GONE
+        }
+        if (::layoutChatThread.isInitialized) {
+            layoutChatThread.visibility = View.GONE
+        }
+        if (::layoutChatThreadView.isInitialized) {
+            layoutChatThreadView.visibility = View.GONE
+        }
+        if (::layoutConversationsView.isInitialized) {
+            layoutConversationsView.visibility = View.VISIBLE
+        }
+    }
+
     private fun loadMessages(peer: String, silent: Boolean = false) {
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
+        val callerUserId = app.authManager.getUserId() ?: return
         if (!silent) {
             pbLoading.visibility = View.VISIBLE
         }
@@ -435,6 +515,7 @@ class ChatFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             val result = app.chatRepository.getChatHistory(peer)
             withContext(Dispatchers.Main) {
+                if (app.authManager.getUserId() != callerUserId) return@withContext
                 if (!silent) {
                     pbLoading.visibility = View.GONE
                 }
@@ -481,7 +562,12 @@ class ChatFragment : Fragment() {
     }
 
     private fun handleApproveProof(msg: ChatMessage) {
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
+        val currentUserId = app.authManager.getUserId()
+        if (msg.ownerId.isBlank() || (currentUserId != null && msg.ownerId.equals(currentUserId, ignoreCase = true))) {
+            Toast.makeText(context, "You cannot decide your own goal.", Toast.LENGTH_SHORT).show()
+            return
+        }
         val proofId = if (msg.id.startsWith("proof-")) msg.id.removePrefix("proof-") else msg.id
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
@@ -506,7 +592,12 @@ class ChatFragment : Fragment() {
     }
 
     private fun handleRejectProof(msg: ChatMessage) {
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
+        val currentUserId = app.authManager.getUserId()
+        if (msg.ownerId.isBlank() || (currentUserId != null && msg.ownerId.equals(currentUserId, ignoreCase = true))) {
+            Toast.makeText(context, "You cannot decide your own goal.", Toast.LENGTH_SHORT).show()
+            return
+        }
         val proofId = if (msg.id.startsWith("proof-")) msg.id.removePrefix("proof-") else msg.id
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {

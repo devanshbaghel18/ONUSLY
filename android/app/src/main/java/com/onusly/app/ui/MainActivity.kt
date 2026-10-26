@@ -33,11 +33,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var headerProgress: ProgressBar
     private lateinit var btnHeaderSync: ImageButton
 
-    private val homeFragment = HomeFragment()
-    private val goalsFragment = GoalsFragment()
-    private val reviewsFragment = ReviewsFragment()
-    private val chatFragment = ChatFragment()
-    private val settingsFragment = SettingsFragment()
+    private var homeFragment = HomeFragment()
+    private var goalsFragment = GoalsFragment()
+    private var reviewsFragment = ReviewsFragment()
+    private var chatFragment = ChatFragment()
+    private var settingsFragment = SettingsFragment()
 
     private var activeFragment: Fragment = homeFragment
 
@@ -67,6 +67,13 @@ class MainActivity : AppCompatActivity() {
         bindViews()
         setupFragments(savedInstanceState)
         setupNavigation()
+
+        val app = application as OnuslyApplication
+        app.syncRepository.addSignOutListener {
+            runOnUiThread {
+                onUserLoggedOut()
+            }
+        }
     }
 
     private fun bindViews() {
@@ -90,9 +97,32 @@ class MainActivity : AppCompatActivity() {
                 .commit()
             activeFragment = homeFragment
         } else {
-            // Restore fragments
-            supportFragmentManager.findFragmentByTag("HOME")?.let { }
+            homeFragment = (supportFragmentManager.findFragmentByTag("HOME") as? HomeFragment) ?: homeFragment
+            goalsFragment = (supportFragmentManager.findFragmentByTag("GOALS") as? GoalsFragment) ?: goalsFragment
+            reviewsFragment = (supportFragmentManager.findFragmentByTag("REVIEWS") as? ReviewsFragment) ?: reviewsFragment
+            chatFragment = (supportFragmentManager.findFragmentByTag("CHAT") as? ChatFragment) ?: chatFragment
+            settingsFragment = (supportFragmentManager.findFragmentByTag("SETTINGS") as? SettingsFragment) ?: settingsFragment
+            val activeTag = savedInstanceState.getString("KEY_ACTIVE_TAG", "HOME")
+            activeFragment = when (activeTag) {
+                "GOALS" -> goalsFragment
+                "REVIEWS" -> reviewsFragment
+                "CHAT" -> chatFragment
+                "SETTINGS" -> settingsFragment
+                else -> homeFragment
+            }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val activeTag = when (activeFragment) {
+            goalsFragment -> "GOALS"
+            reviewsFragment -> "REVIEWS"
+            chatFragment -> "CHAT"
+            settingsFragment -> "SETTINGS"
+            else -> "HOME"
+        }
+        outState.putString("KEY_ACTIVE_TAG", activeTag)
     }
 
     private fun setupNavigation() {
@@ -127,6 +157,7 @@ class MainActivity : AppCompatActivity() {
 
     fun handleGoogleToken(idToken: String) {
         val app = application as OnuslyApplication
+        val existingUserId = app.authManager.getUserId()
         headerProgress.visibility = View.VISIBLE
 
         lifecycleScope.launch {
@@ -137,6 +168,15 @@ class MainActivity : AppCompatActivity() {
             headerProgress.visibility = View.GONE
 
             result.onSuccess { session ->
+                if (!existingUserId.isNullOrBlank() && existingUserId != session.userId) {
+                    // Direct account switch without signout: clean previous user state & cache!
+                    app.syncRepository.onUserSignOut()
+                    app.goalsRepository.clearLocalData()
+                    chatFragment.clearLocalData()
+                    reviewsFragment.clearLocalData()
+                    app.authManager.saveSession(session)
+                }
+                app.realtimeWebSocketManager.connect()
                 Toast.makeText(this@MainActivity, "Signed in as ${session.email}", Toast.LENGTH_SHORT).show()
                 homeFragment.updateAccountState()
                 performQuickSync()
@@ -319,14 +359,24 @@ class MainActivity : AppCompatActivity() {
         ).show()
     }
 
+    private var isLoggingOut = false
+
     fun onUserLoggedOut() {
-        val app = application as OnuslyApplication
-        app.syncRepository.onUserSignOut()
-        app.goalsRepository.clearLocalData()
-        homeFragment.updateAccountState()
-        homeFragment.updateBlocklistUi(null)
-        goalsFragment.refreshGoals()
-        reviewsFragment.clearLocalData()
-        settingsFragment.updateProfileUi()
+        if (isLoggingOut) return
+        isLoggingOut = true
+        try {
+            val app = application as OnuslyApplication
+            chatFragment.clearLocalData()
+            app.realtimeWebSocketManager.disconnect()
+            app.syncRepository.onUserSignOut()
+            app.goalsRepository.clearLocalData()
+            homeFragment.updateAccountState()
+            homeFragment.updateBlocklistUi(null)
+            goalsFragment.refreshGoals()
+            reviewsFragment.clearLocalData()
+            settingsFragment.updateProfileUi()
+        } finally {
+            isLoggingOut = false
+        }
     }
 }

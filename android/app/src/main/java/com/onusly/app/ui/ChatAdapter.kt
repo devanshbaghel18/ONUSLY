@@ -20,12 +20,29 @@ import java.util.Locale
 class ChatAdapter(
     private val currentUserId: String,
     private val currentUserEmail: String,
-    private val currentUserHandle: String,
+    private var currentUserHandle: String,
     private val onApproveClicked: (ChatMessage) -> Unit,
     private val onRejectClicked: (ChatMessage) -> Unit
 ) : RecyclerView.Adapter<ChatAdapter.ChatViewHolder>() {
 
+    companion object {
+        fun canShowDecisionActions(msg: ChatMessage, currentUserId: String, isMe: Boolean): Boolean {
+            val isMyGoal = msg.ownerId.isNotBlank() && currentUserId.isNotBlank() && msg.ownerId.equals(currentUserId, ignoreCase = true)
+            if (isMe || isMyGoal || msg.ownerId.isBlank() || msg.goalId.isBlank() || !msg.isProof || msg.approved) {
+                return false
+            }
+            return true
+        }
+    }
+
     private val messages = mutableListOf<ChatMessage>()
+
+    fun updateCurrentUserHandle(handle: String) {
+        if (currentUserHandle != handle) {
+            currentUserHandle = handle
+            notifyDataSetChanged()
+        }
+    }
 
     fun setMessages(newMessages: List<ChatMessage>): Boolean {
         if (messages.size == newMessages.size && messages == newMessages) {
@@ -93,8 +110,8 @@ class ChatAdapter(
             // Timestamp formatting
             tvTime.text = formatTime(msg.time)
 
-            // Verification Card
-            val isVerification = msg.isProof || msg.text.contains("verify my goal", ignoreCase = true)
+            // Verification Card - strictly conditioned on msg.isProof && !msg.goalId.isNullOrBlank()
+            val isVerification = msg.isProof && !msg.goalId.isNullOrBlank()
             if (isVerification) {
                 layoutVerificationHeader.visibility = View.VISIBLE
                 val title = if (msg.goalTitle.isNotBlank()) msg.goalTitle else "Goal Verification"
@@ -109,16 +126,16 @@ class ChatAdapter(
                 if (msg.approved) {
                     tvApprovedStatus.visibility = View.VISIBLE
                     layoutActions.visibility = View.GONE
-                } else {
+                } else if (canShowDecisionActions(msg, currentUserId, isMe)) {
+                    // Only render decision action buttons (Approve/Reject) for incoming partner proofs with valid ownerId
                     tvApprovedStatus.visibility = View.GONE
-                    // If not me and goal is pending: show Approve & Reject buttons!
-                    if (!isMe) {
-                        layoutActions.visibility = View.VISIBLE
-                        btnApprove.setOnClickListener { onApproveClicked(msg) }
-                        btnReject.setOnClickListener { onRejectClicked(msg) }
-                    } else {
-                        layoutActions.visibility = View.GONE
-                    }
+                    layoutActions.visibility = View.VISIBLE
+                    btnApprove.setOnClickListener { onApproveClicked(msg) }
+                    btnReject.setOnClickListener { onRejectClicked(msg) }
+                } else {
+                    // Self-sent messages, own goals, or missing ownerId NEVER render decision action buttons
+                    tvApprovedStatus.visibility = View.GONE
+                    layoutActions.visibility = View.GONE
                 }
             } else {
                 layoutVerificationHeader.visibility = View.GONE

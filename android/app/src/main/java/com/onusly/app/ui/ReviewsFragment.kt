@@ -19,10 +19,21 @@ import com.google.android.material.button.MaterialButton
 import com.onusly.app.OnuslyApplication
 import com.onusly.app.R
 import com.onusly.app.data.model.Goal
+import com.onusly.app.data.model.GoalParser
 import com.onusly.app.data.model.Proof
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
 
 class ReviewsFragment : Fragment() {
 
@@ -38,11 +49,61 @@ class ReviewsFragment : Fragment() {
     private lateinit var adapter: ReviewsAdapter
     private val reviewItems = mutableListOf<ReviewItem>()
     private val manuallyLookedUpGoals = mutableListOf<ReviewItem>()
+    private var pollJob: Job? = null
+
+    companion object {
+        private const val KEY_MANUALLY_LOOKED_UP_GOALS = "key_manually_looked_up_goals"
+
+        fun parseTimestampToEpochMillis(timestamp: String?): Long {
+            if (timestamp.isNullOrBlank()) return Long.MIN_VALUE
+            val trimmed = timestamp.trim()
+            trimmed.toLongOrNull()?.let { return it }
+            return try {
+                Instant.parse(trimmed).toEpochMilli()
+            } catch (_: Exception) {
+                try {
+                    OffsetDateTime.parse(trimmed).toInstant().toEpochMilli()
+                } catch (_: Exception) {
+                    try {
+                        ZonedDateTime.parse(trimmed).toInstant().toEpochMilli()
+                    } catch (_: Exception) {
+                        try {
+                            LocalDateTime.parse(trimmed).atZone(ZoneOffset.UTC).toInstant().toEpochMilli()
+                        } catch (_: Exception) {
+                            Long.MIN_VALUE
+                        }
+                    }
+                }
+            }
+        }
+
+        fun sortProofsDescending(proofs: List<Proof>): List<Proof> {
+            return proofs.sortedWith { p1, p2 ->
+                val t1 = parseTimestampToEpochMillis(p1.submittedAt)
+                val t2 = parseTimestampToEpochMillis(p2.submittedAt)
+                if (t1 != t2) {
+                    t2.compareTo(t1)
+                } else {
+                    p1.id.compareTo(p2.id)
+                }
+            }
+        }
+
+        fun findLatestProof(proofs: List<Proof>): Proof? {
+            if (proofs.isEmpty()) return null
+            return sortProofsDescending(proofs).firstOrNull()
+        }
+    }
 
     data class ReviewItem(
         val goal: Goal,
         val proof: Proof
     )
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        restoreLookedUpGoals(savedInstanceState)
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -57,9 +118,105 @@ class ReviewsFragment : Fragment() {
         return view
     }
 
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        if (savedInstanceState != null && manuallyLookedUpGoals.isEmpty()) {
+            restoreLookedUpGoals(savedInstanceState)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
-        refreshReviews()
+        if (!isHidden) {
+            refreshReviews()
+            startPolling()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopPolling()
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (hidden) {
+            stopPolling()
+        } else {
+            refreshReviews()
+            startPolling()
+        }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        stopPolling()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        try {
+            val jsonArr = JSONArray()
+            for (item in manuallyLookedUpGoals) {
+                val itemObj = JSONObject().apply {
+                    put("goal", JSONObject().apply {
+                        put("id", item.goal.id)
+                        put("ownerId", item.goal.ownerId)
+                        put("approverId", item.goal.approverId)
+                        put("approverEmail", item.goal.approverEmail)
+                        put("approvalType", item.goal.approvalType)
+                        put("title", item.goal.title)
+                        put("description", item.goal.description)
+                        put("status", item.goal.status)
+                        put("createdAt", item.goal.createdAt)
+                        put("updatedAt", item.goal.updatedAt)
+                        put("blockedApps", JSONArray(item.goal.blockedApps))
+                        put("blockedDomains", JSONArray(item.goal.blockedDomains))
+                    })
+                    put("proof", JSONObject().apply {
+                        put("id", item.proof.id)
+                        put("goalId", item.proof.goalId)
+                        put("ownerId", item.proof.ownerId)
+                        put("proofType", item.proof.proofType)
+                        put("textExplanation", item.proof.textExplanation)
+                        put("externalLink", item.proof.externalLink)
+                        put("photoUrl", item.proof.photoUrl)
+                        put("submittedAt", item.proof.submittedAt)
+                    })
+                }
+                jsonArr.put(itemObj)
+            }
+            outState.putString(KEY_MANUALLY_LOOKED_UP_GOALS, jsonArr.toString())
+        } catch (_: Exception) {}
+    }
+
+    private fun restoreLookedUpGoals(bundle: Bundle?) {
+        val jsonStr = bundle?.getString(KEY_MANUALLY_LOOKED_UP_GOALS) ?: return
+        try {
+            val jsonArr = JSONArray(jsonStr)
+            manuallyLookedUpGoals.clear()
+            for (i in 0 until jsonArr.length()) {
+                val itemObj = jsonArr.getJSONObject(i)
+                val goal = GoalParser.parseGoal(itemObj.getJSONObject("goal"))
+                val proof = GoalParser.parseProof(itemObj.getJSONObject("proof"))
+                manuallyLookedUpGoals.add(ReviewItem(goal, proof))
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun startPolling() {
+        stopPolling()
+        pollJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive) {
+                delay(15000)
+                refreshReviews()
+            }
+        }
+    }
+
+    private fun stopPolling() {
+        pollJob?.cancel()
+        pollJob = null
     }
 
     private fun bindViews(view: View) {
@@ -98,6 +255,7 @@ class ReviewsFragment : Fragment() {
     }
 
     fun clearLocalData() {
+        stopPolling()
         reviewItems.clear()
         manuallyLookedUpGoals.clear()
         if (::adapter.isInitialized) {
@@ -114,6 +272,7 @@ class ReviewsFragment : Fragment() {
 
     fun refreshReviews() {
         val app = (activity?.application as? OnuslyApplication) ?: return
+        val callerUserId = app.authManager.getUserId() ?: return
         if (!app.authManager.isSignedIn()) {
             clearLocalData()
             return
@@ -137,8 +296,9 @@ class ReviewsFragment : Fragment() {
                     app.goalsRepository.getProofs(goal.id, goal.ownerId)
                 }
                 val proofs = proofsResult.getOrDefault(emptyList())
-                if (proofs.isNotEmpty()) {
-                    items.add(ReviewItem(goal, proofs.last()))
+                val latestProof = findLatestProof(proofs)
+                if (latestProof != null) {
+                    items.add(ReviewItem(goal, latestProof))
                 }
             }
 
@@ -148,6 +308,8 @@ class ReviewsFragment : Fragment() {
                     items.add(item)
                 }
             }
+
+            if (app.authManager.getUserId() != callerUserId) return@launch
 
             pbLoadingReviews.visibility = View.GONE
             reviewItems.clear()
@@ -221,10 +383,11 @@ class ReviewsFragment : Fragment() {
                         pbLoadingReviews.visibility = View.GONE
 
                         proofsResult.onSuccess { proofs ->
-                            if (proofs.isEmpty()) {
+                            val latestProof = findLatestProof(proofs)
+                            if (latestProof == null) {
                                 Toast.makeText(context, "No proofs found for this goal", Toast.LENGTH_SHORT).show()
                             } else {
-                                val item = ReviewItem(goal, proofs.last())
+                                val item = ReviewItem(goal, latestProof)
                                 manuallyLookedUpGoals.removeAll { it.goal.id == goal.id }
                                 manuallyLookedUpGoals.add(0, item)
                                 refreshReviews()
@@ -246,17 +409,22 @@ class ReviewsFragment : Fragment() {
             .show()
     }
 
+    private fun showError(message: String) {
+        val ctx = context ?: return
+        AlertDialog.Builder(ctx)
+            .setTitle("Forbidden")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
     private fun promptDecision(item: ReviewItem, status: String) {
         val app = (activity?.application as? OnuslyApplication) ?: return
         val currentUserId = app.authManager.getUserId()
 
-        // Guard against self-approval
-        if (currentUserId != null && currentUserId == item.goal.ownerId && status == "approved") {
-            AlertDialog.Builder(requireContext())
-                .setTitle("Self-Approval Forbidden")
-                .setMessage("Goal owners cannot approve their own proof. Your designated accountability partner (${item.goal.approverEmail}) must verify and approve this goal.")
-                .setPositiveButton("OK", null)
-                .show()
+        // Guard against deciding your own goal
+        if (item.goal.ownerId == currentUserId) {
+            showError("You cannot decide your own goal.")
             return
         }
 

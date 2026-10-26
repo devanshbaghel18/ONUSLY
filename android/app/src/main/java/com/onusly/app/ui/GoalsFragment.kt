@@ -19,6 +19,9 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.onusly.app.OnuslyApplication
 import com.onusly.app.R
 import com.onusly.app.data.model.Goal
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class GoalsFragment : Fragment() {
@@ -43,6 +46,7 @@ class GoalsFragment : Fragment() {
 
     private lateinit var adapter: GoalsAdapter
     private var allGoals: List<Goal> = emptyList()
+    private var pollJob: Job? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -59,7 +63,47 @@ class GoalsFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        refreshGoals()
+        if (!isHidden) {
+            refreshGoals()
+            startPolling()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopPolling()
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (hidden) {
+            stopPolling()
+        } else {
+            refreshGoals()
+            startPolling()
+        }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        stopPolling()
+    }
+
+    private fun startPolling() {
+        stopPolling()
+        pollJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive) {
+                delay(30000)
+                val app = (activity?.application as? OnuslyApplication) ?: break
+                if (!app.authManager.isSignedIn()) break
+                app.goalsRepository.fetchGoals()
+            }
+        }
+    }
+
+    private fun stopPolling() {
+        pollJob?.cancel()
+        pollJob = null
     }
 
     private fun bindViews(view: View) {
@@ -227,16 +271,27 @@ class GoalsFragment : Fragment() {
         }
     }
 
+    private fun showError(message: String) {
+        val ctx = context ?: return
+        AlertDialog.Builder(ctx)
+            .setTitle("Cannot Delete Goal")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
+    companion object {
+        fun canDeleteGoal(goal: Goal): Boolean {
+            return !(goal.isActive || goal.isProofSubmitted)
+        }
+    }
+
     private fun confirmDeleteGoal(goal: Goal) {
         val context = context ?: return
 
-        // Prevent invalid deletion attempts on active targeted goals
-        if (goal.isActive && goal.isTargeted) {
-            AlertDialog.Builder(context)
-                .setTitle("Goal is Locked")
-                .setMessage("Active goals with locked distraction targets cannot be deleted until verified and completed by your approver.\n\nBackend will reject deletion attempts (409 goal_locked).")
-                .setPositiveButton("OK", null)
-                .show()
+        // Prevent deletion of active or in-review goals
+        if (!canDeleteGoal(goal)) {
+            showError("Cannot delete an active or in-review goal.")
             return
         }
 

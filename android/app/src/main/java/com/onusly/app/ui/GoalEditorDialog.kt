@@ -94,13 +94,15 @@ class GoalEditorDialog(
     }
 
     private fun setupInitialData() {
+        etDomainInput.hint = "e.g. reddit.com (enforced via Chrome extension)"
         if (existingGoal != null) {
             tvEditorModalTitle.text = "Edit Goal"
             tvEditorModalSubtitle.text = "Add new distraction targets or update goal details. Existing targets are locked."
             etGoalTitle.setText(existingGoal.title)
             etGoalDesc.setText(existingGoal.description)
             etApproverEmail.setText(existingGoal.approverEmail)
-            etApproverEmail.isEnabled = false // Approver cannot be changed on existing goal
+            // If editing an existing goal that has NO approver, keep enabled so user can assign when upgrading to targeted
+            etApproverEmail.isEnabled = existingGoal.approverEmail.isBlank()
 
             // Render existing locked app chips
             for (app in existingApps) {
@@ -289,9 +291,12 @@ class GoalEditorDialog(
                 }
             } else {
                 // UPDATE GOAL (Add-Only targets)
+                val shouldSendAccountability = existingGoal.approverEmail.isBlank() && (hasTargets || approver.isNotBlank())
                 val req = UpdateGoalRequest(
                     title = title,
                     description = desc,
+                    approvalType = if (shouldSendAccountability) "friend" else null,
+                    approverEmail = if (shouldSendAccountability) approver.ifBlank { null } else null,
                     blockedApps = allApps,
                     blockedDomains = allDomains
                 )
@@ -326,14 +331,14 @@ class GoalEditorDialog(
     private fun formatErrorMessage(err: Throwable): String {
         return when (err) {
             is OnuslyApiException -> {
-                when (err.message) {
+                when (err.message.trim()) {
                     "accountability_required" -> "Accountability Required: Distraction targets cannot be set with approvalType 'none'. Please provide a valid friend approver."
                     "targets_locked" -> "Targets are locked: Existing distraction targets on an active goal cannot be removed."
                     "goal_locked" -> "Goal is locked: Active goals with targets cannot be modified in an invalid state."
-                    else -> err.message
+                    else -> err.message.trim()
                 }
             }
-            else -> err.message ?: "Failed to save goal"
+            else -> err.message?.trim() ?: "Failed to save goal"
         }
     }
 }
