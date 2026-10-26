@@ -3,6 +3,7 @@ package com.onusly.app.engine
 import com.onusly.app.data.model.BlockEvaluationResult
 import com.onusly.app.data.model.BlocklistTarget
 import com.onusly.app.data.model.CachedBlocklist
+import com.onusly.app.data.model.TargetCatalog
 
 object BlockerEngine {
 
@@ -103,7 +104,12 @@ object BlockerEngine {
                 continue
             }
 
-            if (target.apps.any { it.equals(normalizedPkg, ignoreCase = true) }) {
+            val matchesApp = target.apps.any { it.equals(normalizedPkg, ignoreCase = true) }
+            val matchesDomain = target.domains.any { domain ->
+                TargetCatalog.getAppsForDomain(domain).any { it.equals(normalizedPkg, ignoreCase = true) }
+            }
+
+            if (matchesApp || matchesDomain) {
                 matchingTargets.add(target)
             }
         }

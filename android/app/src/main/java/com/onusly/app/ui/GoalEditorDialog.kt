@@ -19,6 +19,7 @@ import com.onusly.app.data.GoalsRepository
 import com.onusly.app.data.api.OnuslyApiException
 import com.onusly.app.data.model.CreateGoalRequest
 import com.onusly.app.data.model.Goal
+import com.onusly.app.data.model.TargetCatalog
 import com.onusly.app.data.model.UpdateGoalRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -169,6 +170,13 @@ class GoalEditorDialog(
                 }
                 for (app in newlySelectedApps) {
                     addAppChip(app, isLocked = false)
+                    val associatedDomains = TargetCatalog.getDomainsForApp(app)
+                    for (domain in associatedDomains) {
+                        if (!existingDomains.contains(domain) && !newlyAddedDomains.contains(domain)) {
+                            newlyAddedDomains.add(domain)
+                            addDomainChip(domain, isLocked = false)
+                        }
+                    }
                 }
                 updateAccountabilityState()
             }
@@ -253,6 +261,16 @@ class GoalEditorDialog(
         if (title.isBlank()) {
             showError("Goal title cannot be empty.")
             return
+        }
+
+        // Ensure associated domains from TargetCatalog for all selected apps are added to newlyAddedDomains
+        for (app in newlySelectedApps) {
+            val associatedDomains = TargetCatalog.getDomainsForApp(app)
+            for (domain in associatedDomains) {
+                if (!existingDomains.contains(domain) && !newlyAddedDomains.contains(domain)) {
+                    newlyAddedDomains.add(domain)
+                }
+            }
         }
 
         val allApps = (existingApps + newlySelectedApps).toList()
