@@ -238,7 +238,7 @@ class ReviewsFragment : Fragment() {
 
     private fun observeOfflineState() {
         viewLifecycleOwner.lifecycleScope.launch {
-            val app = requireActivity().application as OnuslyApplication
+            val app = (activity?.application as? OnuslyApplication) ?: return@launch
             app.goalsRepository.isOfflineFlow.collect { isOffline ->
                 layoutReviewsOfflineBanner.visibility = if (isOffline) View.VISIBLE else View.GONE
             }
@@ -272,6 +272,7 @@ class ReviewsFragment : Fragment() {
 
     fun refreshReviews() {
         val app = (activity?.application as? OnuslyApplication) ?: return
+        if (view == null || !::pbLoadingReviews.isInitialized) return
         val callerUserId = app.authManager.getUserId() ?: return
         if (!app.authManager.isSignedIn()) {
             clearLocalData()
@@ -545,7 +546,9 @@ class ReviewsFragment : Fragment() {
                     tvSelfApprovalNotice.text = "You are the goal owner. Only your accountability partner (${item.goal.approverEmail.ifBlank { "assigned friend" }}) can verify and approve."
                     btnApprove.isEnabled = false
                     btnApprove.alpha = 0.5f
+                    btnApprove.setOnClickListener(null)
                     btnReject.visibility = View.GONE
+                    btnReject.setOnClickListener(null)
                 } else {
                     tvSelfApprovalNotice.visibility = View.GONE
                     btnApprove.isEnabled = true

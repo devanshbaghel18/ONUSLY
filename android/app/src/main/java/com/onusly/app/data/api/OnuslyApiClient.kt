@@ -109,16 +109,23 @@ class OnuslyApiClient(
         return extractErrorMessage(response, bodyString)
     }
 
+    companion object {
+        fun encodePathSegment(segment: String): String {
+            return URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
+        }
+    }
+
     private suspend fun executeRequest(request: Request): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val response = httpClient.newCall(request).execute()
-            val bodyString = response.body?.string() ?: ""
+            httpClient.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string() ?: ""
 
-            if (!response.isSuccessful) {
-                val errorMsg = extractErrorMessage(response, bodyString)
-                Result.failure(OnuslyApiException(response.code, errorMsg))
-            } else {
-                Result.success(bodyString)
+                if (!response.isSuccessful) {
+                    val errorMsg = extractErrorMessage(response, bodyString)
+                    Result.failure(OnuslyApiException(response.code, errorMsg))
+                } else {
+                    Result.success(bodyString)
+                }
             }
         } catch (e: IOException) {
             Result.failure(e)
@@ -137,7 +144,7 @@ class OnuslyApiClient(
             .get()
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parseGoals(body)
         }
     }
@@ -146,14 +153,14 @@ class OnuslyApiClient(
         val query = if (!ownerId.isNullOrBlank()) {
             "?ownerId=${URLEncoder.encode(ownerId, "UTF-8")}"
         } else ""
-        val url = "${baseUrl.trimEnd('/')}/goals/${URLEncoder.encode(goalId, "UTF-8")}$query"
+        val url = "${baseUrl.trimEnd('/')}/goals/${encodePathSegment(goalId)}$query"
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $jwtToken")
             .get()
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parseGoal(JSONObject(body))
         }
     }
@@ -167,7 +174,7 @@ class OnuslyApiClient(
             .post(jsonPayload.toRequestBody(jsonMediaType))
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parseGoal(JSONObject(body))
         }
     }
@@ -178,7 +185,7 @@ class OnuslyApiClient(
         goalId: String,
         requestData: UpdateGoalRequest
     ): Result<Goal> {
-        val url = "${baseUrl.trimEnd('/')}/goals/${URLEncoder.encode(goalId, "UTF-8")}"
+        val url = "${baseUrl.trimEnd('/')}/goals/${encodePathSegment(goalId)}"
         val jsonPayload = GoalParser.updateGoalRequestToJson(requestData)
         val request = Request.Builder()
             .url(url)
@@ -186,20 +193,20 @@ class OnuslyApiClient(
             .patch(jsonPayload.toRequestBody(jsonMediaType))
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parseGoal(JSONObject(body))
         }
     }
 
     suspend fun deleteGoal(baseUrl: String, jwtToken: String, goalId: String): Result<Unit> {
-        val url = "${baseUrl.trimEnd('/')}/goals/${URLEncoder.encode(goalId, "UTF-8")}"
+        val url = "${baseUrl.trimEnd('/')}/goals/${encodePathSegment(goalId)}"
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $jwtToken")
             .delete()
             .build()
 
-        return executeRequest(request).map { }
+        return executeRequest(request).mapCatching { }
     }
 
     // --- Proofs API ---
@@ -210,7 +217,7 @@ class OnuslyApiClient(
         goalId: String,
         requestData: CreateProofRequest
     ): Result<Proof> {
-        val url = "${baseUrl.trimEnd('/')}/goals/${URLEncoder.encode(goalId, "UTF-8")}/proofs"
+        val url = "${baseUrl.trimEnd('/')}/goals/${encodePathSegment(goalId)}/proofs"
         val jsonPayload = GoalParser.createProofRequestToJson(requestData)
         val request = Request.Builder()
             .url(url)
@@ -218,7 +225,7 @@ class OnuslyApiClient(
             .post(jsonPayload.toRequestBody(jsonMediaType))
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parseProof(JSONObject(body))
         }
     }
@@ -232,14 +239,14 @@ class OnuslyApiClient(
         val query = if (!ownerId.isNullOrBlank()) {
             "?ownerId=${URLEncoder.encode(ownerId, "UTF-8")}"
         } else ""
-        val url = "${baseUrl.trimEnd('/')}/goals/${URLEncoder.encode(goalId, "UTF-8")}/proofs$query"
+        val url = "${baseUrl.trimEnd('/')}/goals/${encodePathSegment(goalId)}/proofs$query"
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $jwtToken")
             .get()
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parseProofs(body)
         }
     }
@@ -251,7 +258,7 @@ class OnuslyApiClient(
         jwtToken: String,
         goalId: String
     ): Result<List<ApprovalResponse>> {
-        val url = "${baseUrl.trimEnd('/')}/goals/${URLEncoder.encode(goalId, "UTF-8")}/approvals"
+        val url = "${baseUrl.trimEnd('/')}/goals/${encodePathSegment(goalId)}/approvals"
         val request = Request.Builder()
             .url(url)
             .apply {
@@ -278,7 +285,7 @@ class OnuslyApiClient(
         proofId: String,
         requestData: ApprovalDecisionRequest
     ): Result<ApprovalResult> {
-        val url = "${baseUrl.trimEnd('/')}/goals/${URLEncoder.encode(goalId, "UTF-8")}/proofs/${URLEncoder.encode(proofId, "UTF-8")}/approval"
+        val url = "${baseUrl.trimEnd('/')}/goals/${encodePathSegment(goalId)}/proofs/${encodePathSegment(proofId)}/approval"
         val jsonPayload = GoalParser.approvalDecisionRequestToJson(requestData)
         val request = Request.Builder()
             .url(url)
@@ -286,7 +293,7 @@ class OnuslyApiClient(
             .post(jsonPayload.toRequestBody(jsonMediaType))
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parseApprovalResult(body)
         }
     }
@@ -301,7 +308,7 @@ class OnuslyApiClient(
             .get()
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parseUserProfile(body)
         }
     }
@@ -316,7 +323,7 @@ class OnuslyApiClient(
             .patch(jsonPayload.toRequestBody(jsonMediaType))
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parseUserProfile(body)
         }
     }
@@ -330,7 +337,7 @@ class OnuslyApiClient(
             .get()
             .build()
 
-        return executeRequest(request).map { body ->
+        return executeRequest(request).mapCatching { body ->
             GoalParser.parsePublicProfile(body)
         }
     }

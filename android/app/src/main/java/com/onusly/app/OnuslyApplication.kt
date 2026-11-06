@@ -13,6 +13,7 @@ import com.onusly.app.data.cache.SharedPreferencesBlocklistCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class OnuslyApplication : Application() {
@@ -55,6 +56,22 @@ class OnuslyApplication : Application() {
                 syncRepository.syncBlocklist()
             }
             realtimeWebSocketManager.connect()
+        }
+
+        // Periodic 60-second heartbeat loop while application process is alive
+        applicationScope.launch(Dispatchers.IO) {
+            while (true) {
+                delay(60_000)
+                if (authManager.isSignedIn()) {
+                    try {
+                        val accessibilityActive = com.onusly.app.service.OnuslyAccessibilityService.isServiceRunning ||
+                            com.onusly.app.service.OnuslyAccessibilityService.isServiceEnabled(this@OnuslyApplication)
+                        val issues = if (!accessibilityActive) listOf("accessibility_disabled") else emptyList()
+                        syncRepository.sendHeartbeat(issues)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
         }
 
         registerNetworkCallback()

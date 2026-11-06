@@ -33,6 +33,19 @@ class ChatAdapter(
             }
             return true
         }
+
+        fun formatTime(timeStr: String): String {
+            if (timeStr.isBlank()) return ""
+            return try {
+                val clean = timeStr.substringBefore(".").removeSuffix("Z")
+                val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+                val out = SimpleDateFormat("h:mm a", Locale.getDefault())
+                val d = iso.parse(clean)
+                if (d != null) out.format(d) else timeStr
+            } catch (_: Exception) {
+                timeStr
+            }
+        }
     }
 
     private val messages = mutableListOf<ChatMessage>()
@@ -167,15 +180,7 @@ class ChatAdapter(
         }
 
         private fun formatTime(timeStr: String): String {
-            if (timeStr.isBlank()) return ""
-            return try {
-                val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-                val out = SimpleDateFormat("h:mm a", Locale.getDefault())
-                val d = iso.parse(timeStr.substringBefore("."))
-                if (d != null) out.format(d) else timeStr
-            } catch (_: Exception) {
-                timeStr
-            }
+            return Companion.formatTime(timeStr)
         }
     }
 }

@@ -5,26 +5,33 @@ import org.json.JSONObject
 
 object BlocklistParser {
 
+    fun optSafeString(obj: JSONObject, key: String, fallback: String = ""): String {
+        if (!obj.has(key) || obj.isNull(key)) return fallback
+        val value = obj.optString(key, fallback)
+        return if (value == "null") fallback else value
+    }
+
     fun parseResponse(jsonString: String): BlocklistResponse {
         val root = JSONObject(jsonString)
-        val userId = root.optString("userId", "")
-        val version = root.optString("version", "")
-        val generatedAt = root.optString("generatedAt", "")
+        val userId = optSafeString(root, "userId")
+        val version = optSafeString(root, "version")
+        val generatedAt = optSafeString(root, "generatedAt")
 
         val targetsArray = root.optJSONArray("targets") ?: JSONArray()
         val targetsList = mutableListOf<BlocklistTarget>()
 
         for (i in 0 until targetsArray.length()) {
             val targetObj = targetsArray.optJSONObject(i) ?: continue
-            val goalId = targetObj.optString("goalId", "")
-            val goalTitle = targetObj.optString("goalTitle", "")
-            val status = targetObj.optString("status", "")
+            val goalId = optSafeString(targetObj, "goalId")
+            val goalTitle = optSafeString(targetObj, "goalTitle")
+            val status = optSafeString(targetObj, "status")
 
             val appsArray = targetObj.optJSONArray("apps") ?: JSONArray()
             val appsList = mutableListOf<String>()
             for (j in 0 until appsArray.length()) {
+                if (appsArray.isNull(j)) continue
                 val app = appsArray.optString(j, "").trim()
-                if (app.isNotEmpty()) {
+                if (app.isNotEmpty() && app != "null") {
                     appsList.add(app)
                 }
             }
@@ -32,8 +39,9 @@ object BlocklistParser {
             val domainsArray = targetObj.optJSONArray("domains") ?: JSONArray()
             val domainsList = mutableListOf<String>()
             for (j in 0 until domainsArray.length()) {
+                if (domainsArray.isNull(j)) continue
                 val domain = domainsArray.optString(j, "").trim()
-                if (domain.isNotEmpty()) {
+                if (domain.isNotEmpty() && domain != "null") {
                     domainsList.add(domain)
                 }
             }
@@ -94,9 +102,9 @@ object BlocklistParser {
         if (jsonString.isBlank()) return null
         return try {
             val root = JSONObject(jsonString)
-            val userId = root.optString("userId", "")
-            val version = root.optString("version", "")
-            val generatedAt = root.optString("generatedAt", "")
+            val userId = optSafeString(root, "userId")
+            val version = optSafeString(root, "version")
+            val generatedAt = optSafeString(root, "generatedAt")
             val lastSyncTimestamp = root.optLong("lastSyncTimestamp", 0L)
 
             val targetsArray = root.optJSONArray("targets") ?: JSONArray()
@@ -104,15 +112,16 @@ object BlocklistParser {
 
             for (i in 0 until targetsArray.length()) {
                 val targetObj = targetsArray.optJSONObject(i) ?: continue
-                val goalId = targetObj.optString("goalId", "")
-                val goalTitle = targetObj.optString("goalTitle", "")
-                val status = targetObj.optString("status", "")
+                val goalId = optSafeString(targetObj, "goalId")
+                val goalTitle = optSafeString(targetObj, "goalTitle")
+                val status = optSafeString(targetObj, "status")
 
                 val appsArray = targetObj.optJSONArray("apps") ?: JSONArray()
                 val appsList = mutableListOf<String>()
                 for (j in 0 until appsArray.length()) {
+                    if (appsArray.isNull(j)) continue
                     val app = appsArray.optString(j, "").trim()
-                    if (app.isNotEmpty()) {
+                    if (app.isNotEmpty() && app != "null") {
                         appsList.add(app)
                     }
                 }
@@ -120,8 +129,9 @@ object BlocklistParser {
                 val domainsArray = targetObj.optJSONArray("domains") ?: JSONArray()
                 val domainsList = mutableListOf<String>()
                 for (j in 0 until domainsArray.length()) {
+                    if (domainsArray.isNull(j)) continue
                     val domain = domainsArray.optString(j, "").trim()
-                    if (domain.isNotEmpty()) {
+                    if (domain.isNotEmpty() && domain != "null") {
                         domainsList.add(domain)
                     }
                 }

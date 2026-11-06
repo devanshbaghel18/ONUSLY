@@ -61,6 +61,12 @@ class SyncRepository(
         }
     }
 
+    fun removeSignOutListener(listener: () -> Unit) {
+        synchronized(signOutListeners) {
+            signOutListeners.remove(listener)
+        }
+    }
+
     fun getBaseUrl(): String {
         return settingsPrefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
     }
@@ -88,6 +94,16 @@ class SyncRepository(
 
     fun refreshFlowFromCache() {
         _cachedBlocklistFlow.value = getActiveCache()
+    }
+
+    private fun getOrCreateDeviceId(): String {
+        val existing = settingsPrefs.getString("device_id", null)
+        if (!existing.isNullOrBlank()) {
+            return existing
+        }
+        val newId = java.util.UUID.randomUUID().toString()
+        settingsPrefs.edit().putString("device_id", newId).apply()
+        return newId
     }
 
     suspend fun syncBlocklist(): SyncResult {
@@ -125,7 +141,7 @@ class SyncRepository(
                 refreshFlowFromCache()
             }
             is SyncResult.Error -> {
-                if (result.statusCode == 401 || result.message.contains("401") || result.message.contains("Unauthorized", ignoreCase = true)) {
+                if (result.statusCode == 401 || result.message.contains("HTTP 401")) {
                     onUserSignOut()
                 } else {
                     // Keep existing cache
@@ -135,6 +151,21 @@ class SyncRepository(
         }
 
         return result
+    }
+
+    suspend fun sendHeartbeat(issues: List<String> = emptyList()): Boolean {
+        val session = authManager.getSession() ?: return false
+        if (session.jwtToken.isBlank() || session.userId.isBlank()) return false
+        val cache = getActiveCache()
+        val isEnforcing = cache != null && cache.targets.isNotEmpty() && issues.isEmpty()
+        return apiClient.sendHeartbeat(
+            baseUrl = getBaseUrl(),
+            jwtToken = session.jwtToken,
+            deviceId = getOrCreateDeviceId(),
+            enforcing = isEnforcing,
+            blocklistVersion = cache?.version ?: "",
+            issues = issues
+        )
     }
 
     fun notifySessionExpiration() {

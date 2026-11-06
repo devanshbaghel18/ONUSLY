@@ -77,6 +77,11 @@ class AuthManager(
 
         private fun deletePreferencesFile(context: Context, prefsName: String) {
             try {
+                val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                keyStore.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+            } catch (_: Throwable) {
+            }
+            try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                     context.deleteSharedPreferences(prefsName)
                 }
@@ -169,7 +174,7 @@ class AuthManager(
             return try {
                 val parts = token.split(".")
                 if (parts.size >= 2) {
-                    val decoded = decodeBase64(parts[1]) ?: return false
+                    val decoded = decodeBase64(parts[1]) ?: return true
                     val payload = String(decoded, Charsets.UTF_8)
                     val json = JSONObject(payload)
                     if (json.has("exp")) {
@@ -311,41 +316,42 @@ class AuthManager(
                 .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            val response = httpClient.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
+            httpClient.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string() ?: ""
 
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("Auth failed: HTTP ${response.code}: $responseBody"))
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("Auth failed: HTTP ${response.code}: $responseBody"))
+                }
+
+                val root = JSONObject(responseBody)
+                val token = root.optString("token", "")
+                if (token.isBlank()) {
+                    return@withContext Result.failure(Exception("No JWT token returned from auth server"))
+                }
+
+                val userObj = root.optJSONObject("user")
+                var userId = userObj?.optString("id", "") ?: ""
+                val email = userObj?.optString("email", "") ?: ""
+                val name = userObj?.optString("name", "") ?: ""
+
+                if (userId.isBlank()) {
+                    userId = parseUserIdFromJwt(token) ?: ""
+                }
+
+                if (userId.isBlank()) {
+                    return@withContext Result.failure(Exception("Could not extract user ID from auth response or JWT"))
+                }
+
+                val session = UserSession(
+                    userId = userId,
+                    email = email,
+                    name = name,
+                    jwtToken = token
+                )
+
+                saveSession(session)
+                Result.success(session)
             }
-
-            val root = JSONObject(responseBody)
-            val token = root.optString("token", "")
-            if (token.isBlank()) {
-                return@withContext Result.failure(Exception("No JWT token returned from auth server"))
-            }
-
-            val userObj = root.optJSONObject("user")
-            var userId = userObj?.optString("id", "") ?: ""
-            val email = userObj?.optString("email", "") ?: ""
-            val name = userObj?.optString("name", "") ?: ""
-
-            if (userId.isBlank()) {
-                userId = parseUserIdFromJwt(token) ?: ""
-            }
-
-            if (userId.isBlank()) {
-                return@withContext Result.failure(Exception("Could not extract user ID from auth response or JWT"))
-            }
-
-            val session = UserSession(
-                userId = userId,
-                email = email,
-                name = name,
-                jwtToken = token
-            )
-
-            saveSession(session)
-            Result.success(session)
         } catch (e: Exception) {
             Result.failure(e)
         }

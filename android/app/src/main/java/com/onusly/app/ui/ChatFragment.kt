@@ -171,7 +171,7 @@ class ChatFragment : Fragment() {
     }
 
     private fun setupRecyclerViews() {
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
         val session = app.authManager.getSession()
 
         val userId = session?.userId ?: ""
@@ -275,7 +275,7 @@ class ChatFragment : Fragment() {
     }
 
     private fun observeRealtimeEvents() {
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
         realtimeEventsJob?.cancel()
         realtimeEventsJob = viewLifecycleOwner.lifecycleScope.launch {
             app.realtimeWebSocketManager.events.collect { event ->
@@ -456,8 +456,8 @@ class ChatFragment : Fragment() {
         layoutChatThreadView.visibility = View.VISIBLE
 
         if (item is ConversationItem.CommunityConversation) {
-            val app = requireActivity().application as OnuslyApplication
-            app.realtimeWebSocketManager.joinCommunity(item.community.id)
+            val app = (activity?.application as? OnuslyApplication)
+            app?.realtimeWebSocketManager?.joinCommunity(item.community.id)
         }
 
         loadMessages(currentPeer)
@@ -526,8 +526,11 @@ class ChatFragment : Fragment() {
                     } else {
                         layoutEmpty.visibility = View.GONE
                         rvMessages.visibility = View.VISIBLE
+                        val layoutManager = rvMessages.layoutManager as? LinearLayoutManager
+                        val lastVisible = layoutManager?.findLastVisibleItemPosition() ?: -1
+                        val isNearBottom = lastVisible >= messagesAdapter.itemCount - 3 || lastVisible == -1
                         val changed = messagesAdapter.setMessages(msgs)
-                        if (changed) {
+                        if (changed && isNearBottom) {
                             rvMessages.scrollToPosition(msgs.size - 1)
                         }
                     }
@@ -541,7 +544,7 @@ class ChatFragment : Fragment() {
     }
 
     private fun sendMessage(text: String) {
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
         btnSend.isEnabled = false
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
@@ -660,7 +663,7 @@ class ChatFragment : Fragment() {
                 layoutReqs.visibility = View.VISIBLE
 
                 // Load incoming requests
-                val app = requireActivity().application as OnuslyApplication
+                val app = (activity?.application as? OnuslyApplication) ?: return
                 pbReqs.visibility = View.VISIBLE
                 viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                     val result = app.chatRepository.getFriendRequests()
@@ -702,14 +705,14 @@ class ChatFragment : Fragment() {
                 return@setOnClickListener
             }
             btnSubmit.isEnabled = false
-            val app = requireActivity().application as OnuslyApplication
+            val app = (activity?.application as? OnuslyApplication) ?: return@setOnClickListener
             viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                 val res = app.chatRepository.sendFriendRequest(target)
                 withContext(Dispatchers.Main) {
                     btnSubmit.isEnabled = true
                     res.onSuccess {
                         Toast.makeText(context, "Friend request sent to $target!", Toast.LENGTH_LONG).show()
-                        dialog.dismiss()
+                        try { if (dialog.isShowing) dialog.dismiss() } catch (_: Exception) {}
                     }.onFailure { err ->
                         Toast.makeText(context, "Failed: ${err.message}", Toast.LENGTH_LONG).show()
                     }
@@ -721,13 +724,13 @@ class ChatFragment : Fragment() {
     }
 
     private fun respondFriendRequest(requestId: String, action: String, dialog: Dialog) {
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             val res = app.chatRepository.respondFriendRequest(requestId, action)
             withContext(Dispatchers.Main) {
                 res.onSuccess {
                     Toast.makeText(context, "Request ${action}ed!", Toast.LENGTH_SHORT).show()
-                    dialog.dismiss()
+                    try { if (dialog.isShowing) dialog.dismiss() } catch (_: Exception) {}
                     loadConversations()
                 }.onFailure { err ->
                     Toast.makeText(context, "Error: ${err.message}", Toast.LENGTH_LONG).show()
@@ -753,7 +756,7 @@ class ChatFragment : Fragment() {
 
         btnClose.setOnClickListener { dialog.dismiss() }
 
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
         pbLoading.visibility = View.VISIBLE
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
@@ -795,13 +798,13 @@ class ChatFragment : Fragment() {
     }
 
     private fun joinCommunity(communityId: String, dialog: Dialog) {
-        val app = requireActivity().application as OnuslyApplication
+        val app = (activity?.application as? OnuslyApplication) ?: return
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             val res = app.chatRepository.joinCommunity(communityId)
             withContext(Dispatchers.Main) {
                 res.onSuccess {
                     Toast.makeText(context, "Joined community!", Toast.LENGTH_SHORT).show()
-                    dialog.dismiss()
+                    try { if (dialog.isShowing) dialog.dismiss() } catch (_: Exception) {}
                     loadConversations()
                 }.onFailure { err ->
                     Toast.makeText(context, "Join failed: ${err.message}", Toast.LENGTH_LONG).show()

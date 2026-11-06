@@ -41,6 +41,12 @@ class MainActivity : AppCompatActivity() {
 
     private var activeFragment: Fragment = homeFragment
 
+    private val signOutListener: () -> Unit = {
+        runOnUiThread {
+            onUserLoggedOut()
+        }
+    }
+
     private val googleSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -69,11 +75,13 @@ class MainActivity : AppCompatActivity() {
         setupNavigation()
 
         val app = application as OnuslyApplication
-        app.syncRepository.addSignOutListener {
-            runOnUiThread {
-                onUserLoggedOut()
-            }
-        }
+        app.syncRepository.addSignOutListener(signOutListener)
+    }
+
+    override fun onDestroy() {
+        val app = application as? OnuslyApplication
+        app?.syncRepository?.removeSignOutListener(signOutListener)
+        super.onDestroy()
     }
 
     private fun bindViews() {
@@ -110,6 +118,14 @@ class MainActivity : AppCompatActivity() {
                 "SETTINGS" -> settingsFragment
                 else -> homeFragment
             }
+            val targetItemId = when (activeTag) {
+                "GOALS" -> R.id.nav_goals
+                "REVIEWS" -> R.id.nav_reviews
+                "CHAT" -> R.id.nav_chat
+                "SETTINGS" -> R.id.nav_settings
+                else -> R.id.nav_home
+            }
+            bottomNavigation.selectedItemId = targetItemId
         }
     }
 
@@ -306,6 +322,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun showSyncFailedDialog(syncError: String?) {
+        if (isFinishing || isDestroyed) return
         AlertDialog.Builder(this)
             .setTitle("Blocklist Sync Pending")
             .setMessage("Your update was saved on the server, but local blocklist update failed (${syncError ?: "Network error"}). Local enforcement will retry automatically, or you can retry now.")

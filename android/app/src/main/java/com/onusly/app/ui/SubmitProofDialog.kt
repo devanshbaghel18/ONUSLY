@@ -181,7 +181,7 @@ class SubmitProofDialog(
             withContext(Dispatchers.Main) {
                 setSubmittingState(false)
                 result.onSuccess { mutation ->
-                    dialog.dismiss()
+                    try { if (dialog.isShowing) dialog.dismiss() } catch (_: Exception) {}
                     onProofSubmitted(mutation.value, mutation.syncSucceeded, mutation.syncError)
                 }.onFailure { err ->
                     showError(formatErrorMessage(err))

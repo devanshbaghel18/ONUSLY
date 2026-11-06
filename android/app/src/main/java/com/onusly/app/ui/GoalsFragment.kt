@@ -198,7 +198,7 @@ class GoalsFragment : Fragment() {
 
     private fun observeGoals() {
         viewLifecycleOwner.lifecycleScope.launch {
-            val app = requireActivity().application as OnuslyApplication
+            val app = (activity?.application as? OnuslyApplication) ?: return@launch
             app.goalsRepository.goalsFlow.collect { goals ->
                 allGoals = goals
                 applyFilter()
@@ -206,7 +206,7 @@ class GoalsFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val app = requireActivity().application as OnuslyApplication
+            val app = (activity?.application as? OnuslyApplication) ?: return@launch
             app.goalsRepository.isOfflineFlow.collect { isOffline ->
                 layoutGoalsOfflineBanner.visibility = if (isOffline) View.VISIBLE else View.GONE
             }
@@ -252,6 +252,8 @@ class GoalsFragment : Fragment() {
 
     fun refreshGoals() {
         val app = (activity?.application as? OnuslyApplication) ?: return
+        if (view == null || !::pbLoadingGoals.isInitialized) return
+
         if (!app.authManager.isSignedIn()) {
             allGoals = emptyList()
             applyFilter()

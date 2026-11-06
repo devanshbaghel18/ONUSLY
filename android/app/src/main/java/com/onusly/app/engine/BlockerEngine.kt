@@ -73,7 +73,22 @@ object BlockerEngine {
         "com.motorola.launcher3",
         "com.motorola.incallui",
         "com.motorola.emergency",
-        "com.motorola.dialer"
+        "com.motorola.dialer",
+
+        // Additional OEM & Third-Party Launchers (Loop Protection)
+        "com.nothing.launcher",
+        "com.sonymobile.home",
+        "com.asus.launcher",
+        "com.transsion.hilauncher",
+        "com.transsion.itel.launcher",
+        "com.teslacoilsw.launcher",
+        "com.microsoft.launcher",
+        "bitpit.launcher",
+        "ginlemon.flowerfree",
+        "app.lawnchair",
+        "app.lawnchair.play",
+        "ch.deletescape.lawnchair",
+        "com.mi.android.globallauncher"
     )
 
     fun evaluatePackage(
@@ -104,7 +119,10 @@ object BlockerEngine {
                 continue
             }
 
-            val matchesApp = target.apps.any { it.equals(normalizedPkg, ignoreCase = true) }
+            val matchesApp = target.apps.any { appItem ->
+                appItem.equals(normalizedPkg, ignoreCase = true) ||
+                TargetCatalog.getPackagesForAppOrAlias(appItem).any { it.equals(normalizedPkg, ignoreCase = true) }
+            }
             val matchesDomain = target.domains.any { domain ->
                 TargetCatalog.getAppsForDomain(domain).any { it.equals(normalizedPkg, ignoreCase = true) }
             }

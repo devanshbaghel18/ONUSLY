@@ -5,23 +5,30 @@ import org.json.JSONObject
 
 object GoalParser {
 
+    fun optSafeString(obj: JSONObject, key: String, fallback: String = ""): String {
+        if (!obj.has(key) || obj.isNull(key)) return fallback
+        val value = obj.optString(key, fallback)
+        return if (value == "null") fallback else value
+    }
+
     fun parseGoal(obj: JSONObject): Goal {
-        val id = obj.optString("id", "")
-        val ownerId = obj.optString("ownerId", "")
-        val approverId = obj.optString("approverId", "")
-        val approverEmail = obj.optString("approverEmail", "")
-        val approvalType = obj.optString("approvalType", "none")
-        val title = obj.optString("title", "")
-        val description = obj.optString("description", "")
-        val status = obj.optString("status", "active")
-        val createdAt = obj.optString("createdAt", "")
-        val updatedAt = obj.optString("updatedAt", "")
+        val id = optSafeString(obj, "id")
+        val ownerId = optSafeString(obj, "ownerId")
+        val approverId = optSafeString(obj, "approverId")
+        val approverEmail = optSafeString(obj, "approverEmail")
+        val approvalType = optSafeString(obj, "approvalType", "none")
+        val title = optSafeString(obj, "title")
+        val description = optSafeString(obj, "description")
+        val status = optSafeString(obj, "status", "active")
+        val createdAt = optSafeString(obj, "createdAt")
+        val updatedAt = optSafeString(obj, "updatedAt")
 
         val appsArray = obj.optJSONArray("blockedApps") ?: JSONArray()
         val blockedApps = mutableListOf<String>()
         for (i in 0 until appsArray.length()) {
+            if (appsArray.isNull(i)) continue
             val app = appsArray.optString(i, "").trim()
-            if (app.isNotEmpty()) {
+            if (app.isNotEmpty() && app != "null") {
                 blockedApps.add(app)
             }
         }
@@ -29,8 +36,9 @@ object GoalParser {
         val domainsArray = obj.optJSONArray("blockedDomains") ?: JSONArray()
         val blockedDomains = mutableListOf<String>()
         for (i in 0 until domainsArray.length()) {
+            if (domainsArray.isNull(i)) continue
             val domain = domainsArray.optString(i, "").trim()
-            if (domain.isNotEmpty()) {
+            if (domain.isNotEmpty() && domain != "null") {
                 blockedDomains.add(domain)
             }
         }
@@ -125,14 +133,14 @@ object GoalParser {
 
     fun parseProof(obj: JSONObject): Proof {
         return Proof(
-            id = obj.optString("id", ""),
-            goalId = obj.optString("goalId", ""),
-            ownerId = obj.optString("ownerId", ""),
-            proofType = obj.optString("proofType", "text"),
-            textExplanation = obj.optString("textExplanation", ""),
-            externalLink = obj.optString("externalLink", ""),
-            photoUrl = obj.optString("photoUrl", ""),
-            submittedAt = obj.optString("submittedAt", "")
+            id = optSafeString(obj, "id"),
+            goalId = optSafeString(obj, "goalId"),
+            ownerId = optSafeString(obj, "ownerId"),
+            proofType = optSafeString(obj, "proofType", "text"),
+            textExplanation = optSafeString(obj, "textExplanation"),
+            externalLink = optSafeString(obj, "externalLink"),
+            photoUrl = optSafeString(obj, "photoUrl"),
+            submittedAt = optSafeString(obj, "submittedAt")
         )
     }
 
@@ -184,37 +192,42 @@ object GoalParser {
 
     fun parseApprovalResult(jsonString: String): ApprovalResult {
         val obj = JSONObject(jsonString)
+        val status = when {
+            obj.has("status") && !obj.isNull("status") && obj.optString("status").isNotBlank() -> obj.optString("status")
+            obj.has("decision") && !obj.isNull("decision") && obj.optString("decision").isNotBlank() -> obj.optString("decision")
+            else -> ""
+        }
         return ApprovalResult(
-            id = obj.optString("id", ""),
-            goalId = obj.optString("goalId", ""),
-            proofId = obj.optString("proofId", ""),
-            ownerId = obj.optString("ownerId", ""),
-            approverId = obj.optString("approverId", ""),
-            status = obj.optString("status", ""),
-            comment = obj.optString("comment", ""),
-            decidedAt = obj.optString("decidedAt", "")
+            id = optSafeString(obj, "id"),
+            goalId = optSafeString(obj, "goalId"),
+            proofId = optSafeString(obj, "proofId"),
+            ownerId = optSafeString(obj, "ownerId"),
+            approverId = optSafeString(obj, "approverId"),
+            status = status,
+            comment = optSafeString(obj, "comment"),
+            decidedAt = optSafeString(obj, "decidedAt")
         )
     }
 
     fun parseUserProfile(jsonString: String): UserProfile {
         val obj = JSONObject(jsonString)
         return UserProfile(
-            id = obj.optString("id", ""),
-            email = obj.optString("email", ""),
-            handle = obj.optString("handle", ""),
-            name = obj.optString("name", ""),
-            picture = obj.optString("picture", ""),
-            createdAt = obj.optString("createdAt", "")
+            id = optSafeString(obj, "id"),
+            email = optSafeString(obj, "email"),
+            handle = optSafeString(obj, "handle"),
+            name = optSafeString(obj, "name"),
+            picture = optSafeString(obj, "picture"),
+            createdAt = optSafeString(obj, "createdAt")
         )
     }
 
     fun parsePublicProfile(jsonString: String): PublicProfile {
         val obj = JSONObject(jsonString)
         return PublicProfile(
-            id = obj.optString("id", ""),
-            name = obj.optString("name", ""),
-            handle = obj.optString("handle", ""),
-            picture = obj.optString("picture", "")
+            id = optSafeString(obj, "id"),
+            name = optSafeString(obj, "name"),
+            handle = optSafeString(obj, "handle"),
+            picture = optSafeString(obj, "picture")
         )
     }
 }

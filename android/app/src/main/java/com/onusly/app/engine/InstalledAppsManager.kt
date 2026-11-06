@@ -33,6 +33,11 @@ object InstalledAppsManager {
         if (lower == "android") return true
         if (allowedPackages.any { it.equals(clean, ignoreCase = true) }) return true
 
+        // Universal launcher suffix and infix protection to prevent trapping users in lock loops
+        if (lower.endsWith(".launcher") || lower.endsWith(".launcher3") || lower.contains(".launcher.")) {
+            return true
+        }
+
         val hasSystemPrefix = SYSTEM_PLATFORM_PREFIXES.any { prefix ->
             if (prefix == "android") {
                 lower == "android" || lower.startsWith("android.")

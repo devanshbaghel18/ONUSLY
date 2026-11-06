@@ -131,10 +131,19 @@ class OnuslyAccessibilityService : AccessibilityService() {
         // 3. Debounce cleanup when foreground package is unblocked
         if (!pkgName.isNullOrBlank()) {
             // When evaluation.isBlocked is false:
-            // If the current package is ONUSLY itself (pkgName == packageName) or an allowed app,
-            // ensure lastBlockedPackage = null. This prevents the 1000ms debounce bypass when the
-            // user taps "Return to ONUSLY App" and immediately switches back to the blocked app.
-            lastBlockedPackage = null
+            // Only reset debounce when the user has definitively switched away to ONUSLY itself or
+            // the device launcher/home screen, preventing transient SystemUI/StatusBar events from
+            // immediately cancelling the 1000ms debounce throttle and causing intent launch spam.
+            val isHomeOrOnusly = pkgName == packageName ||
+                    pkgName.endsWith(".launcher") ||
+                    pkgName.endsWith(".launcher3") ||
+                    pkgName == "com.android.launcher3" ||
+                    pkgName == "com.google.android.apps.nexuslauncher" ||
+                    pkgName == "com.sec.android.app.launcher" ||
+                    pkgName == "com.miui.home"
+            if (isHomeOrOnusly) {
+                lastBlockedPackage = null
+            }
         }
     }
 

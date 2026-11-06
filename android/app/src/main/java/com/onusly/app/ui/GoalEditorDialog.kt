@@ -127,10 +127,8 @@ class GoalEditorDialog(
         }
 
         btnAddDomain.setOnClickListener {
-            val domain = etDomainInput.text.toString().trim().lowercase()
-                .removePrefix("http://")
-                .removePrefix("https://")
-                .trimEnd('/')
+            val raw = etDomainInput.text.toString().trim()
+            val domain = TargetCatalog.normalizeDomain(raw)
 
             if (domain.isBlank()) return@setOnClickListener
             if (existingDomains.contains(domain) || newlyAddedDomains.contains(domain)) {
@@ -145,7 +143,7 @@ class GoalEditorDialog(
         }
 
         btnCancelGoal.setOnClickListener {
-            dialog.dismiss()
+            try { if (dialog.isShowing) dialog.dismiss() } catch (_: Exception) {}
         }
 
         btnSaveGoal.setOnClickListener {
@@ -301,7 +299,7 @@ class GoalEditorDialog(
                 withContext(Dispatchers.Main) {
                     setSavingState(false)
                     result.onSuccess { mutation ->
-                        dialog.dismiss()
+                        try { if (dialog.isShowing) dialog.dismiss() } catch (_: Exception) {}
                         onGoalSaved(mutation.value, mutation.syncSucceeded, mutation.syncError)
                     }.onFailure { err ->
                         showError(formatErrorMessage(err))
@@ -323,7 +321,7 @@ class GoalEditorDialog(
                 withContext(Dispatchers.Main) {
                     setSavingState(false)
                     result.onSuccess { mutation ->
-                        dialog.dismiss()
+                        try { if (dialog.isShowing) dialog.dismiss() } catch (_: Exception) {}
                         onGoalSaved(mutation.value, mutation.syncSucceeded, mutation.syncError)
                     }.onFailure { err ->
                         showError(formatErrorMessage(err))

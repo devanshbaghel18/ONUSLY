@@ -86,12 +86,12 @@ class InstalledAppsPickerDialog(
         })
 
         btnCancelPicker.setOnClickListener {
-            dialog.dismiss()
+            try { if (dialog.isShowing) dialog.dismiss() } catch (_: Exception) {}
         }
 
         btnConfirmPicker.setOnClickListener {
             onSelected(adapter.selectedPackages)
-            dialog.dismiss()
+            try { if (dialog.isShowing) dialog.dismiss() } catch (_: Exception) {}
         }
 
         dialog.show()

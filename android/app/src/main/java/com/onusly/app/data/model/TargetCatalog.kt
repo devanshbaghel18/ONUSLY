@@ -73,6 +73,11 @@ object TargetCatalog {
             name = "Pinterest",
             packageNames = listOf("com.pinterest"),
             domains = listOf("pinterest.com")
+        ),
+        CatalogEntry(
+            name = "WhatsApp",
+            packageNames = listOf("com.whatsapp", "com.whatsapp.w4b"),
+            domains = listOf("whatsapp.com")
         )
     )
 
@@ -91,7 +96,8 @@ object TargetCatalog {
         "facebook.com" to listOf("com.facebook.katana", "com.facebook.orca"),
         "snapchat.com" to listOf("com.snapchat.android"),
         "linkedin.com" to listOf("com.linkedin.android"),
-        "pinterest.com" to listOf("com.pinterest")
+        "pinterest.com" to listOf("com.pinterest"),
+        "whatsapp.com" to listOf("com.whatsapp", "com.whatsapp.w4b")
     )
 
     private val APP_TO_DOMAINS: Map<String, List<String>> = mapOf(
@@ -110,10 +116,15 @@ object TargetCatalog {
         "com.snapchat.android" to listOf("snapchat.com"),
         "com.linkedin.android" to listOf("linkedin.com"),
         "com.pinterest" to listOf("pinterest.com"),
+        "com.whatsapp" to listOf("whatsapp.com"),
+        "com.whatsapp.w4b" to listOf("whatsapp.com"),
 
         // Aliases for compatibility
         "instagram" to listOf("instagram.com"),
+        "insta" to listOf("instagram.com"),
+        "ig" to listOf("instagram.com"),
         "youtube" to listOf("youtube.com", "youtu.be"),
+        "yt" to listOf("youtube.com", "youtu.be"),
         "youtube_shorts" to listOf("shorts.youtube.com"),
         "youtube-shorts" to listOf("shorts.youtube.com"),
         "twitter" to listOf("x.com", "twitter.com"),
@@ -124,9 +135,11 @@ object TargetCatalog {
         "twitch" to listOf("twitch.tv"),
         "tiktok" to listOf("tiktok.com"),
         "facebook" to listOf("facebook.com"),
+        "fb" to listOf("facebook.com"),
         "snapchat" to listOf("snapchat.com"),
         "linkedin" to listOf("linkedin.com"),
-        "pinterest" to listOf("pinterest.com")
+        "pinterest" to listOf("pinterest.com"),
+        "whatsapp" to listOf("whatsapp.com")
     )
 
     /**
@@ -177,11 +190,49 @@ object TargetCatalog {
     /**
      * Returns mapped package names for a given domain.
      * Strips scheme/leading www/subpath if any; unmapped domains return empty list.
+     * Supports subdomains (e.g. m.facebook.com, mobile.twitter.com).
      */
     fun getAppsForDomain(domain: String): List<String> {
         val normalized = normalizeDomain(domain)
         if (normalized.isBlank()) return emptyList()
-        return DOMAIN_TO_APPS[normalized] ?: emptyList()
+        val direct = DOMAIN_TO_APPS[normalized]
+        if (direct != null) return direct
+
+        for ((catDomain, apps) in DOMAIN_TO_APPS) {
+            if (normalized.endsWith(".$catDomain")) {
+                return apps
+            }
+        }
+        return emptyList()
+    }
+
+    /**
+     * Returns mapped package names for a given Android package name, catalog ID, or alias.
+     */
+    fun getPackagesForAppOrAlias(appOrAlias: String): List<String> {
+        if (appOrAlias.isBlank()) return emptyList()
+        val clean = appOrAlias.trim().lowercase()
+        // If it's already a package name in an entry
+        for (entry in ENTRIES) {
+            if (entry.packageNames.any { it.equals(clean, ignoreCase = true) }) {
+                return entry.packageNames
+            }
+            if (entry.name.equals(clean, ignoreCase = true)) {
+                return entry.packageNames
+            }
+        }
+        // Check APP_TO_DOMAINS aliases and map via domains
+        val domains = APP_TO_DOMAINS[clean]
+        if (!domains.isNullOrEmpty()) {
+            val resolvedApps = mutableListOf<String>()
+            for (d in domains) {
+                resolvedApps.addAll(getAppsForDomain(d))
+            }
+            if (resolvedApps.isNotEmpty()) {
+                return resolvedApps.distinct()
+            }
+        }
+        return emptyList()
     }
 
     /**

@@ -143,6 +143,7 @@ class HomeFragment : Fragment() {
     }
 
     fun updateAccessibilityState() {
+        if (view == null || !::cardAccessibility.isInitialized) return
         val context = context ?: return
         val isEnabled = OnuslyAccessibilityService.isServiceEnabled(context)
         if (isEnabled) {
@@ -169,6 +170,7 @@ class HomeFragment : Fragment() {
     }
 
     fun updateAccountState() {
+        if (view == null || !::layoutSignedIn.isInitialized) return
         val app = (activity?.application as? OnuslyApplication) ?: return
         val session = app.authManager.getSession()
         if (session != null && session.userId.isNotBlank()) {
@@ -183,7 +185,7 @@ class HomeFragment : Fragment() {
     }
 
     fun updateBlocklistUi(cached: CachedBlocklist?) {
-        if (!isAdded) return
+        if (!isAdded || view == null || !::tvBlockedCountBadge.isInitialized) return
         if (cached == null || cached.targets.isEmpty()) {
             tvBlockedCountBadge.text = "0"
             tvBlockedList.text = "No apps currently blocked."

@@ -105,6 +105,7 @@ class SettingsFragment : Fragment() {
     }
 
     fun updateProfileUi() {
+        if (view == null || !::tvProfileName.isInitialized) return
         val app = (activity?.application as? OnuslyApplication) ?: return
         val session = app.authManager.getSession()
         if (session != null && session.userId.isNotBlank()) {

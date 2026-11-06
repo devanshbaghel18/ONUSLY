@@ -83,8 +83,19 @@ class RealtimeWebSocketManager(
     private var reconnectJob: Job? = null
     private val joinedCommunities = ConcurrentHashMap.newKeySet<String>()
 
-    private val _events = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
+    private val _events = MutableSharedFlow<RealtimeEvent>(
+        extraBufferCapacity = 128,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
     val events: SharedFlow<RealtimeEvent> = _events.asSharedFlow()
+
+    @Volatile private var reconnectAttempts = 0
+
+    private fun calculateBackoffDelay(): Long {
+        val baseDelay = 1000L * (1L shl reconnectAttempts.coerceAtMost(5)) // 1s, 2s, 4s, 8s, 16s, 32s
+        val jitter = (baseDelay * 0.2 * Math.random()).toLong()
+        return (baseDelay + jitter).coerceIn(1000L, 30000L)
+    }
 
     // Testing and lifecycle inspection hooks
     internal val currentGeneration: Long
@@ -112,6 +123,10 @@ class RealtimeWebSocketManager(
 
     internal var currentListenerForTesting: WebSocketListener? = null
         private set
+
+    internal fun getBackoffDelayForTesting(): Long = calculateBackoffDelay()
+    internal fun getReconnectAttemptsForTesting(): Int = reconnectAttempts
+    internal fun setReconnectAttemptsForTesting(attempts: Int) { reconnectAttempts = attempts }
 
     internal val activeJoinedCommunities: Set<String>
         get() = joinedCommunities
@@ -190,6 +205,7 @@ class RealtimeWebSocketManager(
                 this@RealtimeWebSocketManager.webSocket = webSocket
                 this@RealtimeWebSocketManager.currentSocket = webSocket
                 isConnected = true
+                reconnectAttempts = 0
 
                 try {
                     // Send first-message auth handshake as secondary confirmation
@@ -272,6 +288,11 @@ class RealtimeWebSocketManager(
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(tag, "WebSocket failure (gen=$gen): ${t.message}")
                 isConnected = false
+                if (response != null && (response.code == 401 || response.code == 403)) {
+                    Log.w(tag, "WebSocket authentication failed with HTTP ${response.code}, aborting reconnect")
+                    authManager?.notifyTokenExpired()
+                    return
+                }
                 if (intentionalDisconnect || gen != connectionGeneration.get()) {
                     Log.d(tag, "Not reconnecting on failure: intentionalDisconnect=$intentionalDisconnect, genMatch=${gen == connectionGeneration.get()}")
                     return
@@ -333,8 +354,10 @@ class RealtimeWebSocketManager(
 
         reconnectScheduleCount++
         reconnectJob?.cancel()
+        val delayMillis = calculateBackoffDelay()
+        reconnectAttempts++
         reconnectJob = scope.launch {
-            delay(3000)
+            delay(delayMillis)
             if (isActive && !isConnected) {
                 val currentAm = authManager
                 if (currentAm != null) {
@@ -349,6 +372,7 @@ class RealtimeWebSocketManager(
 
     fun disconnect() {
         intentionalDisconnect = true
+        reconnectAttempts = 0
         connectionGeneration.incrementAndGet()
         reconnectJob?.cancel()
         reconnectJob = null

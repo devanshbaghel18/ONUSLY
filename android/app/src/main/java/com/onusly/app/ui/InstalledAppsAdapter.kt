@@ -53,7 +53,7 @@ class InstalledAppsAdapter(
             val isSelected = selectedPackages.contains(app.packageName)
             cbAppSelected.isChecked = isSelected
 
-            itemView.setOnClickListener {
+            val toggleSelection = {
                 if (selectedPackages.contains(app.packageName)) {
                     selectedPackages.remove(app.packageName)
                 } else {
@@ -61,6 +61,13 @@ class InstalledAppsAdapter(
                 }
                 cbAppSelected.isChecked = selectedPackages.contains(app.packageName)
                 onSelectionChanged(selectedPackages.size)
+            }
+
+            itemView.setOnClickListener {
+                toggleSelection()
+            }
+            cbAppSelected.setOnClickListener {
+                toggleSelection()
             }
         }
     }
