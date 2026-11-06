@@ -96,3 +96,48 @@ func TestWebSocketRouteIntegration(t *testing.T) {
 		t.Fatalf("expected 101 Switching Protocols with header, got %d", respHeader.StatusCode)
 	}
 }
+
+func TestDownloadsRouteIntegration(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", health)
+
+	downloadsDir := "../../frontend/public/downloads"
+	fileServer := http.FileServer(http.Dir(downloadsDir))
+	mux.Handle("GET /downloads/", http.StripPrefix("/downloads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".crx") {
+			w.Header().Set("Content-Type", "application/x-chrome-extension")
+		} else if strings.HasSuffix(r.URL.Path, ".xml") {
+			w.Header().Set("Content-Type", "application/xml")
+		}
+		fileServer.ServeHTTP(w, r)
+	})))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	// 1. Test updates.xml
+	resp, err := http.Get(server.URL + "/downloads/updates.xml")
+	if err != nil {
+		t.Fatalf("failed to GET updates.xml: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for updates.xml, got %v", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "xml") {
+		t.Errorf("expected xml Content-Type, got %v", ct)
+	}
+
+	// 2. Test onusly.crx
+	respCRX, err := http.Get(server.URL + "/downloads/onusly.crx")
+	if err != nil {
+		t.Fatalf("failed to GET onusly.crx: %v", err)
+	}
+	defer respCRX.Body.Close()
+	if respCRX.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for onusly.crx, got %v", respCRX.StatusCode)
+	}
+	if ct := respCRX.Header.Get("Content-Type"); ct != "application/x-chrome-extension" {
+		t.Errorf("expected application/x-chrome-extension, got %v", ct)
+	}
+}

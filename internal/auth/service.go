@@ -280,3 +280,16 @@ func (s *Service) LookupUserByHandle(ctx context.Context, handle string) (*Publi
 func (s *Service) GetUserByID(ctx context.Context, userID string) (*User, error) {
 	return s.repo.GetUserByID(ctx, userID)
 }
+
+// GenerateToken creates an authenticated JWT for a user.
+func (s *Service) GenerateToken(userID, email, handle, name string) (string, error) {
+	claims := jwt.MapClaims{
+		"sub":    userID,
+		"email":  email,
+		"handle": handle,
+		"name":   name,
+		"exp":    time.Now().Add(30 * 24 * time.Hour).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.cfg.JWTSecret))
+}

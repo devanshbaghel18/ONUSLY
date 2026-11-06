@@ -80,6 +80,18 @@ func main() {
 	mux.HandleFunc("POST /auth/google", authHandler.GoogleLogin)
 	mux.HandleFunc("GET /auth/google/callback", authHandler.GoogleCallback)
 
+	// Downloads & Enterprise Extension CRX / Update Manifest
+	downloadsDir := "frontend/public/downloads"
+	fileServer := http.FileServer(http.Dir(downloadsDir))
+	mux.Handle("GET /downloads/", http.StripPrefix("/downloads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".crx") {
+			w.Header().Set("Content-Type", "application/x-chrome-extension")
+		} else if strings.HasSuffix(r.URL.Path, ".xml") {
+			w.Header().Set("Content-Type", "application/xml")
+		}
+		fileServer.ServeHTTP(w, r)
+	})))
+
 	// Real-time WebSocket Hub
 	wsHub := realtime.NewHub()
 	mux.HandleFunc("GET /ws", realtime.ServeWS(wsHub, cfg.JWTSecret))
@@ -91,7 +103,10 @@ func main() {
 	goalHandler := goals.NewHandler(goalService)
 
 	// Enforcement
+	enforcementRepo := enforcement.NewDynamoRepository(db, "Onusly")
 	enforcementService := enforcement.NewService(goalService)
+	enforcementService.SetDeviceRepository(enforcementRepo)
+	enforcementService.SetTokenGenerator(authService)
 	enforcementHandler := enforcement.NewHandler(enforcementService)
 
 	// Proof
@@ -140,6 +155,8 @@ func main() {
 	// Notifications
 	notifRepo := notifications.NewRepository(db, "Onusly")
 	notifService := notifications.NewService(notifRepo)
+	notifService.SetBroadcaster(&serverNotifBroadcaster{hub: wsHub})
+	enforcementService.SetNotificationSender(notifService)
 	notifHandler := notifications.NewHandler(notifService)
 
 	// Background Notification Worker
@@ -311,11 +328,31 @@ func main() {
 		authHandler.GetMe,
 	)
 
-	// Enforcement Blocklist
+	// Enforcement Blocklist & Device Heartbeats
 	goalRoutes.HandleFunc(
 		"GET /enforcement/blocklist",
 		enforcementHandler.GetBlocklist,
 	)
+	goalRoutes.HandleFunc(
+		"POST /enforcement/heartbeat",
+		enforcementHandler.Heartbeat,
+	)
+	goalRoutes.HandleFunc(
+		"GET /enforcement/devices",
+		enforcementHandler.GetDevices,
+	)
+	goalRoutes.HandleFunc(
+		"GET /goals/{id}/enforcement-status",
+		enforcementHandler.GetGoalEnforcementStatus,
+	)
+	goalRoutes.HandleFunc(
+		"POST /enforcement/pair/confirm",
+		enforcementHandler.ConfirmPairing,
+	)
+
+	// Public Device Pairing Endpoints
+	mux.HandleFunc("POST /enforcement/pair/request", enforcementHandler.RequestPairing)
+	mux.HandleFunc("POST /enforcement/pair/exchange", enforcementHandler.ExchangePairing)
 
 	// JWT authentication for all protected routes
 	protectedRoutes := middleware.Auth(cfg.JWTSecret)(goalRoutes)
@@ -438,4 +475,18 @@ func (r *serverUserResolver) ResolveUser(ctx context.Context, identifier string)
 	}
 
 	return "", "", "", fmt.Errorf("user %s not found", clean)
+}
+
+type serverNotifBroadcaster struct {
+	hub *realtime.Hub
+}
+
+func (b *serverNotifBroadcaster) SendNotification(userID, eventType string, payload interface{}) error {
+	if b.hub == nil {
+		return nil
+	}
+	return b.hub.SendToUser(userID, realtime.Event{
+		Type:    eventType,
+		Payload: payload,
+	})
 }

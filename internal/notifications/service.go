@@ -10,12 +10,22 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/internal/events"
 )
 
+// RealtimeNotificationBroadcaster sends live notification events over WebSockets.
+type RealtimeNotificationBroadcaster interface {
+	SendNotification(userID, eventType string, payload interface{}) error
+}
+
 type Service struct {
-	repo *Repository
+	repo        *Repository
+	broadcaster RealtimeNotificationBroadcaster
 }
 
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) SetBroadcaster(b RealtimeNotificationBroadcaster) {
+	s.broadcaster = b
 }
 
 // CreateFromProofSubmitted generates and persists a notification for the approver.
@@ -47,6 +57,10 @@ func (s *Service) CreateFromProofSubmitted(ctx context.Context, event events.Pro
 	if err != nil && errors.Is(err, ErrAlreadyExists) {
 		// Idempotency: duplicate processing treated as already-completed
 		return nil
+	}
+	if err == nil && s.broadcaster != nil {
+		_ = s.broadcaster.SendNotification(approverID, "notification.new", notif)
+		_ = s.broadcaster.SendNotification(approverID, "proof.submitted", notif)
 	}
 	return err
 }
@@ -89,6 +103,39 @@ func (s *Service) CreateFromApprovalDecided(ctx context.Context, event events.Ap
 	if err != nil && errors.Is(err, ErrAlreadyExists) {
 		// Idempotency: duplicate processing treated as already-completed
 		return nil
+	}
+	if err == nil && s.broadcaster != nil {
+		_ = s.broadcaster.SendNotification(ownerID, "notification.new", notif)
+		_ = s.broadcaster.SendNotification(ownerID, "approval.decided", notif)
+	}
+	return err
+}
+
+// CreateFromEnforcementLapsed generates and persists an enforcement lapse notification.
+func (s *Service) CreateFromEnforcementLapsed(ctx context.Context, recipientID, episodeID, goalID, title, message string) error {
+	recipientID = strings.TrimSpace(recipientID)
+	if recipientID == "" {
+		return nil
+	}
+
+	notif := &Notification{
+		ID:          episodeID,
+		RecipientID: recipientID,
+		Type:        "enforcement_lapsed",
+		Title:       title,
+		Message:     message,
+		GoalID:      goalID,
+		Read:        false,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	err := s.repo.Create(ctx, notif)
+	if err != nil && errors.Is(err, ErrAlreadyExists) {
+		return nil
+	}
+	if err == nil && s.broadcaster != nil {
+		_ = s.broadcaster.SendNotification(recipientID, "notification.new", notif)
+		_ = s.broadcaster.SendNotification(recipientID, "enforcement.lapsed", notif)
 	}
 	return err
 }
