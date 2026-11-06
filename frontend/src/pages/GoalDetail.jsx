@@ -26,7 +26,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
-import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal } from "../lib/api";
+import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal, getGoalEnforcementStatus } from "../lib/api";
 import { getStoredFriends, sendChatMessage } from "../lib/friendsChat";
 import { getStoredCommunities, sendCommunityMessage } from "../lib/communities";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -79,6 +79,7 @@ export default function GoalDetail() {
   const [decisionSuccess, setDecisionSuccess] = useState("");
   const [pinnedIds, setPinnedIds] = useState(() => getPinnedGoalIds());
   const [repeating, setRepeating] = useState(false);
+  const [enforcementTelemetry, setEnforcementTelemetry] = useState(null);
 
   const isPinned = pinnedIds.includes(id);
 
@@ -364,6 +365,14 @@ export default function GoalDetail() {
       })
       .finally(() => {
         if (!ignore) setLoadingProofs(false);
+      });
+
+    getGoalEnforcementStatus(id)
+      .then((data) => {
+        if (!ignore) setEnforcementTelemetry(data);
+      })
+      .catch((err) => {
+        console.warn("Could not load enforcement telemetry:", err.message);
       });
 
     return () => {
@@ -941,6 +950,29 @@ export default function GoalDetail() {
                       </p>
                     </div>
                   </div>
+
+                  {enforcementTelemetry && (
+                    <div className="w-full mt-4 rounded-xl border border-white/10 bg-[#292929] p-3.5 flex items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2.5">
+                        <ShieldCheck size={18} className={enforcementTelemetry.aggregateStatus === "enforcing" ? "text-white" : "text-amber-400"} />
+                        <div>
+                          <div className="font-semibold text-white flex items-center gap-2">
+                            <span>Enforcement Telemetry:</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              enforcementTelemetry.aggregateStatus === "enforcing"
+                                ? "bg-white/10 text-white border border-white/20"
+                                : "bg-amber-500/10 text-amber-300 border border-amber-500/30"
+                            }`}>
+                              {enforcementTelemetry.aggregateStatus === "enforcing" ? "Protected & Enforcing" : enforcementTelemetry.aggregateStatus === "no_devices" ? "No Devices" : "Enforcement Lapsed"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-[#A3A3A3] mt-0.5">
+                            {enforcementTelemetry.devicesCount} client device(s) connected • {enforcementTelemetry.enforcingCount} enforcing restrictions • Approver receives aggregate status only
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {isOwner && goal?.approverEmail && (
                     <button

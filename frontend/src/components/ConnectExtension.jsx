@@ -16,7 +16,7 @@ import { getBlocklist, API_BASE_URL } from "../lib/api";
 import { notifyExtensionSync } from "../lib/extensionSync";
 
 // Deterministic Extension ID from manifest.json public key
-export const DEFAULT_EXTENSION_ID = "gkichkblphmdbojdjnonljlegnmjcnhg";
+export const DEFAULT_EXTENSION_ID = "jifigaejbinmdhnljobkodcgeaplojmg";
 
 function getStorageKey(userId) {
   return `onusly_ext_conn_${userId || "default"}`;

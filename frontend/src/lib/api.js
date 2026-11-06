@@ -314,4 +314,30 @@ export async function leaveCommunityApi(communityId) {
   });
 }
 
+export async function getDevicesCoverage() {
+  const data = await request("/enforcement/devices", { method: "GET" });
+  return data || { userId: "", totalCount: 0, enforcing: false, devices: [] };
+}
+
+export async function getGoalEnforcementStatus(goalId) {
+  return request(`/goals/${encodeURIComponent(goalId)}/enforcement-status`, {
+    method: "GET",
+  });
+}
+
+export async function confirmDevicePairing(code) {
+  return request("/enforcement/pair/confirm", {
+    method: "POST",
+    body: JSON.stringify({ code: code.trim().toUpperCase() }),
+  });
+}
+
+export async function sendHeartbeat(payload) {
+  return request("/enforcement/heartbeat", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+
 

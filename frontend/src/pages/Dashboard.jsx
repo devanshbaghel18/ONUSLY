@@ -20,6 +20,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import CreateGoalModal from "../components/CreateGoalModal";
 import ShareProofModal from "../components/ShareProofModal";
 import ConnectExtension from "../components/ConnectExtension";
+import DeviceCoverageSection from "../components/DeviceCoverageSection";
 import { notifyExtensionSync } from "../lib/extensionSync";
 import {
   getPinnedGoalIds,
@@ -374,6 +375,9 @@ export default function Dashboard() {
 
         {/* Browser Extension Enforcement Status */}
         <ConnectExtension />
+
+        {/* Unified Multi-Device & Browser Coverage Telemetry */}
+        <DeviceCoverageSection />
 
         {/* ============================================================
             Your Active & Pinned Lockouts (Dashboard View)

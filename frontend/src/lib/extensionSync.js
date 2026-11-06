@@ -21,7 +21,7 @@ export function notifyExtensionSync() {
 
   const extensionId =
     localStorage.getItem("onusly_extension_id") ||
-    "gkichkblphmdbojdjnonljlegnmjcnhg";
+    "jifigaejbinmdhnljobkodcgeaplojmg";
 
   // 1. If authenticated, dispatch credentials so extension is guaranteed connected
   if (token) {
