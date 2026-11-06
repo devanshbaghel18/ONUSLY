@@ -129,3 +129,37 @@ export async function fetchBlocklist(
     };
   }
 }
+
+/**
+ * Sends device heartbeat to backend API.
+ *
+ * @param {string} baseUrl
+ * @param {string} token
+ * @param {object} payload
+ * @param {Function} [fetchFn]
+ * @returns {Promise<boolean>}
+ */
+export async function sendHeartbeat(
+  baseUrl,
+  token,
+  payload,
+  fetchFn = globalThis.fetch
+) {
+  if (!baseUrl || !token || !payload) return false;
+  const cleanBase = baseUrl.trim().replace(/\/+$/, "");
+  const url = `${cleanBase}/enforcement/heartbeat`;
+
+  try {
+    const res = await fetchFn(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

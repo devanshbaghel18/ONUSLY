@@ -3,7 +3,7 @@
   "name": "ONUSLY — Accountability Website Blocker",
   "version": "1.0.0",
   "description": "Blocks distracting websites during active ONUSLY accountability goals.",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuBGx0PeElf9Ud2VhkWB9UoQa3kcGiWD4nk9R6rRuhD0ACLM7qY1Fd8h+suW2b7+UJ1k3W5i/IhbH2HWlMW9ocT9a7G5PdWT71nACZT/wlvOHE15RS7nBK+rS2db8QmSNrwun/5nYFfpko4p1e+JyfwFKETcbcQ0PHEwVaq4ivc26xM7HVCnLQXja6Nod73hMgc/NTWQ/d2vB3qtv8UG7+iFxsfiz9jICuZl3nHr4EyN+zD+2D1Bf5jvbeNecrDu9fYF0AYPO5F/2cLWEiDC830zOPH0dey+71GXHf5L7j3X99CQB38cr11PEF+fczCHB1R3XcnH2qZng90tT7PwrgQIDAQAB",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyIB9xT8zUbf3DvYDYIaV64a7Gxli2eNDV3ErBbSTYkANbK3V0nhrOuWd/HLLsIORLVyg4qhnrQIn19KqhQ5l+z+cpvKZNcNbgNsYTMaXis+HTLTnVN8k3nrpddLtBvFMZsNatDjeWubi0hbMvwWXd92QgQzI0fqEyqGKa+TtJMniy5cEmMiOEhF15mGVczk0LN1vGdht+YLANafi2TDthpsOUJe/PO2C7HbnRdVmEdHGhz/6L0VaUzhWVgWvxgTd744xyKJ93fH5hQ0VPfx0uhsrSn8fQ4USup4SpVZkXrrI9G4WigZ4YBOcP+5D4B/wEEMFDQWrdRUi1RJe0Gc+ZwIDAQAB",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -33,7 +33,9 @@
     "alarms",
     "webNavigation",
     "tabs",
-    "scripting"
+    "scripting",
+    "nativeMessaging",
+    "management"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -96,10 +98,11 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "blocked.html",
         "src/youtubeShortsContent.js"
       ],
       "matches": [
-        "*://*.youtube.com/*"
+        "<all_urls>"
       ]
     }
   ]

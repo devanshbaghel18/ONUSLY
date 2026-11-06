@@ -39,21 +39,21 @@ function setSyncing(isSyncing) {
 async function renderState() {
   try {
     const response = await chrome.runtime.sendMessage({ type: "GET_STATUS" });
-    const { session, cache, settings } = response || {};
+    const { session, cache, settings, isManaged } = response || {};
 
     if (settings?.dashboardUrl) {
       dashboardUrl = settings.dashboardUrl;
     }
 
-    if (session && session.userId && session.token) {
+    if (isManaged || (session && session.userId && session.token)) {
       statusBadge.className = "status-badge connected";
-      statusText.textContent = "Connected";
+      statusText.textContent = isManaged ? "Active (Managed)" : "Connected";
 
       contentConnected.style.display = "block";
       contentDisconnected.style.display = "none";
 
-      userName.textContent = session.name || "Authenticated User";
-      userEmail.textContent = session.email || "";
+      userName.textContent = isManaged ? "Workstation Policy (Managed)" : (session.name || "Authenticated User");
+      userEmail.textContent = isManaged ? "Central Desktop Agent Enforcing" : (session.email || "");
 
       valVersion.textContent = cache?.version || "initial";
       valLastSync.textContent = cache?.lastSyncTimestamp

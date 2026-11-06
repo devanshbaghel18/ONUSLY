@@ -238,7 +238,13 @@ export async function processDisconnect() {
   return { success: true, message: "Disconnected successfully" };
 }
 
-export async function processSync() {
+export async function processSync(action = "get-blocklist") {
+  // First attempt managed synchronization via Desktop Agent
+  const agentSync = await syncFromDesktopAgent(action);
+  if (agentSync?.success) {
+    return agentSync;
+  }
+
   const syncResult = await syncService.sync();
   if (syncResult.success) {
     await enforceOnOpenTabs();
@@ -250,6 +256,77 @@ export async function processSync() {
     targetsCount: syncResult.targetsCount,
     error: syncResult.error,
   };
+}
+
+/**
+ * Queries the central ONUSLY Desktop Agent over Native Messaging.
+ * Compatible with Chromium (callbacks) and Firefox (Promises).
+ *
+ * @param {string} [action="get-blocklist"] - "get-blocklist" or "sync" (on-demand cloud fetch)
+ */
+export async function syncFromDesktopAgent(action = "get-blocklist") {
+  if (globalThis.browser?.runtime?.sendNativeMessage) {
+    try {
+      const response = await globalThis.browser.runtime.sendNativeMessage(
+        "com.onusly.desktop_agent",
+        { action }
+      );
+      if (response && response.success && response.blocklist) {
+        const blocklist = response.blocklist;
+        await storage.setManagedMode(true);
+        await storage.saveBlocklistCache(blocklist, blocklist.userId || "managed-user");
+        await enforceOnOpenTabs();
+        return {
+          success: true,
+          managed: true,
+          version: blocklist.version,
+          targetsCount: (blocklist.targets || []).length,
+        };
+      }
+      return { success: false, error: response?.error || "Agent returned invalid response" };
+    } catch (err) {
+      await storage.setManagedMode(false);
+      return { success: false, error: err.message };
+    }
+  }
+
+  if (globalThis.chrome?.runtime?.sendNativeMessage) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendNativeMessage(
+          "com.onusly.desktop_agent",
+          { action },
+          async (response) => {
+            if (chrome.runtime.lastError) {
+              await storage.setManagedMode(false);
+              resolve({ success: false, error: chrome.runtime.lastError.message });
+              return;
+            }
+
+            if (response && response.success && response.blocklist) {
+              const blocklist = response.blocklist;
+              await storage.setManagedMode(true);
+              await storage.saveBlocklistCache(blocklist, blocklist.userId || "managed-user");
+              await enforceOnOpenTabs();
+              resolve({
+                success: true,
+                managed: true,
+                version: blocklist.version,
+                targetsCount: (blocklist.targets || []).length,
+              });
+              return;
+            }
+
+            resolve({ success: false, error: response?.error || "Agent returned invalid response" });
+          }
+        );
+      } catch (err) {
+        resolve({ success: false, error: err.message });
+      }
+    });
+  }
+
+  return { success: false, error: "Native messaging unsupported" };
 }
 
 // --------------------------------------------------------------------------
@@ -329,27 +406,31 @@ if (globalThis.chrome?.runtime?.onMessage) {
 
       if (message.type === "GET_STATUS") {
         const session = await storage.getSession();
-        const cache = await storage.getBlocklistCache(session?.userId);
+        const isManaged = await storage.getManagedMode();
+        const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
         const settings = await storage.getSettings();
         sendResponse({
           session,
           cache,
           settings,
+          isManaged,
         });
         return;
       }
 
       if (message.type === "SYNC_NOW") {
-        const result = await syncService.sync();
+        const result = await processSync("sync");
         if (result?.success) {
           await enforceOnOpenTabs();
         }
         const session = await storage.getSession();
-        const cache = await storage.getBlocklistCache(session?.userId);
+        const isManaged = await storage.getManagedMode();
+        const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
         sendResponse({
           result,
           session,
           cache,
+          isManaged,
         });
         return;
       }
@@ -362,7 +443,8 @@ if (globalThis.chrome?.runtime?.onMessage) {
 
       if (message.type === "EVALUATE_URL") {
         const session = await storage.getSession();
-        const cache = await storage.getBlocklistCache(session?.userId);
+        const isManaged = await storage.getManagedMode();
+        const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
         const evalResult = evaluateUrl(message.url, cache);
         sendResponse(evalResult);
         return;
@@ -379,7 +461,7 @@ if (globalThis.chrome?.runtime?.onMessage) {
 if (globalThis.chrome?.runtime?.onInstalled) {
   chrome.runtime.onInstalled.addListener(() => {
     chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
-    syncService.sync().then((res) => {
+    processSync().then((res) => {
       if (res?.success) enforceOnOpenTabs();
     }).catch(() => {});
   });
@@ -387,7 +469,7 @@ if (globalThis.chrome?.runtime?.onInstalled) {
 
 if (globalThis.chrome?.runtime?.onStartup) {
   chrome.runtime.onStartup.addListener(() => {
-    syncService.sync().then((res) => {
+    processSync().then((res) => {
       if (res?.success) enforceOnOpenTabs();
     }).catch(() => {});
   });
@@ -396,9 +478,14 @@ if (globalThis.chrome?.runtime?.onStartup) {
 if (globalThis.chrome?.alarms?.onAlarm) {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
-      syncService.sync().then((res) => {
+      processSync().then((res) => {
         if (res?.success) enforceOnOpenTabs();
       }).catch(() => {});
     }
   });
 }
+
+// Execute initial synchronization on script load
+processSync().then((res) => {
+  if (res?.success) enforceOnOpenTabs();
+}).catch(() => {});

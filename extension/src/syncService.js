@@ -2,7 +2,25 @@
  * Synchronization coordinator for ONUSLY blocklist.
  */
 
-import { fetchBlocklist } from "./apiClient.js";
+import { fetchBlocklist, sendHeartbeat as apiSendHeartbeat } from "./apiClient.js";
+
+export function detectBrowser() {
+  if (typeof navigator === "undefined") return "chrome";
+  const ua = (navigator.userAgent || "").toLowerCase();
+  if (ua.includes("edg/")) return "edge";
+  if (ua.includes("brave") || Boolean(navigator.brave)) return "brave";
+  if (ua.includes("firefox")) return "firefox";
+  return "chrome";
+}
+
+export function detectPlatform() {
+  if (typeof navigator === "undefined") return "linux";
+  const ua = (navigator.userAgent || "").toLowerCase();
+  if (ua.includes("win")) return "windows";
+  if (ua.includes("mac")) return "macos";
+  if (ua.includes("android")) return "android";
+  return "linux";
+}
 
 /**
  * Creates a sync service instance bound to a storage instance.
@@ -66,6 +84,7 @@ export function createSyncService(storage, fetchFn = globalThis.fetch) {
           };
         }
 
+        this.sendHeartbeat().catch(() => {});
         return {
           success: true,
           type: "UPDATED",
@@ -77,6 +96,7 @@ export function createSyncService(storage, fetchFn = globalThis.fetch) {
       if (result.type === "NOT_MODIFIED") {
         // Cache is still fresh on the server — update sync timestamp
         await storage.updateLastSyncTimestamp();
+        this.sendHeartbeat().catch(() => {});
         return {
           success: true,
           type: "NOT_MODIFIED",
@@ -87,6 +107,7 @@ export function createSyncService(storage, fetchFn = globalThis.fetch) {
 
       // Offline / Network / Server Error:
       // CRITICAL REQUIREMENT: Do NOT clear cached restrictions when network request fails.
+      this.sendHeartbeat(["service_degraded"]).catch(() => {});
       return {
         success: false,
         type: "ERROR",
@@ -94,6 +115,35 @@ export function createSyncService(storage, fetchFn = globalThis.fetch) {
         version: existingCache?.version,
         targetsCount: (existingCache?.targets || []).length,
       };
+    },
+
+    /**
+     * Reports client telemetry and enforcement health to the backend.
+     * @param {string[]} [issues]
+     * @returns {Promise<boolean>}
+     */
+    async sendHeartbeat(issues = []) {
+      const session = await storage.getSession();
+      if (!session || !session.token || !session.userId) {
+        return false;
+      }
+      const settings = await storage.getSettings();
+      const deviceId = await storage.getDeviceId();
+      const cache = await storage.getBlocklistCache(session.userId);
+
+      const payload = {
+        deviceId,
+        clientType: "extension",
+        platform: detectPlatform(),
+        browser: detectBrowser(),
+        clientVersion: "1.0.0",
+        enforcing: true,
+        blocklistVersion: cache?.version || "",
+        issues,
+        sentAt: new Date().toISOString(),
+      };
+
+      return await apiSendHeartbeat(settings.baseUrl, session.token, payload, fetchFn);
     },
   };
 }
