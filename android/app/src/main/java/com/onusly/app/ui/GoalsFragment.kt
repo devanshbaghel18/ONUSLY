@@ -284,7 +284,7 @@ class GoalsFragment : Fragment() {
 
     companion object {
         fun canDeleteGoal(goal: Goal): Boolean {
-            return !(goal.isActive || goal.isProofSubmitted)
+            return !(goal.isActive || goal.isProofSubmitted || goal.isRejected)
         }
     }
 

@@ -144,6 +144,26 @@ describe("Authentication Handoff Suite", () => {
       assert.equal(session?.userId, "user_review");
     });
 
+    it("strictly blocks disconnecting when rejected goals exist", async () => {
+      await bgStorage.clearAll();
+      await bgStorage.saveSession({ userId: "user_rejected", token: "tok_rejected" });
+      await bgStorage.saveBlocklistCache(
+        {
+          userId: "user_rejected",
+          version: "v1-rejected",
+          targets: [{ goalId: "g_rejected", domains: ["twitter.com"], status: "rejected" }],
+        },
+        "user_rejected"
+      );
+
+      const res = await processDisconnect();
+      assert.equal(res.success, false);
+      assert.match(res.error, /goals are in progress/i);
+
+      const session = await bgStorage.getSession();
+      assert.equal(session?.userId, "user_rejected");
+    });
+
     it("allows disconnecting when only completed goals exist or cache is empty", async () => {
       await bgStorage.clearAll();
       await bgStorage.saveSession({ userId: "user_done", token: "tok_done" });

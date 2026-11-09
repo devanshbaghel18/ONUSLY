@@ -4,6 +4,19 @@
 
 import { extractHostname, isDomainMatch, isProtectedUrl, isYouTubeShortsUrl, normalizeDomain } from "./domainMatcher.js";
 
+/**
+ * Determines whether a goal status is an enforcing status.
+ * Product invariant: 'active', 'proof_submitted', and 'rejected' goals enforce restrictions.
+ *
+ * @param {string|null|undefined} status
+ * @returns {boolean}
+ */
+export function isEnforcingStatus(status) {
+  if (!status || typeof status !== "string") return false;
+  const s = status.trim().toLowerCase();
+  return s === "active" || s === "proof_submitted" || s === "rejected";
+}
+
 export const APP_DOMAINS_MAP = {
   // Canonical Catalog mappings
   "com.instagram.android": ["instagram.com"],
@@ -47,9 +60,7 @@ export const APP_DOMAINS_MAP = {
  * @returns {boolean}
  */
 export function isTargetShortsRestricted(target) {
-  if (!target) return false;
-  const status = (target.status || "").toLowerCase().trim();
-  if (status !== "active" && status !== "proof_submitted") {
+  if (!target || !isEnforcingStatus(target.status)) {
     return false;
   }
 
@@ -168,9 +179,7 @@ export function evaluateUrl(urlStr, cachedBlocklist) {
     cachedBlocklist.targets.length > 0
   ) {
     for (const target of cachedBlocklist.targets) {
-      const status = (target.status || "").toLowerCase().trim();
-      // Only goals in 'active' or 'proof_submitted' status enforce restrictions
-      if (status !== "active" && status !== "proof_submitted") {
+      if (!isEnforcingStatus(target.status)) {
         continue;
       }
 
@@ -199,13 +208,21 @@ export function evaluateUrl(urlStr, cachedBlocklist) {
   // 1. Goal-based blocklist takes precedence if domain is explicitly restricted by user goals
   if (matchingTargets.length > 0) {
     const hasActive = matchingTargets.some(
-      (t) => (t.status || "").toLowerCase().trim() === "active"
+      (t) => (t.status || "").trim().toLowerCase() === "active"
+    );
+    const hasRejected = matchingTargets.some(
+      (t) => (t.status || "").trim().toLowerCase() === "rejected"
     );
 
-    const status = hasActive ? "active" : "proof_submitted";
-    const instruction = hasActive
-      ? "Complete your goal and submit proof."
-      : "Proof submitted. Waiting for review.";
+    let status = "proof_submitted";
+    let instruction = "Proof submitted. Waiting for review.";
+    if (hasActive) {
+      status = "active";
+      instruction = "Complete your goal and submit proof.";
+    } else if (hasRejected) {
+      status = "rejected";
+      instruction = "Proof was rejected. Complete your goal before resubmission.";
+    }
 
     return {
       isBlocked: true,
@@ -223,12 +240,22 @@ export function evaluateUrl(urlStr, cachedBlocklist) {
     const shortsTargets = getActiveShortsTargets(cachedBlocklist);
     if (shortsTargets.length > 0) {
       const hasActive = shortsTargets.some(
-        (t) => (t.status || "").toLowerCase().trim() === "active"
+        (t) => (t.status || "").trim().toLowerCase() === "active"
       );
-      const status = hasActive ? "active" : "proof_submitted";
-      const instruction = hasActive
-        ? "YouTube Shorts are blocked so you can stay focused. Regular YouTube videos are still available."
-        : "Proof submitted. Waiting for review.";
+      const hasRejected = shortsTargets.some(
+        (t) => (t.status || "").trim().toLowerCase() === "rejected"
+      );
+
+      let status = "proof_submitted";
+      let instruction = "Proof submitted. Waiting for review.";
+      if (hasActive) {
+        status = "active";
+        instruction =
+          "YouTube Shorts are blocked so you can stay focused. Regular YouTube videos are still available.";
+      } else if (hasRejected) {
+        status = "rejected";
+        instruction = "Proof was rejected. Complete your goal before resubmission.";
+      }
 
       return {
         isBlocked: true,
@@ -253,7 +280,7 @@ export function evaluateUrl(urlStr, cachedBlocklist) {
 }
 
 /**
- * Extracts a deduplicated list of all currently blocked domains across active/proof_submitted targets.
+ * Extracts a deduplicated list of all currently blocked domains across active/proof_submitted/rejected targets.
  *
  * @param {object|null} cachedBlocklist
  * @returns {Array<string>}
@@ -266,8 +293,7 @@ export function getBlockedDomainsList(cachedBlocklist) {
   const domainSet = new Set();
 
   for (const target of cachedBlocklist.targets) {
-    const status = (target.status || "").toLowerCase().trim();
-    if (status !== "active" && status !== "proof_submitted") {
+    if (!isEnforcingStatus(target.status)) {
       continue;
     }
 

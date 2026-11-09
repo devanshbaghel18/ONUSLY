@@ -164,17 +164,31 @@ class AuditRemediationRegressionTest {
 
         // 4. Completed goal present
         assertFalse("List with completed goal is not all proof_submitted", LockActivity.isProofSubmittedState(listOf("completed")))
+
+        // 5. Rejected goal present
+        assertFalse("List with rejected goal is not all proof_submitted", LockActivity.isProofSubmittedState(listOf("rejected")))
+        assertFalse("List with active and rejected is not proof_submitted", LockActivity.isProofSubmittedState(listOf("active", "rejected")))
+
+        // Test production method: LockActivity.isRejectedState
+        assertTrue("Single rejected goal evaluates to true", LockActivity.isRejectedState(listOf("rejected")))
+        assertTrue("List with rejected and proof_submitted evaluates to rejected", LockActivity.isRejectedState(listOf("rejected", "proof_submitted")))
+        assertTrue("Case and whitespace normalized rejected status evaluates to true", LockActivity.isRejectedState(listOf(" REJECTED ")))
+        assertFalse("Active goal takes precedence over rejected", LockActivity.isRejectedState(listOf("active", "rejected")))
+        assertFalse("Empty goal list is not rejected state", LockActivity.isRejectedState(emptyList()))
+        assertFalse("Only completed goals is not rejected state", LockActivity.isRejectedState(listOf("completed")))
     }
 
     @Test
     fun testONUS_MED_06_GoalsFragmentProductionDeletionGuard() {
         val activeGoal = Goal(id = "g1", ownerId = "o1", title = "Active", status = "active")
         val reviewGoal = Goal(id = "g2", ownerId = "o1", title = "Review", status = "proof_submitted")
-        val completedGoal = Goal(id = "g3", ownerId = "o1", title = "Completed", status = "completed")
+        val rejectedGoal = Goal(id = "g3", ownerId = "o1", title = "Rejected", status = "rejected")
+        val completedGoal = Goal(id = "g4", ownerId = "o1", title = "Completed", status = "completed")
 
         // Test production method: GoalsFragment.canDeleteGoal
         assertFalse("Active goal cannot be deleted", GoalsFragment.canDeleteGoal(activeGoal))
         assertFalse("In-review (proof_submitted) goal cannot be deleted", GoalsFragment.canDeleteGoal(reviewGoal))
+        assertFalse("Rejected goal cannot be deleted until completed", GoalsFragment.canDeleteGoal(rejectedGoal))
         assertTrue("Completed goal can be deleted", GoalsFragment.canDeleteGoal(completedGoal))
     }
 

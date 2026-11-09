@@ -23,6 +23,9 @@ data class Goal(
     val isProofSubmitted: Boolean
         get() = status.equals("proof_submitted", ignoreCase = true)
 
+    val isRejected: Boolean
+        get() = status.equals("rejected", ignoreCase = true)
+
     val isCompleted: Boolean
         get() = status.equals("completed", ignoreCase = true)
 }

@@ -272,4 +272,185 @@ class BlockerEngineTest {
         assertEquals(1, resultUpper.matchingTargets.size)
         assertEquals("Focus Goal 2", resultUpper.matchingTargets[0].goalTitle)
     }
+
+    // --- P0 Client Enforcement Invariant Repair Tests ---
+
+    @Test
+    fun testActiveGoal_WithMatchingDomain_Blocks() {
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Active Domain Goal", "active", emptyList(), listOf("instagram.com"))
+            )
+        )
+        val result = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+        assertTrue("Active goal with matching domain must block", result.isBlocked)
+        assertEquals(1, result.matchingTargets.size)
+        assertEquals("active", result.matchingTargets[0].status)
+    }
+
+    @Test
+    fun testProofSubmittedGoal_WithMatchingDomain_Blocks() {
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Proof Submitted Domain Goal", "proof_submitted", emptyList(), listOf("instagram.com"))
+            )
+        )
+        val result = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+        assertTrue("Proof-submitted goal with matching domain must block", result.isBlocked)
+        assertEquals(1, result.matchingTargets.size)
+        assertEquals("proof_submitted", result.matchingTargets[0].status)
+    }
+
+    @Test
+    fun testRejectedGoal_WithMatchingDomain_Blocks() {
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Rejected Domain Goal", "rejected", emptyList(), listOf("instagram.com"))
+            )
+        )
+        val result = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+        assertTrue("Rejected goal with matching domain must block", result.isBlocked)
+        assertEquals(1, result.matchingTargets.size)
+        assertEquals("rejected", result.matchingTargets[0].status)
+    }
+
+    @Test
+    fun testCompletedGoal_WithMatchingDomain_Allows() {
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Completed Domain Goal", "completed", emptyList(), listOf("instagram.com"))
+            )
+        )
+        val result = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+        assertFalse("Completed goal with matching domain must not block", result.isBlocked)
+        assertTrue(result.matchingTargets.isEmpty())
+    }
+
+    @Test
+    fun testRejectedGoal_WithMatchingApplication_Blocks() {
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Rejected App Goal", "rejected", listOf("com.twitter.android"), emptyList())
+            )
+        )
+        val result = BlockerEngine.evaluatePackage("com.twitter.android", cache)
+        assertTrue("Rejected goal with matching application must block", result.isBlocked)
+        assertEquals(1, result.matchingTargets.size)
+        assertEquals("rejected", result.matchingTargets[0].status)
+    }
+
+    @Test
+    fun testRejectedGoal_WithNoTargets_DoesNotBlock() {
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Rejected Empty Goal", "rejected", emptyList(), emptyList())
+            )
+        )
+        val result = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+        assertFalse("Rejected goal with no targets must not block", result.isBlocked)
+        assertTrue(result.matchingTargets.isEmpty())
+    }
+
+    @Test
+    fun testTwoMatchingGoals_ActiveAndRejected_BlocksBoth() {
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Active Goal", "active", listOf("com.instagram.android"), emptyList()),
+                BlocklistTarget("g2", "Rejected Goal", "rejected", listOf("com.instagram.android"), emptyList())
+            )
+        )
+        val result = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+        assertTrue("Multiple matching goals (active + rejected) must block", result.isBlocked)
+        assertEquals(2, result.matchingTargets.size)
+        val statuses = result.matchingTargets.map { it.status }
+        assertTrue(statuses.contains("active"))
+        assertTrue(statuses.contains("rejected"))
+    }
+
+    @Test
+    fun testTwoMatchingGoals_CompletedAndRejected_Blocks() {
+        val cache = CachedBlocklist(
+            userId = "u1",
+            version = "v1-1",
+            generatedAt = "2026-10-08T12:00:00Z",
+            lastSyncTimestamp = 1000L,
+            targets = listOf(
+                BlocklistTarget("g1", "Completed Goal", "completed", listOf("com.instagram.android"), emptyList()),
+                BlocklistTarget("g2", "Rejected Goal", "rejected", listOf("com.instagram.android"), emptyList())
+            )
+        )
+        val result = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+        assertTrue("Two matching goals (completed + rejected) must block on rejected target", result.isBlocked)
+        assertEquals(1, result.matchingTargets.size)
+        assertEquals("rejected", result.matchingTargets[0].status)
+    }
+
+    @Test
+    fun testUnknownStatus_PreservesSafeHandling() {
+        val unknownStatuses = listOf("unknown", "pending", "paused", "archived", "deleted", "", "   ")
+        for (st in unknownStatuses) {
+            assertFalse("Status '$st' must not be enforcing", BlockerEngine.isEnforcingStatus(st))
+            val cache = CachedBlocklist(
+                userId = "u1",
+                version = "v1-1",
+                generatedAt = "2026-10-08T12:00:00Z",
+                lastSyncTimestamp = 1000L,
+                targets = listOf(
+                    BlocklistTarget("g1", "Unknown Status Goal", st, listOf("com.instagram.android"), emptyList())
+                )
+            )
+            val result = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+            assertFalse("Unknown status '$st' must never block", result.isBlocked)
+            assertTrue(result.matchingTargets.isEmpty())
+        }
+        assertFalse("Null status must not be enforcing", BlockerEngine.isEnforcingStatus(null))
+    }
+
+    @Test
+    fun testWhitespaceAndCaseNormalization_EnforcesCorrectly() {
+        val variations = listOf(" REJECTED ", "Rejected", "rejected ", "  proof_submitted  ", "PROOF_SUBMITTED", " Active ")
+        for (st in variations) {
+            assertTrue("Status '$st' must be recognized as enforcing", BlockerEngine.isEnforcingStatus(st))
+            val cache = CachedBlocklist(
+                userId = "u1",
+                version = "v1-1",
+                generatedAt = "2026-10-08T12:00:00Z",
+                lastSyncTimestamp = 1000L,
+                targets = listOf(
+                    BlocklistTarget("g_var", "Normalized Goal", st, listOf("com.instagram.android"), emptyList())
+                )
+            )
+            val result = BlockerEngine.evaluatePackage("com.instagram.android", cache)
+            assertTrue("Status '$st' must enforce blocking", result.isBlocked)
+            assertEquals(1, result.matchingTargets.size)
+        }
+    }
 }

@@ -122,11 +122,15 @@ async function renderBlockState() {
       if (evaluation.status === "proof_submitted") {
         statusCard.className = "status-card proof-submitted";
         statusHeader.textContent = "PROOF SUBMITTED";
-        instructionText.textContent = "Proof submitted. Waiting for review.";
+        instructionText.textContent = evaluation.instruction || "Proof submitted. Waiting for review.";
+      } else if (evaluation.status === "rejected") {
+        statusCard.className = "status-card rejected";
+        statusHeader.textContent = "PROOF REJECTED";
+        instructionText.textContent = evaluation.instruction || "Proof was rejected. Complete your goal before resubmission.";
       } else {
         statusCard.className = "status-card";
         statusHeader.textContent = "GOAL IN PROGRESS";
-        instructionText.textContent = "Complete your goal and submit proof.";
+        instructionText.textContent = evaluation.instruction || "Complete your goal and submit proof.";
       }
     }
 

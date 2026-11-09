@@ -34,8 +34,16 @@ class LockActivity : AppCompatActivity() {
         const val EXTRA_GOAL_STATUSES = "extra_goal_statuses"
 
         fun isProofSubmittedState(goalStatuses: List<String>): Boolean {
-            val hasActive = goalStatuses.any { it.equals("active", ignoreCase = true) }
-            return goalStatuses.isNotEmpty() && !hasActive && goalStatuses.all { it.equals("proof_submitted", ignoreCase = true) }
+            val hasActiveOrRejected = goalStatuses.any {
+                val s = it.trim().lowercase()
+                s == "active" || s == "rejected"
+            }
+            return goalStatuses.isNotEmpty() && !hasActiveOrRejected && goalStatuses.all { it.trim().equals("proof_submitted", ignoreCase = true) }
+        }
+
+        fun isRejectedState(goalStatuses: List<String>): Boolean {
+            val hasActive = goalStatuses.any { it.trim().equals("active", ignoreCase = true) }
+            return goalStatuses.isNotEmpty() && !hasActive && goalStatuses.any { it.trim().equals("rejected", ignoreCase = true) }
         }
     }
 
@@ -165,7 +173,15 @@ class LockActivity : AppCompatActivity() {
             tvGoalTitles.text = "Active ONUSLY Commitment"
         }
 
+        val hasEnforcing = goalStatuses.any { BlockerEngine.isEnforcingStatus(it) }
+        if (!hasEnforcing && goalStatuses.isNotEmpty()) {
+            tvStatusHeader.text = ""
+            tvInstructionText.text = ""
+            return
+        }
+
         val isProofSubmitted = isProofSubmittedState(goalStatuses)
+        val isRejected = isRejectedState(goalStatuses)
         val domainNotice = "Web domain targets are enforced by the ONUSLY Chrome extension. Native app targets are locked by Android Accessibility."
 
         if (isProofSubmitted) {
@@ -176,6 +192,14 @@ class LockActivity : AppCompatActivity() {
             cardInstruction.strokeColor = ContextCompat.getColor(this, R.color.primary)
             tvStatusHeader.setTextColor(ContextCompat.getColor(this, R.color.primary))
             ivLockIcon.setColorFilter(ContextCompat.getColor(this, R.color.primary))
+        } else if (isRejected) {
+            tvStatusHeader.text = "PROOF REJECTED"
+            tvInstructionText.text = "${getString(R.string.rejected_goal_instruction)}\n\n$domainNotice"
+            btnOpenDashboard.text = "Submit Proof in App"
+            cardInstruction.setCardBackgroundColor(ContextCompat.getColor(this, R.color.surface))
+            cardInstruction.strokeColor = ContextCompat.getColor(this, R.color.error)
+            tvStatusHeader.setTextColor(ContextCompat.getColor(this, R.color.error))
+            ivLockIcon.setColorFilter(ContextCompat.getColor(this, R.color.error))
         } else {
             tvStatusHeader.text = "GOAL IN PROGRESS"
             tvInstructionText.text = "${getString(R.string.active_goal_instruction)}\n\n$domainNotice"

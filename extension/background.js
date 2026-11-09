@@ -4,7 +4,7 @@
 
 import { createStorage } from "./src/storage.js";
 import { createSyncService } from "./src/syncService.js";
-import { evaluateUrl } from "./src/blockerEngine.js";
+import { evaluateUrl, isEnforcingStatus } from "./src/blockerEngine.js";
 
 export const storage = createStorage();
 export const syncService = createSyncService(storage);
@@ -202,10 +202,7 @@ export async function processPing() {
   const cache = await storage.getBlocklistCache(session?.userId);
   const hasActiveTargets =
     cache?.targets &&
-    cache.targets.some((t) => {
-      const s = (t.status || "").toLowerCase().trim();
-      return s === "active" || s === "proof_submitted";
-    });
+    cache.targets.some((t) => isEnforcingStatus(t.status));
 
   return {
     status: "ok",
@@ -222,10 +219,7 @@ export async function processDisconnect() {
   const cache = await storage.getBlocklistCache(session?.userId || null);
   const hasActiveTargets =
     cache?.targets &&
-    cache.targets.some((t) => {
-      const s = (t.status || "").toLowerCase().trim();
-      return s === "active" || s === "proof_submitted";
-    });
+    cache.targets.some((t) => isEnforcingStatus(t.status));
 
   if (hasActiveTargets) {
     return {

@@ -91,6 +91,12 @@ object BlockerEngine {
         "com.mi.android.globallauncher"
     )
 
+    fun isEnforcingStatus(status: String?): Boolean {
+        if (status.isNullOrBlank()) return false
+        val normalized = status.trim().lowercase()
+        return normalized == "active" || normalized == "proof_submitted" || normalized == "rejected"
+    }
+
     fun evaluatePackage(
         packageName: String?,
         cachedBlocklist: CachedBlocklist?,
@@ -114,8 +120,7 @@ object BlockerEngine {
         val matchingTargets = mutableListOf<BlocklistTarget>()
 
         for (target in cachedBlocklist.targets) {
-            val status = target.status.lowercase().trim()
-            if (status != "active" && status != "proof_submitted") {
+            if (!isEnforcingStatus(target.status)) {
                 continue
             }
 

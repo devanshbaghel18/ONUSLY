@@ -87,13 +87,13 @@ async function renderState() {
       };
 
       for (const t of targets) {
-        const status = (t.status || "").toLowerCase().trim();
-        if (status !== "active" && status !== "proof_submitted") continue;
+        const rawStatus = (t.status || "").toLowerCase().trim();
+        if (rawStatus !== "active" && rawStatus !== "proof_submitted" && rawStatus !== "rejected") continue;
 
         for (const d of t.domains || []) {
           const dom = d.toLowerCase().trim();
-          if (!domainsMap.has(dom) || status === "active") {
-            domainsMap.set(dom, status);
+          if (!domainsMap.has(dom) || rawStatus === "active") {
+            domainsMap.set(dom, rawStatus);
           }
         }
 
@@ -101,8 +101,8 @@ async function renderState() {
           const mapped = APP_MAP[app?.toLowerCase()?.trim()];
           if (mapped) {
             for (const dom of mapped) {
-              if (!domainsMap.has(dom) || status === "active") {
-                domainsMap.set(dom, status);
+              if (!domainsMap.has(dom) || rawStatus === "active") {
+                domainsMap.set(dom, rawStatus);
               }
             }
           }
@@ -125,8 +125,17 @@ async function renderState() {
           nameSpan.textContent = dom;
 
           const badge = document.createElement("span");
-          badge.className = `domain-status ${st === "active" ? "active" : "review"}`;
-          badge.textContent = st === "active" ? "Active" : "Review";
+          let badgeClass = "active";
+          let badgeText = "Active";
+          if (st === "proof_submitted") {
+            badgeClass = "review";
+            badgeText = "Review";
+          } else if (st === "rejected") {
+            badgeClass = "rejected";
+            badgeText = "Rejected";
+          }
+          badge.className = `domain-status ${badgeClass}`;
+          badge.textContent = badgeText;
 
           item.appendChild(nameSpan);
           item.appendChild(badge);
@@ -137,7 +146,7 @@ async function renderState() {
       // Check if goals are currently in progress to lock Disconnect button
       const hasActiveGoals = targets.some((t) => {
         const st = (t.status || "").toLowerCase().trim();
-        return st === "active" || st === "proof_submitted";
+        return st === "active" || st === "proof_submitted" || st === "rejected";
       });
 
       if (btnDisconnect) {

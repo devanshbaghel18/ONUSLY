@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { evaluateUrl, getBlockedDomainsList } from "../src/blockerEngine.js";
+import { evaluateUrl, getBlockedDomainsList, isEnforcingStatus, isTargetShortsRestricted } from "../src/blockerEngine.js";
 
 describe("Blocker Engine Suite", () => {
   const sampleCache = {
@@ -227,5 +227,169 @@ describe("Blocker Engine Suite", () => {
     };
     assert.equal(evaluateUrl("https://www.youtube.com/watch?v=abc", unrelatedCache).isBlocked, false);
     assert.equal(evaluateUrl("https://www.youtube.com/shorts/xyz", unrelatedCache).isBlocked, false);
+  });
+
+  describe("P0 Client Enforcement Invariant - Enforcing Statuses & Normalization", () => {
+    it("Active goal with matching domain -> Block", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", goalTitle: "Active Goal", status: "active", domains: ["twitter.com"] },
+        ],
+      };
+      const res = evaluateUrl("https://twitter.com/home", cache);
+      assert.equal(res.isBlocked, true);
+      assert.equal(res.status, "active");
+      assert.equal(res.instruction, "Complete your goal and submit proof.");
+    });
+
+    it("Proof-submitted goal with matching domain -> Block", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", goalTitle: "Review Goal", status: "proof_submitted", domains: ["twitter.com"] },
+        ],
+      };
+      const res = evaluateUrl("https://twitter.com/home", cache);
+      assert.equal(res.isBlocked, true);
+      assert.equal(res.status, "proof_submitted");
+      assert.equal(res.instruction, "Proof submitted. Waiting for review.");
+    });
+
+    it("Rejected goal with matching domain -> Block", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", goalTitle: "Rejected Goal", status: "rejected", domains: ["twitter.com"] },
+        ],
+      };
+      const res = evaluateUrl("https://twitter.com/home", cache);
+      assert.equal(res.isBlocked, true);
+      assert.equal(res.status, "rejected");
+      assert.equal(res.instruction, "Proof was rejected. Complete your goal before resubmission.");
+      assert.equal(res.matchingTargets.length, 1);
+    });
+
+    it("Completed goal with matching domain -> Allow", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", goalTitle: "Completed Goal", status: "completed", domains: ["twitter.com"] },
+        ],
+      };
+      const res = evaluateUrl("https://twitter.com/home", cache);
+      assert.equal(res.isBlocked, false);
+      assert.equal(res.status, "none");
+      assert.equal(res.instruction, "");
+      assert.equal(res.matchingTargets.length, 0);
+    });
+
+    it("Rejected goal with matching application -> Block", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", goalTitle: "Rejected App", status: "rejected", apps: ["com.twitter.android"] },
+        ],
+      };
+      const res = evaluateUrl("https://x.com/explore", cache);
+      assert.equal(res.isBlocked, true);
+      assert.equal(res.status, "rejected");
+      assert.equal(res.instruction, "Proof was rejected. Complete your goal before resubmission.");
+    });
+
+    it("Rejected goal with YouTube Shorts restriction -> Block", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", goalTitle: "Shorts Goal", status: "rejected", apps: ["youtube_shorts"] },
+        ],
+      };
+      assert.equal(isTargetShortsRestricted(cache.targets[0]), true);
+      const res = evaluateUrl("https://www.youtube.com/shorts/xyz123", cache);
+      assert.equal(res.isBlocked, true);
+      assert.equal(res.reason, "youtube_shorts");
+      assert.equal(res.status, "rejected");
+      assert.equal(res.instruction, "Proof was rejected. Complete your goal before resubmission.");
+
+      // Regular video is allowed
+      const resWatch = evaluateUrl("https://www.youtube.com/watch?v=regular", cache);
+      assert.equal(resWatch.isBlocked, false);
+    });
+
+    it("Rejected goal with no targets -> No target to block", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", goalTitle: "Empty Targets", status: "rejected", apps: [], domains: [] },
+        ],
+      };
+      const res = evaluateUrl("https://twitter.com/home", cache);
+      assert.equal(res.isBlocked, false);
+      assert.equal(res.matchingTargets.length, 0);
+    });
+
+    it("Two matching goals: active + rejected -> Block", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", goalTitle: "Goal Active", status: "active", domains: ["reddit.com"] },
+          { goalId: "g2", goalTitle: "Goal Rejected", status: "rejected", domains: ["reddit.com"] },
+        ],
+      };
+      const res = evaluateUrl("https://reddit.com/r/all", cache);
+      assert.equal(res.isBlocked, true);
+      assert.equal(res.matchingTargets.length, 2);
+      assert.equal(res.status, "active");
+      assert.equal(res.instruction, "Complete your goal and submit proof.");
+    });
+
+    it("Two matching goals: completed + rejected -> Block", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", goalTitle: "Goal Done", status: "completed", domains: ["reddit.com"] },
+          { goalId: "g2", goalTitle: "Goal Rejected", status: "rejected", domains: ["reddit.com"] },
+        ],
+      };
+      const res = evaluateUrl("https://reddit.com/r/all", cache);
+      assert.equal(res.isBlocked, true);
+      assert.equal(res.matchingTargets.length, 1);
+      assert.equal(res.status, "rejected");
+      assert.equal(res.instruction, "Proof was rejected. Complete your goal before resubmission.");
+    });
+
+    it("Unknown status -> Preserve existing safe handling; does not classify as enforcing", () => {
+      const unknownStatuses = ["unknown", "archived", "pending", "paused", "deleted", "", null, undefined];
+      for (const st of unknownStatuses) {
+        const cache = {
+          targets: [
+            { goalId: "g1", goalTitle: "Unknown Status Goal", status: st, domains: ["reddit.com"] },
+          ],
+        };
+        const res = evaluateUrl("https://reddit.com/r/all", cache);
+        assert.equal(res.isBlocked, false, `Status ${st} must not block`);
+        assert.equal(res.matchingTargets.length, 0);
+        assert.equal(isEnforcingStatus(st), false);
+      }
+    });
+
+    it("Whitespace and case normalization (' REJECTED ')", () => {
+      const variations = [" REJECTED ", "Rejected", "rejected ", "  proof_submitted  ", "PROOF_SUBMITTED", " Active "];
+      for (const st of variations) {
+        assert.equal(isEnforcingStatus(st), true, `Status '${st}' must be enforcing`);
+        const cache = {
+          targets: [
+            { goalId: "g_var", goalTitle: "Var Goal", status: st, domains: ["example-blocked.com"] },
+          ],
+        };
+        const res = evaluateUrl("https://example-blocked.com/", cache);
+        assert.equal(res.isBlocked, true, `Status '${st}' must block target`);
+      }
+    });
+
+    it("getBlockedDomainsList includes domains from rejected goals", () => {
+      const cache = {
+        targets: [
+          { goalId: "g1", status: "active", domains: ["domain-a.com"] },
+          { goalId: "g2", status: "proof_submitted", domains: ["domain-b.com"] },
+          { goalId: "g3", status: "rejected", domains: ["domain-c.com"] },
+          { goalId: "g4", status: "completed", domains: ["domain-d.com"] },
+          { goalId: "g5", status: "unknown", domains: ["domain-e.com"] },
+        ],
+      };
+      const domains = getBlockedDomainsList(cache);
+      assert.deepEqual(domains, ["domain-a.com", "domain-b.com", "domain-c.com"]);
+    });
   });
 });
