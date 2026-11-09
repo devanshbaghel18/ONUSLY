@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -57,6 +58,38 @@ func cors(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// validateAndResolveBindAddress enforces loopback-only binding in production to prevent
+// accidental public exposure of the Go backend port (:8080).
+func validateAndResolveBindAddress(host, port string) (string, error) {
+	if host == "" || strings.EqualFold(host, "localhost") {
+		host = "127.0.0.1"
+	}
+	if port == "" {
+		port = "8080"
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return "", fmt.Errorf("invalid HOST IP address: %q", host)
+	}
+
+	// Explicitly reject unspecified 0.0.0.0 and :: addresses
+	if ip.IsUnspecified() {
+		return "", fmt.Errorf("security violation: binding to unspecified address %q (0.0.0.0/::) is strictly forbidden; backend must bind strictly to loopback (127.0.0.1)", host)
+	}
+
+	// Enforce loopback binding in production
+	if !ip.IsLoopback() {
+		allowInsecure := strings.EqualFold(os.Getenv("ALLOW_INSECURE_BIND"), "true")
+		if !allowInsecure {
+			return "", fmt.Errorf("security violation: backend host %q is not a loopback address (127.0.0.1/::1); external public exposure is forbidden in production. Set ALLOW_INSECURE_BIND=true for explicit development-only testing", host)
+		}
+		log.Printf("[SECURITY WARNING] Non-loopback binding permitted via explicit development override ALLOW_INSECURE_BIND=true: %s\n", host)
+	}
+
+	return net.JoinHostPort(host, port), nil
 }
 
 func main() {
@@ -372,8 +405,13 @@ func main() {
 	mux.Handle("/enforcement", protectedRoutes)
 	mux.Handle("/enforcement/", protectedRoutes)
 
+	addr, err := validateAndResolveBindAddress(os.Getenv("HOST"), os.Getenv("PORT"))
+	if err != nil {
+		log.Fatalf("Server bind address configuration error: %v", err)
+	}
+
 	server := &http.Server{
-		Addr:         ":8080",
+		Addr:         addr,
 		Handler:      cors(mux),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
@@ -384,7 +422,7 @@ func main() {
 	defer stop()
 
 	go func() {
-		log.Println("Server running on :8080")
+		log.Printf("Server running on %s\n", addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("Server listen error: %v", err)
 		}

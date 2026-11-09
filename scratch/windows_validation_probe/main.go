@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -102,18 +101,21 @@ var (
 	procReadFile            = modkernel32.NewProc("ReadFile")
 	procWriteFile           = modkernel32.NewProc("WriteFile")
 	procCloseHandle         = modkernel32.NewProc("CloseHandle")
-	procCreateEventW        = modkernel32.NewProc("CreateEventW")
-	procWaitForSingleObject = modkernel32.NewProc("WaitForSingleObject")
-	procGetOverlappedResult = modkernel32.NewProc("GetOverlappedResult")
-	procCancelIoEx          = modkernel32.NewProc("CancelIoEx")
+	procCreateEventW           = modkernel32.NewProc("CreateEventW")
+	procSetEvent               = modkernel32.NewProc("SetEvent")
+	procResetEvent             = modkernel32.NewProc("ResetEvent")
+	procWaitForSingleObject    = modkernel32.NewProc("WaitForSingleObject")
+	procWaitForMultipleObjects = modkernel32.NewProc("WaitForMultipleObjects")
+	procGetOverlappedResult    = modkernel32.NewProc("GetOverlappedResult")
+	procCancelIoEx             = modkernel32.NewProc("CancelIoEx")
 
 	procCryptProtectData   = modcrypt32.NewProc("CryptProtectData")
 	procCryptUnprotectData = modcrypt32.NewProc("CryptUnprotectData")
 
-	hServiceStatus         uintptr
-	stopChan               = make(chan struct{}, 1)
-	workerDoneChan         = make(chan struct{}, 1)
-	atomicShutdownComplete atomic.Bool
+	hServiceStatus     uintptr
+	hGlobalCancelEvent uintptr
+	stopChan           = make(chan struct{}, 1)
+	workerDoneChan     = make(chan struct{}, 1)
 )
 
 type SERVICE_TABLE_ENTRY struct {
@@ -308,6 +310,14 @@ func serviceMainCallback(argc uintptr, argv uintptr) uintptr {
 	setStatus(SERVICE_RUNNING, SERVICE_ACCEPT_STOP|SERVICE_ACCEPT_SHUTDOWN, 0, 0)
 
 	cancelChan := make(chan struct{})
+	hEvt, _, _ := procCreateEventW.Call(0, 1, 0, 0) // manual-reset event, non-signaled
+	hGlobalCancelEvent = hEvt
+	defer func() {
+		if hGlobalCancelEvent != 0 {
+			procCloseHandle.Call(hGlobalCancelEvent)
+			hGlobalCancelEvent = 0
+		}
+	}()
 
 	// 3. Execute diagnostics asynchronously in background worker
 	go runProbeWorker("SCM_SERVICE", cancelChan)
@@ -318,54 +328,70 @@ func serviceMainCallback(argc uintptr, argv uintptr) uintptr {
 	// 5. Report SERVICE_STOP_PENDING
 	setStatusWithCode(SERVICE_STOP_PENDING, 0, 1, 5000, 0)
 
-	// Signal cancellation to worker
+	// Signal cancellation to worker & set Win32 cancel event for overlapped I/O
 	close(cancelChan)
+	if hGlobalCancelEvent != 0 {
+		procSetEvent.Call(hGlobalCancelEvent)
+	}
 
-	// Bounded wait for worker to complete cleanup (max 4 seconds)
+	// Bounded wait for worker to complete cleanup (max 3500ms)
 	workerExitedCleanly := false
 	select {
 	case <-workerDoneChan:
 		workerExitedCleanly = true
-	case <-time.After(4 * time.Second):
+	case <-time.After(3500 * time.Millisecond):
 		workerExitedCleanly = false
 	}
 
-	// Forbid any worker writing results after service claims shutdown completed
-	atomicShutdownComplete.Store(true)
+	// Synchronize with result writer: wait up to 1000ms for any in-flight write to complete,
+	// and permanently close writer before reporting SERVICE_STOPPED.
+	writerClosedCleanly := globalResultWriter.CloseWithDeadline(1000 * time.Millisecond)
 
 	// 6. Record shutdown status and report SERVICE_STOPPED to SCM
 	dataDir := filepath.Join(os.Getenv("ProgramData"), "OnuslyProbe")
-	_ = os.MkdirAll(dataDir, 0755)
-	shutdownFile := filepath.Join(dataDir, "shutdown_status.json")
 
 	type ShutdownStatus struct {
-		Timestamp      string `json:"timestamp"`
-		CleanShutdown  bool   `json:"clean_shutdown"`
-		WorkerTimedOut bool   `json:"worker_timed_out"`
-		Win32ExitCode  uint32 `json:"win32_exit_code"`
-		Notes          string `json:"notes"`
+		Timestamp           string `json:"timestamp"`
+		CleanShutdown       bool   `json:"clean_shutdown"`
+		WorkerTimedOut      bool   `json:"worker_timed_out"`
+		WriterTimedOut      bool   `json:"writer_timed_out"`
+		AllWorkersExited    bool   `json:"all_workers_exited"`
+		ResultWritesBlocked bool   `json:"result_writes_blocked"`
+		Win32ExitCode       uint32 `json:"win32_exit_code"`
+		Notes               string `json:"notes"`
+	}
+
+	cleanShutdown := workerExitedCleanly && writerClosedCleanly
+	var exitCode uint32 = 0
+	var notes string
+
+	if cleanShutdown {
+		exitCode = 0
+		notes = "Service shutdown cleanly: worker exited within 3.5s and result writer closed cleanly."
+	} else if !workerExitedCleanly && !writerClosedCleanly {
+		exitCode = 1053 // ERROR_SERVICE_REQUEST_TIMEOUT
+		notes = "SHUTDOWN TIMEOUT: Both worker goroutine and result writer timed out during service shutdown."
+	} else if !workerExitedCleanly {
+		exitCode = 1053
+		notes = "WORKER SHUTDOWN TIMEOUT: Worker goroutine did not terminate within 3.5s deadline. Service stopped with failure exit code 1053."
+	} else {
+		exitCode = 1053
+		notes = "WRITER SHUTDOWN TIMEOUT: In-flight result write did not complete within 1s deadline. Service stopped with failure exit code 1053."
 	}
 
 	stLog := ShutdownStatus{
-		Timestamp:      time.Now().UTC().Format(time.RFC3339),
-		CleanShutdown:  workerExitedCleanly,
-		WorkerTimedOut: !workerExitedCleanly,
+		Timestamp:           time.Now().UTC().Format(time.RFC3339),
+		CleanShutdown:       cleanShutdown,
+		WorkerTimedOut:      !workerExitedCleanly,
+		WriterTimedOut:      !writerClosedCleanly,
+		AllWorkersExited:    workerExitedCleanly,
+		ResultWritesBlocked: true,
+		Win32ExitCode:       exitCode,
+		Notes:               notes,
 	}
 
-	if workerExitedCleanly {
-		stLog.Win32ExitCode = 0
-		stLog.Notes = "Worker goroutine terminated cleanly within 4s deadline."
-		stBytes, _ := json.MarshalIndent(stLog, "", "  ")
-		_ = os.WriteFile(shutdownFile, stBytes, 0644)
-		setStatusWithCode(SERVICE_STOPPED, 0, 0, 0, 0)
-	} else {
-		// Win32 Error 1053: ERROR_SERVICE_REQUEST_TIMEOUT
-		stLog.Win32ExitCode = 1053
-		stLog.Notes = "WORKER SHUTDOWN TIMEOUT: Worker did not terminate within 4s deadline. Service stopped with failure exit code 1053."
-		stBytes, _ := json.MarshalIndent(stLog, "", "  ")
-		_ = os.WriteFile(shutdownFile, stBytes, 0644)
-		setStatusWithCode(SERVICE_STOPPED, 0, 0, 0, 1053)
-	}
+	globalResultWriter.WriteShutdownStatus(dataDir, stLog)
+	setStatusWithCode(SERVICE_STOPPED, 0, 0, 0, exitCode)
 	return 0
 }
 
@@ -396,9 +422,7 @@ func runProbeWorker(mode string, cancelChan <-chan struct{}) {
 	case <-cancelChan:
 		return
 	default:
-		if !atomicShutdownComplete.Load() {
-			writeProbeResults(result)
-		}
+		writeProbeResults(result)
 	}
 }
 
@@ -476,31 +500,17 @@ func runProbeTests(mode string, cancelChan <-chan struct{}) ProbeResult {
 }
 
 func writeProbeResults(result ProbeResult) {
-	if atomicShutdownComplete.Load() {
+	dataDir := filepath.Join(os.Getenv("ProgramData"), "OnuslyProbe")
+	if !globalResultWriter.WriteResults(dataDir, result) {
 		// Shutdown completed; reject late writes
 		return
 	}
 
 	outBytes, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		fmt.Printf("Error marshaling JSON: %v\n", err)
-		return
+	if err == nil {
+		fmt.Println(string(outBytes))
 	}
-
-	fmt.Println(string(outBytes))
-
-	dataDir := filepath.Join(os.Getenv("ProgramData"), "OnuslyProbe")
-	if err := os.MkdirAll(dataDir, 0755); err == nil {
-		tmpFile := filepath.Join(dataDir, "probe_results.tmp")
-		logFile := filepath.Join(dataDir, "probe_results.json")
-		markerFile := filepath.Join(dataDir, "probe_completed.marker")
-
-		if err := os.WriteFile(tmpFile, outBytes, 0644); err == nil {
-			_ = os.Rename(tmpFile, logFile)
-			_ = os.WriteFile(markerFile, []byte(time.Now().UTC().Format(time.RFC3339)), 0644)
-			fmt.Printf("\n[Probe Complete] Report atomically saved to %s\n", logFile)
-		}
-	}
+	fmt.Printf("\n[Probe Complete] Report atomically saved to %s\n", filepath.Join(dataDir, "probe_results.json"))
 }
 
 func inspectProcessToken(r *ProbeResult) {
@@ -933,13 +943,31 @@ func testNamedPipeServerAuth(r *ProbeResult, cancelChan <-chan struct{}) {
 			if ok && errno == 535 { // ERROR_PIPE_CONNECTED
 				// Connected immediately
 			} else if ok && errno == 997 { // ERROR_IO_PENDING
-				waitRes, _, _ := procWaitForSingleObject.Call(hEvent, uintptr(timeoutMs))
-				if waitRes != WAIT_OBJECT_0 {
+				var waitHandles [2]uintptr
+				waitHandles[0] = hEvent
+				waitCount := uintptr(1)
+				if hGlobalCancelEvent != 0 {
+					waitHandles[1] = hGlobalCancelEvent
+					waitCount = 2
+				}
+
+				waitRes, _, _ := procWaitForMultipleObjects.Call(
+					waitCount,
+					uintptr(unsafe.Pointer(&waitHandles[0])),
+					0, // bWaitAll = FALSE
+					uintptr(timeoutMs),
+				)
+
+				if waitRes == WAIT_OBJECT_0 {
+					var bytesTransferred uint32
+					procGetOverlappedResult.Call(hServerPipe, uintptr(unsafe.Pointer(&ov)), uintptr(unsafe.Pointer(&bytesTransferred)), 1)
+				} else {
 					procCancelIoEx.Call(hServerPipe, uintptr(unsafe.Pointer(&ov)))
+					var bytesCancelled uint32
+					// Wait for overlapped cancellation to complete before releasing ov memory from stack
+					procGetOverlappedResult.Call(hServerPipe, uintptr(unsafe.Pointer(&ov)), uintptr(unsafe.Pointer(&bytesCancelled)), 1)
 					return false, ""
 				}
-				var bytesTransferred uint32
-				procGetOverlappedResult.Call(hServerPipe, uintptr(unsafe.Pointer(&ov)), uintptr(unsafe.Pointer(&bytesTransferred)), 1)
 			} else {
 				return false, ""
 			}
@@ -965,13 +993,31 @@ func testNamedPipeServerAuth(r *ProbeResult, cancelChan <-chan struct{}) {
 		if rRead == 0 {
 			errno, ok := errRead.(syscall.Errno)
 			if ok && errno == 997 { // ERROR_IO_PENDING
-				waitRes, _, _ := procWaitForSingleObject.Call(hReadEvent, 5000)
-				if waitRes != WAIT_OBJECT_0 {
+				var waitHandles [2]uintptr
+				waitHandles[0] = hReadEvent
+				waitCount := uintptr(1)
+				if hGlobalCancelEvent != 0 {
+					waitHandles[1] = hGlobalCancelEvent
+					waitCount = 2
+				}
+
+				waitRes, _, _ := procWaitForMultipleObjects.Call(
+					waitCount,
+					uintptr(unsafe.Pointer(&waitHandles[0])),
+					0, // bWaitAll = FALSE
+					5000,
+				)
+
+				if waitRes == WAIT_OBJECT_0 {
+					procGetOverlappedResult.Call(hServerPipe, uintptr(unsafe.Pointer(&ovRead)), uintptr(unsafe.Pointer(&bytesRead)), 1)
+				} else {
 					procCancelIoEx.Call(hServerPipe, uintptr(unsafe.Pointer(&ovRead)))
+					var bytesCancelled uint32
+					// Wait for overlapped cancellation to complete before releasing ovRead memory from stack
+					procGetOverlappedResult.Call(hServerPipe, uintptr(unsafe.Pointer(&ovRead)), uintptr(unsafe.Pointer(&bytesCancelled)), 1)
 					r.NamedPipeReadTimeoutHandled = true
 					return false, ""
 				}
-				procGetOverlappedResult.Call(hServerPipe, uintptr(unsafe.Pointer(&ovRead)), uintptr(unsafe.Pointer(&bytesRead)), 1)
 			} else {
 				return false, ""
 			}

@@ -8,3 +8,4 @@ server.log
 *backup*.json
 .agents/
 skills-lock.json
+*.exe

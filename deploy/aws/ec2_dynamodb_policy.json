@@ -2,7 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "DynamoDBAccessMumbai",
+      "Sid": "DynamoDBAccessStockholm",
       "Effect": "Allow",
       "Action": [
         "dynamodb:BatchGetItem",
@@ -16,12 +16,12 @@
         "dynamodb:UpdateItem"
       ],
       "Resource": [
-        "arn:aws:dynamodb:ap-south-1:*:table/Onusly",
-        "arn:aws:dynamodb:ap-south-1:*:table/Onusly/index/*"
+        "arn:aws:dynamodb:eu-north-1:631690098190:table/Onusly",
+        "arn:aws:dynamodb:eu-north-1:631690098190:table/Onusly/index/*"
       ]
     },
     {
-      "Sid": "SQSAccessMumbai",
+      "Sid": "SQSAccessStockholm",
       "Effect": "Allow",
       "Action": [
         "sqs:SendMessage",
@@ -29,7 +29,10 @@
         "sqs:DeleteMessage",
         "sqs:GetQueueAttributes"
       ],
-      "Resource": "arn:aws:sqs:ap-south-1:*:*"
+      "Resource": [
+        "arn:aws:sqs:eu-north-1:631690098190:proof-events",
+        "arn:aws:sqs:eu-north-1:631690098190:approval-events"
+      ]
     }
   ]
 }

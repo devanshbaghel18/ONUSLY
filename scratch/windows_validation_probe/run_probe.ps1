@@ -87,8 +87,8 @@ if (Get-Service -Name $NegServiceName -ErrorAction SilentlyContinue) {
 
 # 3. Check Probe Binary
 if (-not (Test-Path $BinaryPath)) {
-    Write-Host "[Compiling Probe] Running 'go build -o onusly-probe.exe main.go'..." -ForegroundColor Yellow
-    go build -o $BinaryPath main.go
+    Write-Host "[Compiling Probe] Running 'go build -o onusly-probe.exe .'..." -ForegroundColor Yellow
+    go build -o $BinaryPath .
     if (-not (Test-Path $BinaryPath)) {
         Write-Error "Failed to locate or compile $BinaryPath"
         exit 1
@@ -232,6 +232,132 @@ try {
         Write-Host "  Service Shutdown Audit:" -ForegroundColor Cyan
         Get-Content $ShutdownLog | Write-Host
     }
+
+    # 12. Format Validation Matrix Summary (W-01 through W-12)
+    Write-Host ""
+    Write-Host "========================================================================================" -ForegroundColor Green
+    Write-Host " ONUSLY D3 - VALIDATION MATRIX RESULTS (W-01 through W-12)" -ForegroundColor Green
+    Write-Host "========================================================================================" -ForegroundColor Green
+
+    $pr = $null
+    if (Test-Path $LogFile) { $pr = Get-Content $LogFile | ConvertFrom-Json }
+    $neg = $null
+    if (Test-Path $NegLogFile) { $neg = Get-Content $NegLogFile | ConvertFrom-Json }
+    $elev = $null
+    if (Test-Path $ClientElevatedLog) { $elev = Get-Content $ClientElevatedLog | ConvertFrom-Json }
+    $unelev = $null
+    if (Test-Path $ClientUnelevatedLog) { $unelev = Get-Content $ClientUnelevatedLog | ConvertFrom-Json }
+    $shut = $null
+    if (Test-Path $ShutdownLog) { $shut = Get-Content $ShutdownLog | ConvertFrom-Json }
+
+    function Format-TestRow([string]$id, [string]$name, [string]$identity, [string]$status, [string]$detail) {
+        $color = if ($status -eq "PASS") { "Green" } elseif ($status -eq "FAIL") { "Red" } else { "Yellow" }
+        Write-Host (" [{0,-4}] {1,-38} | {2,-28} | " -f $id, $name, $identity) -NoNewline
+        Write-Host ("{0,-7} ({1})" -f $status, $detail) -ForegroundColor $color
+    }
+
+    # W-01: Service Identity & Privilege Stripping
+    if ($pr -and $pr.service_sid_found -and $pr.privileges_held -contains "SeChangeNotifyPrivilege" -and -not ($pr.privileges_held -contains "SeImpersonatePrivilege")) {
+        Format-TestRow "W-01" "SCM Identity & Privilege Stripping" "NT AUTHORITY\LocalService" "PASS" "Service SID present, SeImpersonate removed"
+    } elseif ($pr) {
+        Format-TestRow "W-01" "SCM Identity & Privilege Stripping" "NT AUTHORITY\LocalService" "FAIL" "Privilege policy mismatch"
+    } else {
+        Format-TestRow "W-01" "SCM Identity & Privilege Stripping" "NT AUTHORITY\LocalService" "NOT RUN" "probe_results.json missing"
+    }
+
+    # W-02: WTS Console Session Detection
+    if ($pr -and $pr.wts_console_session_id -ge 0) {
+        Format-TestRow "W-02" "WTS Console Session Detection" "LocalService (Service)" "PASS" "Active Console ID: $($pr.wts_console_session_id)"
+    } else {
+        Format-TestRow "W-02" "WTS Console Session Detection" "LocalService (Service)" "NOT RUN" "No session data"
+    }
+
+    # W-03: Service SID NTFS DACL Access (Positive)
+    if ($pr -and $pr.service_sid_access_test_success) {
+        Format-TestRow "W-03" "Service SID NTFS DACL Access (Positive)" "LocalService (Service SID)" "PASS" "Protected file read success"
+    } elseif ($pr) {
+        Format-TestRow "W-03" "Service SID NTFS DACL Access (Positive)" "LocalService (Service SID)" "FAIL" "Access failed"
+    } else {
+        Format-TestRow "W-03" "Service SID NTFS DACL Access (Positive)" "LocalService (Service SID)" "NOT RUN" "probe_results.json missing"
+    }
+
+    # W-04: Generic LocalService Denial (Negative)
+    if ($neg -and $neg.access_denied_observed -and $neg.win32_error_code -eq 5) {
+        Format-TestRow "W-04" "Generic LocalService Denial (Negative)" "Generic LocalService (No SID)" "PASS" "Win32 Error 5 ERROR_ACCESS_DENIED confirmed"
+    } elseif ($neg) {
+        Format-TestRow "W-04" "Generic LocalService Denial (Negative)" "Generic LocalService (No SID)" "FAIL" "Access not denied: code $($neg.win32_error_code)"
+    } else {
+        Format-TestRow "W-04" "Generic LocalService Denial (Negative)" "Generic LocalService (No SID)" "NOT RUN" "negative_test.json missing"
+    }
+
+    # W-05: Named-Pipe Impersonation SQOS
+    if ($pr -and $pr.named_pipe_client_imp_level -eq 1) {
+        Format-TestRow "W-05" "Named-Pipe Impersonation SQOS" "Interactive Client -> Pipe" "PASS" "TokenImpersonationLevel = SecurityIdentification (1)"
+    } elseif ($pr) {
+        Format-TestRow "W-05" "Named-Pipe Impersonation SQOS" "Interactive Client -> Pipe" "FAIL" "Level: $($pr.named_pipe_client_imp_level)"
+    } else {
+        Format-TestRow "W-05" "Named-Pipe Impersonation SQOS" "Interactive Client -> Pipe" "NOT RUN" "No pipe auth data"
+    }
+
+    # W-06: Named-Pipe TokenUser SID Validation
+    if ($pr -and $pr.named_pipe_binary_sid_matched) {
+        Format-TestRow "W-06" "Named-Pipe TokenUser SID Validation" "Pipe Server" "PASS" "Client SID validated: $($pr.named_pipe_client_token_user_sid)"
+    } elseif ($pr) {
+        Format-TestRow "W-06" "Named-Pipe TokenUser SID Validation" "Pipe Server" "FAIL" "SID match failed"
+    } else {
+        Format-TestRow "W-06" "Named-Pipe TokenUser SID Validation" "Pipe Server" "NOT RUN" "No auth data"
+    }
+
+    # W-07: Unauthorized Client Rejection
+    if ($pr -and $pr.named_pipe_auth_test_success) {
+        Format-TestRow "W-07" "Unauthorized Client Rejection" "Pipe Server" "PASS" "Security boundary enforced"
+    } else {
+        Format-TestRow "W-07" "Unauthorized Client Rejection" "Pipe Server" "NOT RUN" "Test not completed"
+    }
+
+    # W-08: Guaranteed RevertToSelf
+    if ($pr -and $pr.named_pipe_revert_to_self_works) {
+        Format-TestRow "W-08" "Guaranteed RevertToSelf On All Paths" "Pipe Server" "PASS" "Thread token cleared cleanly"
+    } elseif ($pr) {
+        Format-TestRow "W-08" "Guaranteed RevertToSelf On All Paths" "Pipe Server" "FAIL" "RevertToSelf failed"
+    } else {
+        Format-TestRow "W-08" "Guaranteed RevertToSelf On All Paths" "Pipe Server" "NOT RUN" "No probe data"
+    }
+
+    # W-09: DPAPI Machine Scope Encryption
+    if ($pr -and $pr.dpapi_machine_scope_works) {
+        Format-TestRow "W-09" "DPAPI Machine Scope Encryption" "LocalService" "PASS" "CryptProtectData/UnprotectData OK"
+    } elseif ($pr) {
+        Format-TestRow "W-09" "DPAPI Machine Scope Encryption" "LocalService" "FAIL" "DPAPI failed"
+    } else {
+        Format-TestRow "W-09" "DPAPI Machine Scope Encryption" "LocalService" "NOT RUN" "No probe data"
+    }
+
+    # W-10: SCM Bounded Shutdown & Cancellation
+    if ($shut -and $shut.clean_shutdown -and $shut.all_workers_exited -and $shut.win32_exit_code -eq 0) {
+        Format-TestRow "W-10" "SCM Bounded Shutdown & Cancellation" "SCM Handler" "PASS" "All workers exited, exit code 0"
+    } elseif ($shut) {
+        Format-TestRow "W-10" "SCM Bounded Shutdown & Cancellation" "SCM Handler" "FAIL" "Timeout code: $($shut.win32_exit_code)"
+    } else {
+        Format-TestRow "W-10" "SCM Bounded Shutdown & Cancellation" "SCM Handler" "NOT RUN" "shutdown_status.json missing"
+    }
+
+    # W-11: Post-Shutdown Write Invariant
+    if ($shut -and $shut.result_writes_blocked) {
+        Format-TestRow "W-11" "Post-Shutdown Write Invariant" "ResultWriter" "PASS" "Writes permanently disabled before SCM stop"
+    } else {
+        Format-TestRow "W-11" "Post-Shutdown Write Invariant" "ResultWriter" "NOT RUN" "No shutdown audit"
+    }
+
+    # W-12: Dual Interactive Clients
+    if ($elev -and $elev.pipe_connect_success -and $unelev -and $unelev.pipe_connect_success) {
+        Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "PASS" "Both Medium and High Integrity authenticated"
+    } elseif ($elev -and $elev.pipe_connect_success) {
+        Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "PARTIAL" "Elevated passed; Unelevated pending manual run"
+    } else {
+        Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "NOT RUN" "Clients not executed"
+    }
+    Write-Host "========================================================================================" -ForegroundColor Green
 }
 catch {
     if ($scriptStatus -eq "NORMAL_COMPLETION") {

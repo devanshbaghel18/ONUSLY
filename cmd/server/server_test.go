@@ -141,3 +141,70 @@ func TestDownloadsRouteIntegration(t *testing.T) {
 		t.Errorf("expected application/x-chrome-extension, got %v", ct)
 	}
 }
+
+func TestValidateAndResolveBindAddress(t *testing.T) {
+	// 1. Default fallback (empty host and port)
+	addr, err := validateAndResolveBindAddress("", "")
+	if err != nil {
+		t.Fatalf("expected default bind address to succeed, got: %v", err)
+	}
+	if addr != "127.0.0.1:8080" {
+		t.Errorf("expected 127.0.0.1:8080, got %s", addr)
+	}
+
+	// 2. Localhost resolution
+	addr, err = validateAndResolveBindAddress("localhost", "9000")
+	if err != nil {
+		t.Fatalf("expected localhost to succeed, got: %v", err)
+	}
+	if addr != "127.0.0.1:9000" {
+		t.Errorf("expected 127.0.0.1:9000, got %s", addr)
+	}
+
+	// 3. IPv6 loopback
+	addr, err = validateAndResolveBindAddress("::1", "8080")
+	if err != nil {
+		t.Fatalf("expected ::1 loopback to succeed, got: %v", err)
+	}
+	if addr != "[::1]:8080" {
+		t.Errorf("expected [::1]:8080, got %s", addr)
+	}
+
+	// 4. Reject unspecified 0.0.0.0
+	_, err = validateAndResolveBindAddress("0.0.0.0", "8080")
+	if err == nil {
+		t.Fatalf("expected 0.0.0.0 to be rejected as security violation")
+	}
+	if !strings.Contains(err.Error(), "strictly forbidden") {
+		t.Errorf("expected error message to mention strictly forbidden, got: %v", err)
+	}
+
+	// 5. Reject unspecified ::
+	_, err = validateAndResolveBindAddress("::", "8080")
+	if err == nil {
+		t.Fatalf("expected :: to be rejected as security violation")
+	}
+
+	// 6. Reject non-loopback IP without override
+	_, err = validateAndResolveBindAddress("192.168.1.50", "8080")
+	if err == nil {
+		t.Fatalf("expected non-loopback IP to be rejected without ALLOW_INSECURE_BIND")
+	}
+
+	// 7. Allow non-loopback IP with ALLOW_INSECURE_BIND=true
+	t.Setenv("ALLOW_INSECURE_BIND", "true")
+	addr, err = validateAndResolveBindAddress("192.168.1.50", "8080")
+	if err != nil {
+		t.Fatalf("expected ALLOW_INSECURE_BIND=true to allow bind, got: %v", err)
+	}
+	if addr != "192.168.1.50:8080" {
+		t.Errorf("expected 192.168.1.50:8080, got %s", addr)
+	}
+
+	// 8. Reject invalid IP format
+	t.Setenv("ALLOW_INSECURE_BIND", "false")
+	_, err = validateAndResolveBindAddress("not.a.valid.ip", "8080")
+	if err == nil {
+		t.Fatalf("expected malformed IP to be rejected")
+	}
+}
