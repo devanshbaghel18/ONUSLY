@@ -25,8 +25,15 @@ var (
 	ErrApprovalNotFound = errors.New("approval not found")
 )
 
+type ApprovalRepository interface {
+	Create(ctx context.Context, approval Approval) error
+	CreateDecision(ctx context.Context, approval Approval, expectedGoalStatus string, newGoalStatus string) error
+	GetByID(ctx context.Context, ownerID, goalID, approvalID string) (*Approval, error)
+	ListByGoal(ctx context.Context, ownerID, goalID string) ([]Approval, error)
+}
+
 type Service struct {
-	repo         *Repository
+	repo         ApprovalRepository
 	goalService  *goals.Service
 	proofService *proof.Service
 	listeners    []DecisionListener
@@ -34,7 +41,7 @@ type Service struct {
 }
 
 func NewService(
-	repo *Repository,
+	repo ApprovalRepository,
 	goalService *goals.Service,
 	proofService *proof.Service,
 ) *Service {
@@ -154,7 +161,7 @@ func (s *Service) Decide(
 		DecidedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
 
-	goalStatus := "active"
+	goalStatus := "rejected"
 	if status == "approved" {
 		goalStatus = "completed"
 	}

@@ -83,7 +83,7 @@ func (s *Service) CreateFromApprovalDecided(ctx context.Context, event events.Ap
 		message = fmt.Sprintf("Your proof for %q was approved! Focus locks lifted.", event.Title)
 	} else {
 		title = "Proof Rejected"
-		message = fmt.Sprintf("Your proof for %q was rejected.", event.Title)
+		message = fmt.Sprintf("Your proof for %q was rejected. Please review feedback and resubmit.", event.Title)
 	}
 
 	notif := &Notification{
@@ -107,6 +107,36 @@ func (s *Service) CreateFromApprovalDecided(ctx context.Context, event events.Ap
 	if err == nil && s.broadcaster != nil {
 		_ = s.broadcaster.SendNotification(ownerID, "notification.new", notif)
 		_ = s.broadcaster.SendNotification(ownerID, "approval.decided", notif)
+	}
+	return err
+}
+
+// CreateFromGoalAssigned generates and persists an in-app notification for the newly assigned approver.
+func (s *Service) CreateFromGoalAssigned(ctx context.Context, approverID, goalID, title, ownerID string) error {
+	approverID = strings.TrimSpace(approverID)
+	if approverID == "" || approverID == "COMMUNITY" {
+		return nil
+	}
+
+	notif := &Notification{
+		ID:          "goal-" + goalID,
+		RecipientID: approverID,
+		Type:        "goal_assigned",
+		Title:       "New Accountability Goal Assigned",
+		Message:     fmt.Sprintf("You were assigned as accountability partner for %q.", title),
+		GoalID:      goalID,
+		OwnerID:     ownerID,
+		Read:        false,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	err := s.repo.Create(ctx, notif)
+	if err != nil && errors.Is(err, ErrAlreadyExists) {
+		return nil
+	}
+	if err == nil && s.broadcaster != nil {
+		_ = s.broadcaster.SendNotification(approverID, "notification.new", notif)
+		_ = s.broadcaster.SendNotification(approverID, "goal.assigned", notif)
 	}
 	return err
 }
@@ -136,6 +166,35 @@ func (s *Service) CreateFromEnforcementLapsed(ctx context.Context, recipientID, 
 	if err == nil && s.broadcaster != nil {
 		_ = s.broadcaster.SendNotification(recipientID, "notification.new", notif)
 		_ = s.broadcaster.SendNotification(recipientID, "enforcement.lapsed", notif)
+	}
+	return err
+}
+
+// CreateFromEnforcementRecovered generates and persists an enforcement recovery notification.
+func (s *Service) CreateFromEnforcementRecovered(ctx context.Context, recipientID, episodeID, goalID, title, message string) error {
+	recipientID = strings.TrimSpace(recipientID)
+	if recipientID == "" {
+		return nil
+	}
+
+	notif := &Notification{
+		ID:          episodeID + "-recovered",
+		RecipientID: recipientID,
+		Type:        "enforcement_recovered",
+		Title:       title,
+		Message:     message,
+		GoalID:      goalID,
+		Read:        false,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	err := s.repo.Create(ctx, notif)
+	if err != nil && errors.Is(err, ErrAlreadyExists) {
+		return nil
+	}
+	if err == nil && s.broadcaster != nil {
+		_ = s.broadcaster.SendNotification(recipientID, "notification.new", notif)
+		_ = s.broadcaster.SendNotification(recipientID, "enforcement.recovered", notif)
 	}
 	return err
 }

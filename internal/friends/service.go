@@ -71,12 +71,17 @@ func (s *Service) SendRequest(ctx context.Context, callerID, callerEmail, caller
 		}
 	}
 
-	// Check if outgoing request already pending
+	now := time.Now().UTC()
+
+	// Check if outgoing request already pending and unexpired
 	outgoing, err := s.repo.GetOutgoingRequests(ctx, callerID)
 	if err == nil {
 		for _, req := range outgoing {
 			if req.RecipientID == targetID && req.Status == "pending" {
-				return nil, errors.New("friend request already pending")
+				if req.ExpiresAt.IsZero() || req.ExpiresAt.After(now) {
+					return nil, errors.New("friend request already pending")
+				}
+				// Expired request: allow resending (safe retry)
 			}
 		}
 	}
@@ -102,7 +107,8 @@ func (s *Service) SendRequest(ctx context.Context, callerID, callerEmail, caller
 		RecipientEmail:  targetEmail,
 		RecipientName:   targetName,
 		Status:          "pending",
-		CreatedAt:       time.Now().UTC(),
+		CreatedAt:       now,
+		ExpiresAt:       now.Add(7 * 24 * time.Hour),
 	}
 
 	if err := s.repo.SaveFriendRequest(ctx, req); err != nil {
@@ -145,6 +151,10 @@ func (s *Service) RespondRequest(ctx context.Context, callerID string, reqID str
 	}
 	if req == nil {
 		return errors.New("friend request not found or unauthorized")
+	}
+
+	if !req.ExpiresAt.IsZero() && req.ExpiresAt.Before(time.Now().UTC()) {
+		return errors.New("friend request has expired")
 	}
 
 	if cleanAction == "accept" {

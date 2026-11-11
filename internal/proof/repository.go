@@ -41,11 +41,11 @@ func (r *Repository) Create(ctx context.Context, p Proof) error {
 
 // CreateWithGoalTransition atomically puts the proof and updates the goal status
 // using a DynamoDB TransactWriteItems request conditioned on the goal currently
-// having the expected status (e.g. "active").
+// having one of the expected statuses (e.g. "active" or "rejected").
 func (r *Repository) CreateWithGoalTransition(
 	ctx context.Context,
 	p Proof,
-	expectedGoalStatus string,
+	expectedGoalStatuses []string,
 	newGoalStatus string,
 ) error {
 	item, err := attributevalue.MarshalMap(p)
@@ -56,6 +56,28 @@ func (r *Repository) CreateWithGoalTransition(
 	now := p.SubmittedAt
 	if now == "" {
 		now = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	var condParts []string
+	exprValues := map[string]types.AttributeValue{
+		":newStatus": &types.AttributeValueMemberS{
+			Value: newGoalStatus,
+		},
+		":updatedAt": &types.AttributeValueMemberS{
+			Value: now,
+		},
+	}
+
+	for i, s := range expectedGoalStatuses {
+		key := fmt.Sprintf(":expectedStatus%d", i)
+		condParts = append(condParts, fmt.Sprintf("#status = %s", key))
+		exprValues[key] = &types.AttributeValueMemberS{Value: s}
+	}
+
+	condExpr := strings.Join(condParts, " OR ")
+	if condExpr == "" {
+		condExpr = "#status = :expectedStatus0"
+		exprValues[":expectedStatus0"] = &types.AttributeValueMemberS{Value: "active"}
 	}
 
 	transactItems := []types.TransactWriteItem{
@@ -80,24 +102,12 @@ func (r *Repository) CreateWithGoalTransition(
 				UpdateExpression: aws.String(
 					"SET #status = :newStatus, #updatedAt = :updatedAt",
 				),
-				ConditionExpression: aws.String(
-					"#status = :expectedStatus",
-				),
+				ConditionExpression: aws.String(condExpr),
 				ExpressionAttributeNames: map[string]string{
 					"#status":    "Status",
 					"#updatedAt": "UpdatedAt",
 				},
-				ExpressionAttributeValues: map[string]types.AttributeValue{
-					":newStatus": &types.AttributeValueMemberS{
-						Value: newGoalStatus,
-					},
-					":expectedStatus": &types.AttributeValueMemberS{
-						Value: expectedGoalStatus,
-					},
-					":updatedAt": &types.AttributeValueMemberS{
-						Value: now,
-					},
-				},
+				ExpressionAttributeValues: exprValues,
 			},
 		},
 	}

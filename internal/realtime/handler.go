@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -11,21 +12,59 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// isAllowedWebSocketOrigin validates incoming origin headers during WebSocket upgrade handshakes
+// against explicit whitelisted origins to prevent Cross-Site WebSocket Hijacking (CSWSH).
+func isAllowedWebSocketOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Non-browser clients (desktop agents, unit tests, mobile apps)
+		return true
+	}
+	origin = strings.TrimSpace(origin)
+	originLower := strings.ToLower(origin)
+
+	envOrigins := os.Getenv("ALLOWED_ORIGINS")
+	if envOrigins != "" {
+		for _, o := range strings.Split(envOrigins, ",") {
+			o = strings.TrimSpace(o)
+			if o != "" && strings.EqualFold(originLower, strings.ToLower(o)) {
+				return true
+			}
+		}
+	}
+
+	if originLower == "http://localhost:3000" ||
+		originLower == "http://localhost:5173" ||
+		originLower == "http://127.0.0.1:3000" ||
+		originLower == "http://127.0.0.1:5173" ||
+		originLower == "http://localhost:8080" ||
+		originLower == "http://127.0.0.1:8080" {
+		return true
+	}
+
+	if r.Host != "" {
+		hostLower := strings.ToLower(r.Host)
+		if originLower == "http://"+hostLower || originLower == "https://"+hostLower {
+			return true
+		}
+	}
+
+	return false
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  8192,
 	WriteBufferSize: 8192,
-	// Allow all origins for development and reverse proxy flexibility
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	CheckOrigin:     isAllowedWebSocketOrigin,
 }
 
 // AuthUser represents the authenticated identity extracted from a JWT.
 type AuthUser struct {
-	ID     string
-	Email  string
-	Handle string
-	Name   string
+	ID        string
+	Email     string
+	Handle    string
+	Name      string
+	TokenType string
 }
 
 // AuthHandshakeMessage defines the expected format for first-message WebSocket authentication.
@@ -52,6 +91,9 @@ func ValidateToken(tokenString, jwtSecret string) (*AuthUser, error) {
 		if token.Method != jwt.SigningMethodHS256 {
 			return nil, jwt.ErrSignatureInvalid
 		}
+		if alg, ok := token.Header["alg"].(string); !ok || alg != "HS256" {
+			return nil, jwt.ErrSignatureInvalid
+		}
 		return []byte(jwtSecret), nil
 	})
 
@@ -76,6 +118,15 @@ func ValidateToken(tokenString, jwtSecret string) (*AuthUser, error) {
 	handle, _ := claims["handle"].(string)
 	name, _ := claims["name"].(string)
 
+	tokenType, _ := claims["token_type"].(string)
+	if tokenType == "" {
+		if devID, ok := claims["device_id"].(string); ok && devID != "" {
+			tokenType = "device"
+		} else {
+			tokenType = "user"
+		}
+	}
+
 	if exp, ok := claims["exp"].(float64); ok {
 		if time.Now().Unix() > int64(exp) {
 			return nil, errors.New("token expired")
@@ -83,10 +134,11 @@ func ValidateToken(tokenString, jwtSecret string) (*AuthUser, error) {
 	}
 
 	return &AuthUser{
-		ID:     strings.TrimSpace(userID),
-		Email:  strings.TrimSpace(strings.ToLower(email)),
-		Handle: strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@")),
-		Name:   strings.TrimSpace(name),
+		ID:        strings.TrimSpace(userID),
+		Email:     strings.TrimSpace(strings.ToLower(email)),
+		Handle:    strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@")),
+		Name:      strings.TrimSpace(name),
+		TokenType: tokenType,
 	}, nil
 }
 

@@ -3,6 +3,7 @@ package proof
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -21,13 +22,20 @@ var (
 	ErrUnauthorized          = errors.New("forbidden: you are not authorized to access proofs for this goal")
 )
 
+type ProofRepository interface {
+	Create(ctx context.Context, p Proof) error
+	CreateWithGoalTransition(ctx context.Context, p Proof, expectedGoalStatuses []string, newGoalStatus string) error
+	GetByID(ctx context.Context, ownerID, goalID, proofID string) (*Proof, error)
+	ListByGoal(ctx context.Context, ownerID, goalID string) ([]Proof, error)
+}
+
 type Service struct {
-	repo        *Repository
+	repo        ProofRepository
 	goalService *goals.Service
 	publisher   events.Publisher
 }
 
-func NewService(repo *Repository, goalService *goals.Service) *Service {
+func NewService(repo ProofRepository, goalService *goals.Service) *Service {
 	return &Service{
 		repo:        repo,
 		goalService: goalService,
@@ -85,9 +93,12 @@ func (s *Service) Submit(
 		if externalLink == "" {
 			return nil, ErrInvalidProof
 		}
-		lower := strings.ToLower(externalLink)
-		if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
-			return nil, errors.New("external link must start with http:// or https://")
+		if len(externalLink) > 2048 {
+			return nil, errors.New("external link exceeds maximum length of 2048 characters")
+		}
+		parsedURL, err := url.ParseRequestURI(externalLink)
+		if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+			return nil, errors.New("external link must be a valid http:// or https:// URL")
 		}
 	case "photo", "document":
 		if photoURL == "" && textExplanation == "" {
@@ -95,8 +106,39 @@ func (s *Service) Submit(
 		}
 		if photoURL != "" {
 			lower := strings.ToLower(photoURL)
-			if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "data:image/") {
-				return nil, errors.New("photo URL must be an http(s) URL or image data URI")
+			if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+				if len(photoURL) > 2048 {
+					return nil, errors.New("photo URL exceeds maximum length of 2048 characters")
+				}
+				parsedURL, err := url.ParseRequestURI(photoURL)
+				if err != nil || parsedURL.Host == "" {
+					return nil, errors.New("photo URL must be a valid http(s) URL")
+				}
+			} else if strings.HasPrefix(lower, "data:image/") || strings.HasPrefix(lower, "data:application/pdf") {
+				// Base64 data URI validation
+				if len(photoURL) > 2*1024*1024 {
+					return nil, errors.New("photo data URI exceeds maximum size limit of 2MB")
+				}
+				validMIMEPrefixes := []string{
+					"data:image/jpeg;base64,",
+					"data:image/jpg;base64,",
+					"data:image/png;base64,",
+					"data:image/webp;base64,",
+					"data:image/gif;base64,",
+					"data:application/pdf;base64,",
+				}
+				hasValidPrefix := false
+				for _, prefix := range validMIMEPrefixes {
+					if strings.HasPrefix(lower, prefix) {
+						hasValidPrefix = true
+						break
+					}
+				}
+				if !hasValidPrefix {
+					return nil, errors.New("photo data URI must have a valid MIME prefix (jpeg, png, webp, gif, pdf)")
+				}
+			} else {
+				return nil, errors.New("photo URL must be an http(s) URL or valid image data URI")
 			}
 		}
 	}
@@ -111,7 +153,7 @@ func (s *Service) Submit(
 		return nil, ErrProofAlreadySubmitted
 	}
 
-	if goal.Status != "active" {
+	if goal.Status != "active" && goal.Status != "rejected" {
 		return nil, ErrGoalNotActive
 	}
 
@@ -134,7 +176,7 @@ func (s *Service) Submit(
 	if err := s.repo.CreateWithGoalTransition(
 		ctx,
 		p,
-		"active",
+		[]string{"active", "rejected"},
 		"proof_submitted",
 	); err != nil {
 		return nil, err

@@ -25,6 +25,7 @@ type FriendRequest struct {
 	RecipientName   string    `dynamodbav:"RecipientName" json:"recipientName"`
 	Status          string    `dynamodbav:"Status" json:"status"` // "pending", "accepted", "rejected"
 	CreatedAt       time.Time `dynamodbav:"CreatedAt" json:"createdAt"`
+	ExpiresAt       time.Time `dynamodbav:"ExpiresAt,omitempty" json:"expiresAt,omitempty"`
 }
 
 // SendFriendRequestInput payload for POST /friends/request.

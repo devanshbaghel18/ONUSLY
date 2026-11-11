@@ -332,8 +332,8 @@ func TestApprovalConcurrency_ApproveVsReject(t *testing.T) {
 	if winningDecision == "approved" && finalGoal.Status != "completed" {
 		t.Errorf("approve won: expected final goal status 'completed', got %q", finalGoal.Status)
 	}
-	if winningDecision == "rejected" && finalGoal.Status != "active" {
-		t.Errorf("reject won: expected final goal status 'active', got %q", finalGoal.Status)
+	if winningDecision == "rejected" && finalGoal.Status != "rejected" {
+		t.Errorf("reject won: expected final goal status 'rejected', got %q", finalGoal.Status)
 	}
 
 	approvals, err := approvalService.ListByGoal(context.Background(), ownerID, goalID)
@@ -416,8 +416,8 @@ func TestApprovalConcurrency_RejectVsReject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to fetch final goal: %v", err)
 	}
-	if finalGoal.Status != "active" {
-		t.Errorf("expected final goal status 'active', got %q", finalGoal.Status)
+	if finalGoal.Status != "rejected" {
+		t.Errorf("expected final goal status 'rejected', got %q", finalGoal.Status)
 	}
 
 	approvals, err := approvalService.ListByGoal(context.Background(), ownerID, goalID)
@@ -452,8 +452,8 @@ func TestApprovalSequential_AllPermutations(t *testing.T) {
 	}{
 		{"ApproveThenApprove", "approved", "approved", "completed"},
 		{"ApproveThenReject", "approved", "rejected", "completed"},
-		{"RejectThenApprove", "rejected", "approved", "active"},
-		{"RejectThenReject", "rejected", "rejected", "active"},
+		{"RejectThenApprove", "rejected", "approved", "rejected"},
+		{"RejectThenReject", "rejected", "rejected", "rejected"},
 	}
 
 	for _, tc := range cases {
@@ -592,11 +592,11 @@ func TestApproval_UnauthorizedApprover(t *testing.T) {
 	}
 }
 
-// TestApproval_GoalStatesRejection verifies approval is rejected when goal is active or completed.
+// TestApproval_GoalStatesRejection verifies approval is rejected when goal is active, completed, or rejected.
 func TestApproval_GoalStatesRejection(t *testing.T) {
 	db, tableName := getTestDynamoClient(t)
 
-	for _, invalidStatus := range []string{"active", "completed"} {
+	for _, invalidStatus := range []string{"active", "completed", "rejected"} {
 		t.Run("Status_"+invalidStatus, func(t *testing.T) {
 			ownerID := "test-owner-" + uuid.NewString()
 			approverID := "test-approver-" + uuid.NewString()
