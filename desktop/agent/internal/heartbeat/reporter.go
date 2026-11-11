@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -72,20 +73,27 @@ func (r *Reporter) SendHeartbeat(ctx context.Context, issues []string) error {
 	}
 
 	blocklistVersion := ""
-	enforcing := true
+	enforcing := false
+	var autoIssues []string
 	if r.syncer != nil {
 		cached, _ := r.syncer.GetCachedBlocklist()
-		if cached != nil {
+		if cached != nil && len(cached.Targets) > 0 {
 			blocklistVersion = cached.Version
-			enforcing = len(cached.Targets) > 0
+			enforcing = true
+		} else {
+			enforcing = false
+			autoIssues = append(autoIssues, "policy_missing", "service_degraded")
 		}
+	} else {
+		autoIssues = append(autoIssues, "policy_missing", "service_degraded")
 	}
 
-	if len(issues) > 0 {
+	allIssues := append(autoIssues, issues...)
+	if len(allIssues) > 0 {
 		enforcing = false
 	}
 
-	cleanIssues := issues
+	cleanIssues := allIssues
 	if cleanIssues == nil {
 		cleanIssues = []string{}
 	}
@@ -117,6 +125,18 @@ func (r *Reporter) SendHeartbeat(ctx context.Context, issues []string) error {
 		return fmt.Errorf("heartbeat dispatch error: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		bodyStr := string(bodyBytes)
+		if strings.Contains(bodyStr, "DEVICE_REVOKED") || strings.Contains(bodyStr, "device_revoked") {
+			return core.ErrDeviceRevoked
+		}
+		if strings.Contains(bodyStr, "CREDENTIAL_EXPIRED") || strings.Contains(bodyStr, "credential_expired") {
+			return core.ErrCredentialExpired
+		}
+		return core.ErrUnauthenticated
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("heartbeat returned status %d", resp.StatusCode)

@@ -19,10 +19,12 @@ type PairingStatus string
 const (
 	StatusUninstalled          PairingStatus = "UNINSTALLED"
 	StatusInstalledUnpaired    PairingStatus = "INSTALLED_UNPAIRED"
+	StatusUnpaired             PairingStatus = "UNPAIRED"
 	StatusPairingPending       PairingStatus = "PAIRING_PENDING"
 	StatusPairingCommitPending PairingStatus = "PAIRING_COMMIT_PENDING"
 	StatusPaired               PairingStatus = "PAIRED"
 	StatusAuthRequired         PairingStatus = "AUTHENTICATION_REQUIRED"
+	StatusRevoked              PairingStatus = "REVOKED"
 	StatusRepairRequired       PairingStatus = "REPAIR_REQUIRED"
 )
 
@@ -174,19 +176,21 @@ func isValidTransition(from, to PairingStatus) bool {
 	}
 	switch from {
 	case StatusUninstalled:
-		return to == StatusInstalledUnpaired || to == StatusPairingPending
-	case StatusInstalledUnpaired:
+		return to == StatusInstalledUnpaired || to == StatusUnpaired || to == StatusPairingPending
+	case StatusInstalledUnpaired, StatusUnpaired:
 		return to == StatusPairingPending || to == StatusUninstalled
 	case StatusPairingPending:
-		return to == StatusPairingCommitPending || to == StatusRepairRequired || to == StatusInstalledUnpaired || to == StatusUninstalled
+		return to == StatusPairingCommitPending || to == StatusRepairRequired || to == StatusInstalledUnpaired || to == StatusUnpaired || to == StatusUninstalled
 	case StatusPairingCommitPending:
-		return to == StatusPaired || to == StatusRepairRequired || to == StatusUninstalled
+		return to == StatusPaired || to == StatusRepairRequired || to == StatusRevoked || to == StatusUninstalled
 	case StatusPaired:
-		return to == StatusAuthRequired || to == StatusRepairRequired || to == StatusUninstalled
+		return to == StatusAuthRequired || to == StatusRevoked || to == StatusRepairRequired || to == StatusUninstalled
 	case StatusAuthRequired:
-		return to == StatusPairingPending || to == StatusPaired || to == StatusRepairRequired || to == StatusUninstalled
+		return to == StatusPairingPending || to == StatusPaired || to == StatusRevoked || to == StatusRepairRequired || to == StatusUninstalled
+	case StatusRevoked:
+		return to == StatusPairingPending || to == StatusInstalledUnpaired || to == StatusUnpaired || to == StatusRepairRequired || to == StatusUninstalled
 	case StatusRepairRequired:
-		return to == StatusPairingPending || to == StatusPairingCommitPending || to == StatusInstalledUnpaired || to == StatusUninstalled
+		return to == StatusPairingPending || to == StatusPairingCommitPending || to == StatusInstalledUnpaired || to == StatusUnpaired || to == StatusRevoked || to == StatusUninstalled
 	default:
 		return to == StatusUninstalled
 	}
@@ -200,6 +204,9 @@ func (m *PairingStateManager) Recover(ctx context.Context, credStore core.Creden
 	}
 
 	switch state.Status {
+	case StatusRevoked:
+		// Device is explicitly revoked; stay revoked until user initiates re-pairing
+		return state, nil
 	case StatusPairingCommitPending:
 		// Phase 1 completed, Phase 2 interrupted:
 		// Check if token exists and validates against backend GET /enforcement/blocklist

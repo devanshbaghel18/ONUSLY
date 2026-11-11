@@ -181,3 +181,68 @@ func TestPairingStateManager_RecoveryInterruptedCommit(t *testing.T) {
 	}
 }
 
+func TestPairingStateManager_RevocationAndRepair(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "onusly-revocation-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	stateFile := filepath.Join(tmpDir, "pairing_state.json")
+	mgr := NewPairingStateManager(stateFile)
+
+	testOwnerSID := "S-1-5-21-998877"
+
+	// 1. Establish initial PAIRED state
+	_, _ = mgr.Transition(StatusInstalledUnpaired, testOwnerSID)
+	_, _ = mgr.Transition(StatusPairingPending, testOwnerSID)
+	_, _ = mgr.Transition(StatusPairingCommitPending, testOwnerSID)
+	pairedSt, err := mgr.Transition(StatusPaired, testOwnerSID)
+	if err != nil || pairedSt.Status != StatusPaired {
+		t.Fatalf("Failed to establish PAIRED state: %v", err)
+	}
+
+	// 2. Transition PAIRED -> REVOKED
+	revSt, err := mgr.Transition(StatusRevoked, testOwnerSID)
+	if err != nil {
+		t.Fatalf("Transition to REVOKED failed: %v", err)
+	}
+	if revSt.Status != StatusRevoked {
+		t.Fatalf("Expected status REVOKED, got: %s", revSt.Status)
+	}
+
+	// 3. Verify Recover() leaves REVOKED intact (does not promote or change)
+	credStore := &mockCredStoreForPairing{token: "stale-jwt"}
+	syncer := &mockSyncerForPairing{}
+	recSt, err := mgr.Recover(context.Background(), credStore, syncer)
+	if err != nil {
+		t.Fatalf("Recover() failed on revoked state: %v", err)
+	}
+	if recSt.Status != StatusRevoked {
+		t.Fatalf("Recover() on REVOKED must remain REVOKED, got: %s", recSt.Status)
+	}
+
+	// 4. Re-pairing: REVOKED -> PAIRING_PENDING
+	pendingSt, err := mgr.Transition(StatusPairingPending, testOwnerSID)
+	if err != nil {
+		t.Fatalf("Transition from REVOKED to PAIRING_PENDING failed: %v", err)
+	}
+	if pendingSt.Status != StatusPairingPending {
+		t.Fatalf("Expected PAIRING_PENDING, got: %s", pendingSt.Status)
+	}
+
+	// 5. Complete re-pairing cycle -> PAIRING_COMMIT_PENDING -> PAIRED
+	commitSt, err := mgr.Transition(StatusPairingCommitPending, testOwnerSID)
+	if err != nil || commitSt.Status != StatusPairingCommitPending {
+		t.Fatalf("Transition to PAIRING_COMMIT_PENDING failed: %v", err)
+	}
+
+	repairedSt, err := mgr.Transition(StatusPaired, testOwnerSID)
+	if err != nil || repairedSt.Status != StatusPaired {
+		t.Fatalf("Transition to PAIRED failed: %v", err)
+	}
+	if repairedSt.OwnerSID != testOwnerSID {
+		t.Errorf("OwnerSID must be preserved across re-pairing: expected %s, got %s", testOwnerSID, repairedSt.OwnerSID)
+	}
+}
+
