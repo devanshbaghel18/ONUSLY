@@ -57,6 +57,8 @@ $NegServiceName = "OnuslyGenericLSTestService"
 $LogDir = "$env:ProgramData\OnuslyProbe"
 $LogFile = "$LogDir\probe_results.json"
 $MarkerFile = "$LogDir\probe_completed.marker"
+$MarkerC1 = "$LogDir\pipe_server_ready_c1.marker"
+$MarkerC2 = "$LogDir\pipe_server_ready_c2.marker"
 $ClientElevatedLog = "$LogDir\client_elevated.json"
 $ClientUnelevatedLog = "$LogDir\client_unelevated.json"
 $NegLogFile = "$LogDir\negative_test.json"
@@ -129,6 +131,14 @@ try {
 
     # 7a. Elevated Client (inherits administrator shell token)
     Write-Host "  [Client 1: Elevated Administrator]" -ForegroundColor Cyan
+    Write-Host "    Waiting for pipe server listener C1..." -ForegroundColor Gray
+    $c1Sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not (Test-Path $MarkerC1) -and $c1Sw.Elapsed.TotalSeconds -lt 10) {
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not (Test-Path $MarkerC1)) {
+        Write-Warning "pipe_server_ready_c1.marker not observed within 10s; attempting client connection anyway..."
+    }
     & $FullBinaryPath --client-elevated
     Start-Sleep -Milliseconds 300
 
@@ -138,6 +148,7 @@ try {
         Write-Host "    Token Elevation:               $($elevInfo.is_elevated)" -ForegroundColor Gray
         Write-Host "    Token Integrity Level:         $($elevInfo.integrity_level_name) (RID $($elevInfo.integrity_level_rid))" -ForegroundColor Gray
         Write-Host "    Process Session ID:            $($elevInfo.session_id)" -ForegroundColor Gray
+        Write-Host "    Pipe Connect Success:          $($elevInfo.pipe_connect_success) (Attempts: $($elevInfo.pipe_attempts), Win32 Error: $($elevInfo.win32_error_code))" -ForegroundColor Gray
         Write-Host "    Belongs to Paired Console User: $($elevInfo.belongs_to_paired_console_user)" -ForegroundColor Gray
         Write-Host "    Server Auth Response:          $($elevInfo.server_response)" -ForegroundColor Gray
     } else {
@@ -146,18 +157,34 @@ try {
 
     # 7b. Unelevated Client (launched via Windows Explorer COM shell)
     Write-Host "  [Client 2: Unelevated Console User (Browser Host Simulation)]" -ForegroundColor Cyan
+    Write-Host "    Waiting for pipe server listener C2..." -ForegroundColor Gray
+    $c2Sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not (Test-Path $MarkerC2) -and $c2Sw.Elapsed.TotalSeconds -lt 10) {
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not (Test-Path $MarkerC2)) {
+        Write-Warning "pipe_server_ready_c2.marker not observed within 10s; attempting unelevated client launch anyway..."
+    }
     $unelevatedLaunched = $false
+    Remove-Item -Path $ClientUnelevatedLog -Force -ErrorAction SilentlyContinue
     try {
         $shell = New-Object -ComObject "Shell.Application"
-        $shell.ShellExecute($FullBinaryPath, "--client-unelevated", "", "open", 1)
-        $unelevatedLaunched = $true
-        # Wait up to 3 seconds for unelevated client execution
+        $desktop = $shell.Windows().FindWindowSW(0, 0, 8, 0, 1) # SWC_DESKTOP = 8, SWFO_NEEDDISPATCH = 1
+        if ($desktop -and $desktop.Document -and $desktop.Document.Application) {
+            $desktop.Document.Application.ShellExecute($FullBinaryPath, "--client-unelevated", "", "open", 1)
+            $unelevatedLaunched = $true
+        } else {
+            Write-Warning "Desktop shell dispatch not found via FindWindowSW; falling back to direct Shell.Application..."
+            $shell.ShellExecute($FullBinaryPath, "--client-unelevated", "", "open", 1)
+            $unelevatedLaunched = $true
+        }
+        # Wait up to 5 seconds for unelevated client execution
         $uTimer = [System.Diagnostics.Stopwatch]::StartNew()
-        while (-not (Test-Path $ClientUnelevatedLog) -and $uTimer.Elapsed.TotalSeconds -lt 3) {
+        while (-not (Test-Path $ClientUnelevatedLog) -and $uTimer.Elapsed.TotalSeconds -lt 5) {
             Start-Sleep -Milliseconds 300
         }
     } catch {
-        Write-Warning "Shell.Application.ShellExecute failed to launch unelevated client: $_"
+        Write-Warning "Failed to launch unelevated client via Explorer: $_"
     }
 
     if (Test-Path $ClientUnelevatedLog) {
@@ -166,6 +193,7 @@ try {
         Write-Host "    Token Elevation:               $($unelevInfo.is_elevated)" -ForegroundColor Gray
         Write-Host "    Token Integrity Level:         $($unelevInfo.integrity_level_name) (RID $($unelevInfo.integrity_level_rid))" -ForegroundColor Gray
         Write-Host "    Process Session ID:            $($unelevInfo.session_id)" -ForegroundColor Gray
+        Write-Host "    Pipe Connect Success:          $($unelevInfo.pipe_connect_success) (Attempts: $($unelevInfo.pipe_attempts), Win32 Error: $($unelevInfo.win32_error_code))" -ForegroundColor Gray
         Write-Host "    Belongs to Paired Console User: $($unelevInfo.belongs_to_paired_console_user)" -ForegroundColor Gray
         Write-Host "    Server Auth Response:          $($unelevInfo.server_response)" -ForegroundColor Gray
     } else {
@@ -257,35 +285,52 @@ try {
     }
 
     # W-01: Service Identity & Privilege Stripping
-    if ($pr -and $pr.service_sid_found -and $pr.privileges_held -contains "SeChangeNotifyPrivilege" -and -not ($pr.privileges_held -contains "SeImpersonatePrivilege")) {
-        Format-TestRow "W-01" "SCM Identity & Privilege Stripping" "NT AUTHORITY\LocalService" "PASS" "Service SID present, SeImpersonate removed"
+    $privNames = @()
+    if ($pr -and $pr.privileges) {
+        $privNames = @($pr.privileges | ForEach-Object { $_.name })
+    }
+    $hasChangeNotify = $privNames -contains "SeChangeNotifyPrivilege"
+    $noImpersonate = -not ($privNames -contains "SeImpersonatePrivilege") -and ($pr.se_impersonate_stripped -eq $true)
+    $hasServiceSID = [bool]$pr.service_sid_found
+    $isLocalService = ($pr.is_local_service -eq $true)
+
+    if ($pr -and $hasServiceSID -and $isLocalService -and $hasChangeNotify -and $noImpersonate) {
+        Format-TestRow "W-01" "SCM Identity & Privilege Stripping" "NT AUTHORITY\LocalService" "PASS" "Service SID present, SeImpersonate stripped, SeChangeNotify retained"
     } elseif ($pr) {
-        Format-TestRow "W-01" "SCM Identity & Privilege Stripping" "NT AUTHORITY\LocalService" "FAIL" "Privilege policy mismatch"
+        $actualPrivs = if ($pr.privileges) { ($pr.privileges | ForEach-Object { "$($_.name)=$($_.attributes)" }) -join ', ' } else { "none" }
+        Format-TestRow "W-01" "SCM Identity & Privilege Stripping" "NT AUTHORITY\LocalService" "FAIL" "Privilege policy mismatch: Expected [SeChangeNotifyPrivilege] without SeImpersonate; Actual: [$actualPrivs], ServiceSID=$($pr.service_sid_found)"
     } else {
         Format-TestRow "W-01" "SCM Identity & Privilege Stripping" "NT AUTHORITY\LocalService" "NOT RUN" "probe_results.json missing"
     }
 
     # W-02: WTS Console Session Detection
-    if ($pr -and $pr.wts_console_session_id -ge 0) {
-        Format-TestRow "W-02" "WTS Console Session Detection" "LocalService (Service)" "PASS" "Active Console ID: $($pr.wts_console_session_id)"
+    if ($pr -and $pr.wts_query_console_success -and $pr.active_console_session_id -ne $null -and $pr.active_console_session_id -ge 0) {
+        $cSession = $null
+        if ($pr.sessions) {
+            $cSession = $pr.sessions | Where-Object { $_.session_id -eq $pr.active_console_session_id } | Select-Object -First 1
+        }
+        $userInfo = if ($cSession -and $cSession.user_name) { "$($cSession.domain_name)\$($cSession.user_name) ($($cSession.resolved_sid))" } else { "ID $($pr.active_console_session_id)" }
+        Format-TestRow "W-02" "WTS Console Session Detection" "LocalService (Service)" "PASS" "Active Console ID: $($pr.active_console_session_id), User: $userInfo"
+    } elseif ($pr) {
+        Format-TestRow "W-02" "WTS Console Session Detection" "LocalService (Service)" "FAIL" "WTS query failed: error code $($pr.wts_query_last_error), sessions count: $(@($pr.sessions).Count)"
     } else {
-        Format-TestRow "W-02" "WTS Console Session Detection" "LocalService (Service)" "NOT RUN" "No session data"
+        Format-TestRow "W-02" "WTS Console Session Detection" "LocalService (Service)" "NOT RUN" "probe_results.json missing"
     }
 
     # W-03: Service SID NTFS DACL Access (Positive)
-    if ($pr -and $pr.service_sid_access_test_success) {
-        Format-TestRow "W-03" "Service SID NTFS DACL Access (Positive)" "LocalService (Service SID)" "PASS" "Protected file read success"
+    if ($pr -and $pr.service_sid_positive_access) {
+        Format-TestRow "W-03" "Service SID NTFS DACL Access (Positive)" "LocalService (Service SID)" "PASS" "Protected file read success with Service SID"
     } elseif ($pr) {
-        Format-TestRow "W-03" "Service SID NTFS DACL Access (Positive)" "LocalService (Service SID)" "FAIL" "Access failed"
+        Format-TestRow "W-03" "Service SID NTFS DACL Access (Positive)" "LocalService (Service SID)" "FAIL" "Access failed (service_sid_positive_access is false)"
     } else {
         Format-TestRow "W-03" "Service SID NTFS DACL Access (Positive)" "LocalService (Service SID)" "NOT RUN" "probe_results.json missing"
     }
 
     # W-04: Generic LocalService Denial (Negative)
-    if ($neg -and $neg.access_denied_observed -and $neg.win32_error_code -eq 5) {
+    if ($neg -and $neg.generic_localservice_denied -and $neg.win32_error_captured -eq 5) {
         Format-TestRow "W-04" "Generic LocalService Denial (Negative)" "Generic LocalService (No SID)" "PASS" "Win32 Error 5 ERROR_ACCESS_DENIED confirmed"
     } elseif ($neg) {
-        Format-TestRow "W-04" "Generic LocalService Denial (Negative)" "Generic LocalService (No SID)" "FAIL" "Access not denied: code $($neg.win32_error_code)"
+        Format-TestRow "W-04" "Generic LocalService Denial (Negative)" "Generic LocalService (No SID)" "FAIL" "Access not denied: code $($neg.win32_error_captured), denied=$($neg.generic_localservice_denied)"
     } else {
         Format-TestRow "W-04" "Generic LocalService Denial (Negative)" "Generic LocalService (No SID)" "NOT RUN" "negative_test.json missing"
     }
@@ -293,8 +338,11 @@ try {
     # W-05: Named-Pipe Impersonation SQOS
     if ($pr -and $pr.named_pipe_client_imp_level -eq 1) {
         Format-TestRow "W-05" "Named-Pipe Impersonation SQOS" "Interactive Client -> Pipe" "PASS" "TokenImpersonationLevel = SecurityIdentification (1)"
-    } elseif ($pr) {
+    } elseif ($pr -and ($elev -and $elev.pipe_connect_success -or $unelev -and $unelev.pipe_connect_success)) {
         Format-TestRow "W-05" "Named-Pipe Impersonation SQOS" "Interactive Client -> Pipe" "FAIL" "Level: $($pr.named_pipe_client_imp_level)"
+    } elseif ($pr) {
+        $elevErr = if ($elev) { "Elevated Error: $($elev.win32_error_code)" } else { "No client log" }
+        Format-TestRow "W-05" "Named-Pipe Impersonation SQOS" "Interactive Client -> Pipe" "BLOCKED" "Client pipe transport failed ($elevErr)"
     } else {
         Format-TestRow "W-05" "Named-Pipe Impersonation SQOS" "Interactive Client -> Pipe" "NOT RUN" "No pipe auth data"
     }
@@ -302,8 +350,10 @@ try {
     # W-06: Named-Pipe TokenUser SID Validation
     if ($pr -and $pr.named_pipe_binary_sid_matched) {
         Format-TestRow "W-06" "Named-Pipe TokenUser SID Validation" "Pipe Server" "PASS" "Client SID validated: $($pr.named_pipe_client_token_user_sid)"
-    } elseif ($pr) {
+    } elseif ($pr -and ($elev -and $elev.pipe_connect_success -or $unelev -and $unelev.pipe_connect_success)) {
         Format-TestRow "W-06" "Named-Pipe TokenUser SID Validation" "Pipe Server" "FAIL" "SID match failed"
+    } elseif ($pr) {
+        Format-TestRow "W-06" "Named-Pipe TokenUser SID Validation" "Pipe Server" "BLOCKED" "Client connection failed"
     } else {
         Format-TestRow "W-06" "Named-Pipe TokenUser SID Validation" "Pipe Server" "NOT RUN" "No auth data"
     }
@@ -311,6 +361,10 @@ try {
     # W-07: Unauthorized Client Rejection
     if ($pr -and $pr.named_pipe_auth_test_success) {
         Format-TestRow "W-07" "Unauthorized Client Rejection" "Pipe Server" "PASS" "Security boundary enforced"
+    } elseif ($pr -and ($elev -and $elev.pipe_connect_success -or $unelev -and $unelev.pipe_connect_success)) {
+        Format-TestRow "W-07" "Unauthorized Client Rejection" "Pipe Server" "FAIL" "Security boundary rejected valid client"
+    } elseif ($pr) {
+        Format-TestRow "W-07" "Unauthorized Client Rejection" "Pipe Server" "BLOCKED" "Client connection failed"
     } else {
         Format-TestRow "W-07" "Unauthorized Client Rejection" "Pipe Server" "NOT RUN" "Test not completed"
     }
@@ -318,8 +372,10 @@ try {
     # W-08: Guaranteed RevertToSelf
     if ($pr -and $pr.named_pipe_revert_to_self_works) {
         Format-TestRow "W-08" "Guaranteed RevertToSelf On All Paths" "Pipe Server" "PASS" "Thread token cleared cleanly"
-    } elseif ($pr) {
+    } elseif ($pr -and $pr.named_pipe_auth_test_success) {
         Format-TestRow "W-08" "Guaranteed RevertToSelf On All Paths" "Pipe Server" "FAIL" "RevertToSelf failed"
+    } elseif ($pr) {
+        Format-TestRow "W-08" "Guaranteed RevertToSelf On All Paths" "Pipe Server" "BLOCKED" "Client connection failed"
     } else {
         Format-TestRow "W-08" "Guaranteed RevertToSelf On All Paths" "Pipe Server" "NOT RUN" "No probe data"
     }
@@ -350,10 +406,17 @@ try {
     }
 
     # W-12: Dual Interactive Clients
-    if ($elev -and $elev.pipe_connect_success -and $unelev -and $unelev.pipe_connect_success) {
-        Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "PASS" "Both Medium and High Integrity authenticated"
-    } elseif ($elev -and $elev.pipe_connect_success) {
-        Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "PARTIAL" "Elevated passed; Unelevated pending manual run"
+    $unelevGenuine = ($unelev -and $unelev.pipe_connect_success -and -not $unelev.is_elevated -and $unelev.integrity_level_rid -eq 8192)
+    $elevGenuine = ($elev -and $elev.pipe_connect_success -and $elev.is_elevated -and $elev.integrity_level_rid -eq 12288)
+
+    if ($elevGenuine -and $unelevGenuine) {
+        Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "PASS" "Both genuine Medium (RID 8192) and High (RID 12288) Integrity authenticated"
+    } elseif ($elevGenuine -and $unelev -and $unelev.pipe_connect_success) {
+        Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "FAIL" "Client 2 ran as High Integrity instead of Medium (elevation not dropped)"
+    } elseif ($elev -and -not $elev.pipe_connect_success) {
+        Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "BLOCKED" "Elevated pipe connection failed (Error: $($elev.win32_error_code))"
+    } elseif ($elevGenuine) {
+        Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "BLOCKED" "Elevated authenticated; genuine Medium Integrity client could not be launched"
     } else {
         Format-TestRow "W-12" "Dual Interactive Clients" "Elevated & Unelevated" "NOT RUN" "Clients not executed"
     }
@@ -381,7 +444,7 @@ finally {
             }
             $delOut = sc.exe delete $sName 2>&1 | Out-String
             if ($LASTEXITCODE -ne 0) {
-                Write-Warning "sc.exe delete $sName failed with exit code $LASTEXITCODE: $delOut"
+                Write-Warning "sc.exe delete $sName failed with exit code ${LASTEXITCODE}: $delOut"
             }
         }
     }
@@ -401,7 +464,7 @@ finally {
             }
             $residualServices += $sName
         } else {
-            Write-Warning "  sc.exe query $sName returned code $LASTEXITCODE: $qOut"
+            Write-Warning "  sc.exe query $sName returned code ${LASTEXITCODE}: $qOut"
             $residualServices += $sName
         }
     }

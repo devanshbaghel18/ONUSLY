@@ -95,6 +95,7 @@ var (
 	procLocalFree = modkernel32.NewProc("LocalFree")
 
 	procCreateNamedPipeW    = modkernel32.NewProc("CreateNamedPipeW")
+	procWaitNamedPipeW      = modkernel32.NewProc("WaitNamedPipeW")
 	procConnectNamedPipe    = modkernel32.NewProc("ConnectNamedPipe")
 	procDisconnectNamedPipe = modkernel32.NewProc("DisconnectNamedPipe")
 	procCreateFileW         = modkernel32.NewProc("CreateFileW")
@@ -139,6 +140,14 @@ type OVERLAPPED struct {
 	Offset       uint32
 	OffsetHigh   uint32
 	HEvent       syscall.Handle
+}
+
+type SECURITY_ATTRIBUTES struct {
+	NLength              uint32
+	_                    uint32 // padding for 8-byte alignment on x64
+	LpSecurityDescriptor uintptr
+	BInheritHandle       int32
+	_                    uint32 // alignment padding to 8-byte multiple
 }
 
 type SID_AND_ATTRIBUTES struct {
@@ -490,11 +499,12 @@ func runProbeTests(mode string, cancelChan <-chan struct{}) ProbeResult {
 
 	inspectProcessToken(&result)
 	inspectSessions(&result)
-	testDPAPI(&result)
-	testOutboundHTTPS(&result, cancelChan)
 	testNamedPipeAPI(&result)
+	testNamedPipeReadTimeout(&result)
 	testNamedPipeServerAuth(&result, cancelChan)
 	testServiceSIDPositiveAccess(&result)
+	testDPAPI(&result)
+	testOutboundHTTPS(&result, cancelChan)
 
 	return result
 }
@@ -893,12 +903,152 @@ func testNamedPipeAPI(r *ProbeResult) {
 	}
 }
 
+func testNamedPipeReadTimeout(r *ProbeResult) {
+	pipeName := fmt.Sprintf(`\\.\pipe\OnuslyProbeTimeoutPipe_%d`, os.Getpid())
+	pipeNamePtr, _ := syscall.UTF16PtrFromString(pipeName)
+
+	openMode := uint32(PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED)
+	pipeMode := uint32(PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT)
+
+	hServerPipe, _, _ := procCreateNamedPipeW.Call(
+		uintptr(unsafe.Pointer(pipeNamePtr)),
+		uintptr(openMode),
+		uintptr(pipeMode),
+		1,
+		4096,
+		4096,
+		1000,
+		0,
+	)
+	if hServerPipe == uintptr(syscall.InvalidHandle) || hServerPipe == 0 {
+		return
+	}
+	defer procCloseHandle.Call(hServerPipe)
+
+	clientDone := make(chan struct{})
+
+	// Spawn client that connects but sends NO bytes, exercising server read timeout
+	go func() {
+		defer close(clientDone)
+		time.Sleep(30 * time.Millisecond) // Let server enter ConnectNamedPipe
+
+		flags := uint32(SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION)
+		hClient, _, _ := procCreateFileW.Call(
+			uintptr(unsafe.Pointer(pipeNamePtr)),
+			uintptr(GENERIC_READ|GENERIC_WRITE),
+			0,
+			0,
+			uintptr(OPEN_EXISTING),
+			uintptr(flags),
+			0,
+		)
+		if hClient != uintptr(syscall.InvalidHandle) && hClient != 0 {
+			defer procCloseHandle.Call(hClient)
+			time.Sleep(300 * time.Millisecond) // Hold connection open past 100ms server timeout
+		}
+	}()
+
+	hConnEvent, _, _ := procCreateEventW.Call(0, 1, 0, 0)
+	if hConnEvent == 0 {
+		return
+	}
+	defer procCloseHandle.Call(hConnEvent)
+
+	var ovConn OVERLAPPED
+	ovConn.HEvent = syscall.Handle(hConnEvent)
+
+	rConn, _, errConn := procConnectNamedPipe.Call(hServerPipe, uintptr(unsafe.Pointer(&ovConn)))
+	if rConn == 0 {
+		errno, ok := errConn.(syscall.Errno)
+		if ok && errno == 997 { // ERROR_IO_PENDING
+			procWaitForSingleObject.Call(hConnEvent, 2000)
+			var bytesXfer uint32
+			procGetOverlappedResult.Call(hServerPipe, uintptr(unsafe.Pointer(&ovConn)), uintptr(unsafe.Pointer(&bytesXfer)), 1)
+		}
+	}
+	defer procDisconnectNamedPipe.Call(hServerPipe)
+
+	// Issue overlapped ReadFile with 100ms deadline
+	var readBuf [256]byte
+	var bytesRead uint32
+	var ovRead OVERLAPPED
+	hReadEvent, _, _ := procCreateEventW.Call(0, 1, 0, 0)
+	if hReadEvent == 0 {
+		return
+	}
+	defer procCloseHandle.Call(hReadEvent)
+	ovRead.HEvent = syscall.Handle(hReadEvent)
+
+	rRead, _, errRead := procReadFile.Call(
+		hServerPipe,
+		uintptr(unsafe.Pointer(&readBuf[0])),
+		uintptr(len(readBuf)),
+		uintptr(unsafe.Pointer(&bytesRead)),
+		uintptr(unsafe.Pointer(&ovRead)),
+	)
+
+	if rRead == 0 {
+		errno, ok := errRead.(syscall.Errno)
+		if ok && errno == 997 { // ERROR_IO_PENDING
+			waitRes, _, _ := procWaitForSingleObject.Call(hReadEvent, 100)
+			if waitRes == WAIT_TIMEOUT {
+				// Cancel pending I/O
+				procCancelIoEx.Call(hServerPipe, uintptr(unsafe.Pointer(&ovRead)))
+				// Bounded wait for cancellation to drain from kernel before releasing ovRead
+				var bytesCancelled uint32
+				procGetOverlappedResult.Call(hServerPipe, uintptr(unsafe.Pointer(&ovRead)), uintptr(unsafe.Pointer(&bytesCancelled)), 1)
+				r.NamedPipeReadTimeoutHandled = true
+			}
+		}
+	}
+
+	<-clientDone
+}
+
 func testNamedPipeServerAuth(r *ProbeResult, cancelChan <-chan struct{}) {
 	pipeName := `\\.\pipe\OnuslyValidationProbePipe`
 	pipeNamePtr, _ := syscall.UTF16PtrFromString(pipeName)
 
 	openMode := uint32(PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED)
 	pipeMode := uint32(PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT)
+
+	// Clean and define server readiness marker files
+	dataDir := filepath.Join(os.Getenv("ProgramData"), "OnuslyProbe")
+	_ = os.MkdirAll(dataDir, 0755)
+	markerC1 := filepath.Join(dataDir, "pipe_server_ready_c1.marker")
+	markerC2 := filepath.Join(dataDir, "pipe_server_ready_c2.marker")
+	_ = os.Remove(markerC1)
+	_ = os.Remove(markerC2)
+	defer os.Remove(markerC1)
+	defer os.Remove(markerC2)
+
+	// Construct explicit SDDL:
+	// Grant Full Control (GA) to Service SID (if found), Administrators (BA), SYSTEM (SY), LocalService (LS)
+	// Grant Read+Write (GRGW) to Interactive Users (IU)
+	sddl := "D:(A;;GA;;;BA)(A;;GA;;;SY)(A;;GA;;;LS)(A;;GRGW;;;IU)"
+	if r.ServiceSIDFound != "" {
+		sddl = fmt.Sprintf("D:(A;;GA;;;%s)(A;;GA;;;BA)(A;;GA;;;SY)(A;;GA;;;LS)(A;;GRGW;;;IU)", r.ServiceSIDFound)
+	}
+	sddlPtr, _ := syscall.UTF16PtrFromString(sddl)
+
+	var pSD uintptr
+	rConv, _, errConv := procConvertStringSDToSDW.Call(
+		uintptr(unsafe.Pointer(sddlPtr)),
+		SDDL_REVISION_1,
+		uintptr(unsafe.Pointer(&pSD)),
+		0,
+	)
+	var pSA uintptr
+	var sa SECURITY_ATTRIBUTES
+	if rConv != 0 && pSD != 0 {
+		defer procLocalFree.Call(pSD)
+		sa.NLength = uint32(unsafe.Sizeof(sa))
+		sa.LpSecurityDescriptor = pSD
+		sa.BInheritHandle = 0
+		pSA = uintptr(unsafe.Pointer(&sa))
+	} else {
+		r.Notes = append(r.Notes, fmt.Sprintf("ConvertStringSDToSDW for pipe failed: %v", errConv))
+	}
 
 	hServerPipe, _, errCreate := procCreateNamedPipeW.Call(
 		uintptr(unsafe.Pointer(pipeNamePtr)),
@@ -908,7 +1058,7 @@ func testNamedPipeServerAuth(r *ProbeResult, cancelChan <-chan struct{}) {
 		4096,
 		4096,
 		5000,
-		0,
+		pSA,
 	)
 	if hServerPipe == uintptr(syscall.InvalidHandle) || hServerPipe == 0 {
 		r.Notes = append(r.Notes, fmt.Sprintf("CreateNamedPipeW failed: %v", errCreate))
@@ -919,7 +1069,7 @@ func testNamedPipeServerAuth(r *ProbeResult, cancelChan <-chan struct{}) {
 	// In standalone mode, spawn an in-process diagnostic client
 	if r.ExecutionMode == "STANDALONE_CONSOLE" {
 		go func() {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			runDiagnosticClient("STANDALONE_ELEVATED", false)
 		}()
 	}
@@ -1128,7 +1278,9 @@ func testNamedPipeServerAuth(r *ProbeResult, cancelChan <-chan struct{}) {
 	}
 
 	// 1. Process Client 1 (wait up to 10 seconds)
+	_ = os.WriteFile(markerC1, []byte(fmt.Sprintf("%d", os.Getpid())), 0644)
 	c1Success, c1Msg := handleClient(10000)
+	_ = os.Remove(markerC1)
 	if c1Success {
 		r.NamedPipeAuthTestSuccess = true
 		if c1Msg == "ONUSLY_ELEVATED_CLIENT_PING" {
@@ -1139,21 +1291,25 @@ func testNamedPipeServerAuth(r *ProbeResult, cancelChan <-chan struct{}) {
 	}
 
 	// 2. Process Client 2 if cancellation has not been signaled (wait up to 5 seconds)
-	select {
-	case <-cancelChan:
-		return
-	default:
-	}
-
-	c2Success, c2Msg := handleClient(5000)
-	if c2Success {
-		if c2Msg == "ONUSLY_UNELEVATED_CLIENT_PING" {
-			r.UnelevatedClientAuthSuccess = true
-		} else if c2Msg == "ONUSLY_ELEVATED_CLIENT_PING" {
-			r.ElevatedClientAuthSuccess = true
+	if r.ExecutionMode != "STANDALONE_CONSOLE" {
+		select {
+		case <-cancelChan:
+			return
+		default:
 		}
-	} else if c2Msg == "" {
-		r.Notes = append(r.Notes, "Second client did not connect within 5s window (optional dual-client test)")
+
+		_ = os.WriteFile(markerC2, []byte(fmt.Sprintf("%d", os.Getpid())), 0644)
+		c2Success, c2Msg := handleClient(5000)
+		_ = os.Remove(markerC2)
+		if c2Success {
+			if c2Msg == "ONUSLY_UNELEVATED_CLIENT_PING" {
+				r.UnelevatedClientAuthSuccess = true
+			} else if c2Msg == "ONUSLY_ELEVATED_CLIENT_PING" {
+				r.ElevatedClientAuthSuccess = true
+			}
+		} else if c2Msg == "" {
+			r.Notes = append(r.Notes, "Second client did not connect within 5s window (optional dual-client test)")
+		}
 	}
 }
 
@@ -1228,6 +1384,8 @@ type ClientIdentityInfo struct {
 	IntegrityLevelRID          uint32 `json:"integrity_level_rid"`
 	BelongsToPairedConsoleUser bool   `json:"belongs_to_paired_console_user"`
 	PipeConnectSuccess         bool   `json:"pipe_connect_success"`
+	PipeAttempts               int    `json:"pipe_attempts"`
+	Win32ErrorCode             uint32 `json:"win32_error_code,omitempty"`
 	ServerResponse             string `json:"server_response"`
 }
 
@@ -1369,18 +1527,50 @@ func runDiagnosticClient(clientMode string, mismatchTest bool) {
 	pipeNamePtr, _ := syscall.UTF16PtrFromString(pipeName)
 
 	flags := uint32(SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION)
-	hClient, _, errOpen := procCreateFileW.Call(
-		uintptr(unsafe.Pointer(pipeNamePtr)),
-		uintptr(GENERIC_READ|GENERIC_WRITE),
-		0,
-		0,
-		uintptr(OPEN_EXISTING),
-		uintptr(flags),
-		0,
-	)
+	var hClient uintptr
+	var errOpen error
+	var lastErrCode uint32
+	deadline := time.Now().Add(5 * time.Second)
+	pipeAttempts := 0
+
+	for {
+		pipeAttempts++
+		hClient, _, errOpen = procCreateFileW.Call(
+			uintptr(unsafe.Pointer(pipeNamePtr)),
+			uintptr(GENERIC_READ|GENERIC_WRITE),
+			0,
+			0,
+			uintptr(OPEN_EXISTING),
+			uintptr(flags),
+			0,
+		)
+		if hClient != uintptr(syscall.InvalidHandle) && hClient != 0 {
+			lastErrCode = 0
+			break
+		}
+
+		errno, ok := errOpen.(syscall.Errno)
+		if ok {
+			lastErrCode = uint32(errno)
+		} else {
+			lastErrCode = 2
+		}
+
+		// Win32 Error 2: ERROR_FILE_NOT_FOUND, Error 231: ERROR_PIPE_BUSY
+		if (lastErrCode == 2 || lastErrCode == 231) && time.Now().Before(deadline) {
+			procWaitNamedPipeW.Call(uintptr(unsafe.Pointer(pipeNamePtr)), 100)
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		break
+	}
+
+	info.PipeAttempts = pipeAttempts
+	info.Win32ErrorCode = lastErrCode
+
 	if hClient == uintptr(syscall.InvalidHandle) || hClient == 0 {
 		info.PipeConnectSuccess = false
-		fmt.Printf("[%s Error] CreateFileW failed: %v\n", clientMode, errOpen)
+		fmt.Printf("[%s Error] CreateFileW failed (attempts: %d, win32_code: %d): %v\n", clientMode, pipeAttempts, lastErrCode, errOpen)
 	} else {
 		defer procCloseHandle.Call(hClient)
 		info.PipeConnectSuccess = true

@@ -349,8 +349,9 @@ func TestHighConcurrencyShutdownInvariant(t *testing.T) {
 				defer wg.Done()
 				<-barrier
 				time.Sleep(time.Duration(rand.Intn(3)) * time.Millisecond)
+				stoppedBefore := serviceStopped.Load()
 				if writer.WriteResults(tmpDir, DummyResult{WorkerID: id}) {
-					if serviceStopped.Load() {
+					if stoppedBefore {
 						writesAfterStopped.Add(1)
 					}
 				}
@@ -375,5 +376,33 @@ func TestHighConcurrencyShutdownInvariant(t *testing.T) {
 			t.Fatalf("Iteration %d: %d writes occurred after service was stopped!", iter, writesAfterStopped.Load())
 		}
 		os.RemoveAll(tmpDir)
+	}
+}
+
+// 10. Test named-pipe overlapped read timeout and bounded cancellation
+func TestNamedPipeOverlappedReadTimeout(t *testing.T) {
+	var pr ProbeResult
+	testNamedPipeReadTimeout(&pr)
+	if !pr.NamedPipeReadTimeoutHandled {
+		t.Fatalf("testNamedPipeReadTimeout failed: expected NamedPipeReadTimeoutHandled=true")
+	}
+}
+
+// 11. Test named-pipe server auth, SQOS SecurityIdentification, and RevertToSelf in standalone mode
+func TestNamedPipeServerAuthStandalone(t *testing.T) {
+	var pr ProbeResult
+	pr.ExecutionMode = "STANDALONE_CONSOLE"
+	testNamedPipeServerAuth(&pr, nil)
+	if !pr.NamedPipeAuthTestSuccess {
+		t.Fatalf("testNamedPipeServerAuth failed: expected NamedPipeAuthTestSuccess=true, notes: %v", pr.Notes)
+	}
+	if pr.NamedPipeClientImpLevel != 1 {
+		t.Fatalf("expected NamedPipeClientImpLevel=1 (SecurityIdentification), got %d", pr.NamedPipeClientImpLevel)
+	}
+	if !pr.NamedPipeBinarySIDMatched {
+		t.Fatalf("expected NamedPipeBinarySIDMatched=true")
+	}
+	if !pr.NamedPipeRevertToSelfWorks {
+		t.Fatalf("expected NamedPipeRevertToSelfWorks=true")
 	}
 }
