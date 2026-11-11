@@ -52,6 +52,10 @@ func (s *FileCredentialStore) ClearToken() error {
 	return nil
 }
 
+var (
+	ErrTokenExpired = errors.New("token expired")
+)
+
 // ParseTokenUserID extracts the "sub" claim from JWT without signature verification (local introspection)
 func ParseTokenUserID(token string) (string, error) {
 	parts := strings.Split(token, ".")
@@ -79,7 +83,7 @@ func ParseTokenUserID(token string) (string, error) {
 	}
 
 	if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
-		return claims.Sub, errors.New("token expired")
+		return claims.Sub, ErrTokenExpired
 	}
 
 	return claims.Sub, nil

@@ -2,18 +2,12 @@ package ipc
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
 	"os/user"
-	"path/filepath"
-	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/auth"
@@ -21,20 +15,28 @@ import (
 )
 
 type Server struct {
-	socketPath      string
-	syncer          core.BlocklistSyncer
-	credStore       core.CredentialStore
-	identityStore   core.DeviceIdentityStore
-	allowedUIDs     []uint32
-	listener        net.Listener
-	peerCredChecker func(conn net.Conn, allowedUIDs []uint32) error
-	groupLookup     func(name string) (*user.Group, error)
-	isRootFn        func() bool
-	chownFn         func(name string, uid, gid int) error
-	chmodFn         func(name string, mode os.FileMode) error
-	mu              sync.Mutex
-	running         bool
-	stopChan        chan struct{}
+	socketPath       string
+	syncer           core.BlocklistSyncer
+	credStore        core.CredentialStore
+	identityStore    core.DeviceIdentityStore
+	pairingMgr       *auth.PairingStateManager
+	pairingClient    *auth.PairingClient
+	apiBaseURL       string
+	allowedUIDs      []uint32
+	ownerSID         string
+	sessionValidator func(clientSessionID uint32) error
+	listener         net.Listener
+	peerCredChecker  func(conn net.Conn, allowedUIDs []uint32) error
+	groupLookup      func(name string) (*user.Group, error)
+	isRootFn         func() bool
+	chownFn          func(name string, uid, gid int) error
+	chmodFn          func(name string, mode os.FileMode) error
+	mu               sync.RWMutex
+	running          bool
+	stopChan         chan struct{}
+
+	// Windows fields
+	hCancelEvent uintptr
 }
 
 func NewServer(
@@ -48,6 +50,7 @@ func NewServer(
 		syncer:          syncer,
 		credStore:       credStore,
 		identityStore:   identityStore,
+		pairingClient:   auth.NewPairingClient(nil),
 		peerCredChecker: checkPeerCredentials,
 		groupLookup:     user.LookupGroup,
 		isRootFn:        func() bool { return os.Geteuid() == 0 },
@@ -57,21 +60,25 @@ func NewServer(
 	}
 }
 
-// SetGroupLookup overrides the group lookup function for testing.
+func (s *Server) defaultGroupLookup() func(name string) (*user.Group, error) {
+	return user.LookupGroup
+}
+
+// SetGroupLookup overrides the group lookup function for testing (Linux).
 func (s *Server) SetGroupLookup(fn func(name string) (*user.Group, error)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.groupLookup = fn
 }
 
-// SetIsRoot overrides the root check function for testing.
+// SetIsRoot overrides the root check function for testing (Linux).
 func (s *Server) SetIsRoot(fn func() bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.isRootFn = fn
 }
 
-// SetFileOps overrides chown and chmod functions for testing.
+// SetFileOps overrides chown and chmod functions for testing (Linux).
 func (s *Server) SetFileOps(chownFn func(string, int, int) error, chmodFn func(string, os.FileMode) error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,248 +93,70 @@ func (s *Server) SetAllowedUIDs(uids []uint32) {
 	s.allowedUIDs = uids
 }
 
-// SetPeerCredChecker overrides the peer credential checker (useful for adversarial testing).
+// SetPeerCredChecker overrides the peer credential checker (Linux testing).
 func (s *Server) SetPeerCredChecker(fn func(conn net.Conn, allowedUIDs []uint32) error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.peerCredChecker = fn
 }
 
-func (s *Server) Start(ctx context.Context) error {
-	s.mu.Lock()
-	if s.running {
-		s.mu.Unlock()
-		return errors.New("ipc server already running")
-	}
-
-	isRoot := s.isRootFn()
-	grpLookup := s.groupLookup
-	if grpLookup == nil {
-		grpLookup = user.LookupGroup
-	}
-	chown := s.chownFn
-	if chown == nil {
-		chown = os.Chown
-	}
-	chmod := s.chmodFn
-	if chmod == nil {
-		chmod = os.Chmod
-	}
-
-	sockDir := filepath.Dir(s.socketPath)
-
-	var onuslyGID int
-	if isRoot {
-		// System mode requires the dedicated 'onusly' group to exist before startup.
-		// If the group is missing, system installation/startup fails closed. Never fall back to 0666.
-		grp, err := grpLookup("onusly")
-		if err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("system mode requires dedicated 'onusly' group: %w", err)
-		}
-		gid, err := strconv.Atoi(grp.Gid)
-		if err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("invalid GID for 'onusly' group (%s): %w", grp.Gid, err)
-		}
-		onuslyGID = gid
-
-		// Ensure socket directory exists with mode 0750 owned by root:onusly.
-		// Group members (paired browser user) have r-x (traversal & socket access), but cannot modify directory.
-		// Others have 000 (no entry).
-		if err := os.MkdirAll(sockDir, 0750); err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("failed to create socket dir %s: %w", sockDir, err)
-		}
-		if err := chown(sockDir, 0, onuslyGID); err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("failed to chown socket dir %s to root:onusly: %w", sockDir, err)
-		}
-		if err := chmod(sockDir, 0750); err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("failed to chmod socket dir %s to 0750: %w", sockDir, err)
-		}
-
-		// Verify directory is not world-writable
-		if di, err := os.Stat(sockDir); err == nil && di.Mode().Perm()&0002 != 0 {
-			s.mu.Unlock()
-			return fmt.Errorf("socket directory %s is world-writable, refusing to start", sockDir)
-		}
-	} else {
-		// User mode: socket directory is strictly user-private 0700
-		if err := os.MkdirAll(sockDir, 0700); err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("failed to create socket dir %s: %w", sockDir, err)
-		}
-		if err := chmod(sockDir, 0700); err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("failed to chmod user socket dir %s to 0700: %w", sockDir, err)
-		}
-	}
-
-	// Race-safe stale-socket cleanup: verify it is not a directory or dangerous entity
-	if fi, err := os.Lstat(s.socketPath); err == nil {
-		if fi.IsDir() {
-			s.mu.Unlock()
-			return fmt.Errorf("socket path %s is a directory, refusing to overwrite", s.socketPath)
-		}
-		if err := os.Remove(s.socketPath); err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("failed to remove stale socket %s: %w", s.socketPath, err)
-		}
-	}
-
-	// Race-safe socket creation: set restrictive umask 0077 so net.Listen creates the
-	// socket with owner-only access before we explicitly chown and chmod.
-	// This ensures zero window where the socket could be accessed by unauthorized peers.
-	oldUmask := syscall.Umask(0077)
-	l, err := net.Listen("unix", s.socketPath)
-	syscall.Umask(oldUmask)
-	if err != nil {
-		s.mu.Unlock()
-		return fmt.Errorf("failed to listen on unix socket %s: %w", s.socketPath, err)
-	}
-
-	// Enforce strict ownership and permissions on the created socket
-	if isRoot {
-		// System socket must be owned by root:onusly with mode 0660
-		if err := chown(s.socketPath, 0, onuslyGID); err != nil {
-			_ = l.Close()
-			_ = os.Remove(s.socketPath)
-			s.mu.Unlock()
-			return fmt.Errorf("failed to chown socket to root:onusly: %w", err)
-		}
-		if err := chmod(s.socketPath, 0660); err != nil {
-			_ = l.Close()
-			_ = os.Remove(s.socketPath)
-			s.mu.Unlock()
-			return fmt.Errorf("failed to chmod socket to 0660: %w", err)
-		}
-
-		// Verify socket ownership and mode directly from filesystem
-		si, err := os.Stat(s.socketPath)
-		if err != nil {
-			_ = l.Close()
-			_ = os.Remove(s.socketPath)
-			s.mu.Unlock()
-			return fmt.Errorf("failed to stat created socket: %w", err)
-		}
-		if perm := si.Mode().Perm(); perm != 0660 {
-			_ = l.Close()
-			_ = os.Remove(s.socketPath)
-			s.mu.Unlock()
-			return fmt.Errorf("incorrect socket permissions: got %04o, expected 0660", perm)
-		}
-	} else {
-		// User socket must be 0600
-		if err := chmod(s.socketPath, 0600); err != nil {
-			_ = l.Close()
-			_ = os.Remove(s.socketPath)
-			s.mu.Unlock()
-			return fmt.Errorf("failed to chmod user socket to 0600: %w", err)
-		}
-		si, err := os.Stat(s.socketPath)
-		if err != nil {
-			_ = l.Close()
-			_ = os.Remove(s.socketPath)
-			s.mu.Unlock()
-			return fmt.Errorf("failed to stat created user socket: %w", err)
-		}
-		if perm := si.Mode().Perm(); perm != 0600 {
-			_ = l.Close()
-			_ = os.Remove(s.socketPath)
-			s.mu.Unlock()
-			return fmt.Errorf("incorrect user socket permissions: got %04o, expected 0600", perm)
-		}
-	}
-
-	s.listener = l
-	s.running = true
-	s.mu.Unlock()
-
-	go s.acceptLoop(ctx)
-	return nil
-}
-
-func (s *Server) Stop() error {
+// SetOwnerSID configures the authorized paired Windows user SID.
+func (s *Server) SetOwnerSID(sid string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if !s.running {
-		return nil
-	}
-	s.running = false
-	close(s.stopChan)
-
-	var err error
-	if s.listener != nil {
-		err = s.listener.Close()
-		_ = os.Remove(s.socketPath)
-	}
-	return err
+	s.ownerSID = sid
 }
 
-func (s *Server) acceptLoop(ctx context.Context) {
-	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			select {
-			case <-s.stopChan:
-				return
-			case <-ctx.Done():
-				return
-			default:
-				log.Printf("[IPC] Accept error: %v", err)
-				continue
-			}
-		}
-
-		go s.handleConnection(ctx, conn)
-	}
+// GetOwnerSID returns the currently configured paired Windows user SID.
+func (s *Server) GetOwnerSID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ownerSID
 }
 
-func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
-
-	checker := s.peerCredChecker
-	if checker == nil {
-		checker = checkPeerCredentials
-	}
-	if err := checker(conn, s.allowedUIDs); err != nil {
-		log.Printf("[IPC] Security rejection: %v", err)
-		_ = json.NewEncoder(conn).Encode(core.IPCResponse{
-			Success: false,
-			Error:   "unauthorized: peer credentials rejected",
-		})
-		return
-	}
-
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	limitedReader := io.LimitReader(conn, 64*1024)
-	decoder := json.NewDecoder(limitedReader)
-	encoder := json.NewEncoder(conn)
-
-	for {
-		var req core.IPCRequest
-		if err := decoder.Decode(&req); err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
-			_ = encoder.Encode(core.IPCResponse{
-				Success: false,
-				Error:   "invalid json request",
-			})
-			return
-		}
-
-		resp := s.dispatch(ctx, req)
-		if err := encoder.Encode(resp); err != nil {
-			return
-		}
-	}
+// SetSessionValidator overrides the session validation logic for testing or custom physical console tracking.
+func (s *Server) SetSessionValidator(fn func(clientSessionID uint32) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionValidator = fn
 }
 
-func (s *Server) dispatch(ctx context.Context, req core.IPCRequest) core.IPCResponse {
+// SetPairingManager configures the state manager for device pairing transitions.
+func (s *Server) SetPairingManager(mgr *auth.PairingStateManager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pairingMgr = mgr
+}
+
+// GetPairingManager returns the configured pairing state manager.
+func (s *Server) GetPairingManager() *auth.PairingStateManager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.pairingMgr
+}
+
+// SetPairingClient configures the pairing client used to communicate with the backend.
+func (s *Server) SetPairingClient(client *auth.PairingClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pairingClient = client
+}
+
+// SetAPIBaseURL configures the backend API URL for pairing and synchronization.
+func (s *Server) SetAPIBaseURL(url string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.apiBaseURL = url
+}
+
+// GetAPIBaseURL returns the backend API URL.
+func (s *Server) GetAPIBaseURL() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.apiBaseURL
+}
+
+func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID string) core.IPCResponse {
 	switch req.Action {
 	case "get-blocklist":
 		blocklist, err := s.syncer.GetCachedBlocklist()
@@ -368,6 +197,145 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest) core.IPCResp
 			Success: true,
 		}
 
+	case "pair-request":
+		if s.pairingMgr == nil {
+			return core.IPCResponse{
+				Success: false,
+				Error:   "pairing manager not configured on service",
+			}
+		}
+		st, _ := s.pairingMgr.GetState()
+		if st != nil && st.Status == auth.StatusPaired {
+			tok, _ := s.credStore.GetToken()
+			if tok != "" {
+				return core.IPCResponse{
+					Success: false,
+					Error:   "device is already paired; unpair or reset first",
+				}
+			}
+		}
+
+		if _, err := s.pairingMgr.Transition(auth.StatusPairingPending, callerSID); err != nil {
+			return core.IPCResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to transition to PAIRING_PENDING: %v", err),
+			}
+		}
+
+		deviceID, err := s.identityStore.GetDeviceID()
+		if err != nil {
+			_, _ = s.pairingMgr.Transition(auth.StatusInstalledUnpaired, "")
+			return core.IPCResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to get device ID: %v", err),
+			}
+		}
+
+		apiURL := s.GetAPIBaseURL()
+		if apiURL == "" {
+			apiURL = "http://localhost:8080"
+		}
+
+		client := s.pairingClient
+		if client == nil {
+			client = auth.NewPairingClient(nil)
+		}
+
+		code, expiresAt, err := client.RequestCode(ctx, apiURL, "desktop_agent", "windows", deviceID)
+		if err != nil {
+			_, _ = s.pairingMgr.Transition(auth.StatusInstalledUnpaired, "")
+			return core.IPCResponse{
+				Success: false,
+				Error:   fmt.Sprintf("pairing request failed: %v", err),
+			}
+		}
+
+		return core.IPCResponse{
+			Success:   true,
+			PairCode:  code,
+			ExpiresAt: expiresAt,
+		}
+
+	case "pair-poll":
+		if req.Code == "" {
+			return core.IPCResponse{
+				Success: false,
+				Error:   "missing pairing code",
+			}
+		}
+
+		apiURL := s.GetAPIBaseURL()
+		if apiURL == "" {
+			apiURL = "http://localhost:8080"
+		}
+
+		client := s.pairingClient
+		if client == nil {
+			client = auth.NewPairingClient(nil)
+		}
+
+		token, err := client.PollForToken(ctx, apiURL, req.Code, 3*time.Minute)
+		if err != nil {
+			return core.IPCResponse{
+				Success: false,
+				Error:   fmt.Sprintf("pairing poll failed: %v", err),
+			}
+		}
+
+		// Two-phase commit
+		if s.pairingMgr != nil {
+			if _, err := s.pairingMgr.Transition(auth.StatusPairingCommitPending, callerSID); err != nil {
+				log.Printf("[IPC Server] Notice: transition to PAIRING_COMMIT_PENDING: %v", err)
+			}
+		}
+
+		if err := s.credStore.SaveToken(token); err != nil {
+			return core.IPCResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to save credential: %v", err),
+			}
+		}
+
+		// Initial sync
+		_, errSync := s.syncer.Sync(ctx)
+		if errSync != nil {
+			log.Printf("[IPC Server] Notice: initial sync after pairing: %v", errSync)
+		}
+
+		if s.pairingMgr != nil {
+			if _, err := s.pairingMgr.Transition(auth.StatusPaired, callerSID); err != nil {
+				log.Printf("[IPC Server] Notice: transition to PAIRED: %v", err)
+			}
+		}
+
+		if callerSID != "" {
+			s.SetOwnerSID(callerSID)
+		}
+
+		// Security Invariant: Return status only, ZERO tokens leaked to IPC
+		return core.IPCResponse{
+			Success: true,
+			Status:  s.buildStatus(),
+		}
+
+	case "pair-cancel":
+		if s.pairingMgr != nil {
+			st, _ := s.pairingMgr.GetState()
+			if st != nil && (st.Status == auth.StatusPairingPending || st.Status == auth.StatusPairingCommitPending) {
+				_, _ = s.pairingMgr.Transition(auth.StatusInstalledUnpaired, "")
+			}
+		}
+		return core.IPCResponse{
+			Success: true,
+		}
+
+	case "diagnostics":
+		return core.IPCResponse{
+			Success:     true,
+			Diagnostics: s.buildDiagnostics(),
+			Status:      s.buildStatus(),
+		}
+
 	default:
 		return core.IPCResponse{
 			Success: false,
@@ -381,29 +349,83 @@ func (s *Server) buildStatus() *core.AgentStatus {
 	userID, _ := auth.ParseTokenUserID(token)
 	deviceID, _ := s.identityStore.GetDeviceID()
 
+	pairingState := string(auth.StatusInstalledUnpaired)
+	ownerSID := s.GetOwnerSID()
+
+	if s.pairingMgr != nil {
+		st, err := s.pairingMgr.GetState()
+		if err == nil && st != nil {
+			pairingState = string(st.Status)
+			if st.OwnerSID != "" && ownerSID == "" {
+				ownerSID = st.OwnerSID
+			}
+		}
+	}
+
 	blocklist, _ := s.syncer.GetCachedBlocklist()
 	blocklistVersion := ""
 	lastSync := ""
 	targetsCount := 0
-	enforcing := false
 
 	if blocklist != nil {
 		blocklistVersion = blocklist.Version
 		lastSync = blocklist.LastSyncAt
 		targetsCount = len(blocklist.Targets)
-		enforcing = targetsCount > 0
 	}
 
+	connected := token != "" && pairingState == string(auth.StatusPaired)
+	enforcing := connected && targetsCount > 0
+
 	return &core.AgentStatus{
-		Connected:        token != "",
+		Connected:        connected,
 		UserID:           userID,
 		DeviceID:         deviceID,
-		Platform:         "linux",
+		Platform:         "windows",
 		Version:          "1.0.0",
 		LastSyncAt:       lastSync,
 		BlocklistVersion: blocklistVersion,
 		TargetsCount:     targetsCount,
 		Enforcing:        enforcing,
 		Issues:           []string{},
+		PairingState:     pairingState,
+		OwnerSID:         ownerSID,
+	}
+}
+
+func (s *Server) buildDiagnostics() map[string]string {
+	token, _ := s.credStore.GetToken()
+	userID, _ := auth.ParseTokenUserID(token)
+	deviceID, _ := s.identityStore.GetDeviceID()
+
+	pairingState := string(auth.StatusInstalledUnpaired)
+	ownerSID := s.GetOwnerSID()
+	if s.pairingMgr != nil {
+		st, _ := s.pairingMgr.GetState()
+		if st != nil {
+			pairingState = string(st.Status)
+			if st.OwnerSID != "" {
+				ownerSID = st.OwnerSID
+			}
+		}
+	}
+
+	blocklist, _ := s.syncer.GetCachedBlocklist()
+	targetsCount := 0
+	version := ""
+	if blocklist != nil {
+		targetsCount = len(blocklist.Targets)
+		version = blocklist.Version
+	}
+
+	return map[string]string{
+		"platform":          "windows",
+		"device_id":         deviceID,
+		"pairing_state":     pairingState,
+		"owner_sid":         ownerSID,
+		"has_credentials":   fmt.Sprintf("%t", token != ""),
+		"user_id":           userID,
+		"blocklist_version": version,
+		"targets_count":     fmt.Sprintf("%d", targetsCount),
+		"service_running":   "true",
 	}
 }

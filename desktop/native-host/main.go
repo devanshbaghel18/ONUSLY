@@ -4,33 +4,18 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
-	"net"
 	"os"
-	"path/filepath"
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 )
 
-func getDefaultSocketPath() string {
-	// If system-wide socket exists, use it
-	systemSock := "/run/onusly/agent.sock"
-	if _, err := os.Stat(systemSock); err == nil {
-		return systemSock
-	}
-
-	// Fallback to user-level socket
-	home, err := os.UserHomeDir()
-	if err == nil {
-		return filepath.Join(home, ".config", "onusly", "agent.sock")
-	}
-
-	return systemSock
-}
-
 func main() {
-	socketPath := os.Getenv("ONUSLY_IPC_SOCKET")
-	if socketPath == "" {
-		socketPath = getDefaultSocketPath()
+	ipcPath := os.Getenv("ONUSLY_IPC_PATH")
+	if ipcPath == "" {
+		ipcPath = os.Getenv("ONUSLY_IPC_SOCKET")
+	}
+	if ipcPath == "" {
+		ipcPath = getDefaultIPCPath()
 	}
 
 	for {
@@ -58,37 +43,9 @@ func main() {
 			req.Action = "get-blocklist" // Default to fetching blocklist
 		}
 
-		resp := queryAgent(socketPath, req)
+		resp := queryAgent(ipcPath, req)
 		sendNativeResponse(resp)
 	}
-}
-
-func queryAgent(socketPath string, req core.IPCRequest) core.IPCResponse {
-	conn, err := net.Dial("unix", socketPath)
-	if err != nil {
-		return core.IPCResponse{
-			Success: false,
-			Error:   "agent unreachable: " + err.Error(),
-		}
-	}
-	defer conn.Close()
-
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return core.IPCResponse{
-			Success: false,
-			Error:   "failed to send request to agent: " + err.Error(),
-		}
-	}
-
-	var resp core.IPCResponse
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		return core.IPCResponse{
-			Success: false,
-			Error:   "failed to decode agent response: " + err.Error(),
-		}
-	}
-
-	return resp
 }
 
 func sendNativeResponse(resp core.IPCResponse) {
