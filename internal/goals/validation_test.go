@@ -21,22 +21,63 @@ func TestNormalizeAndValidateApps(t *testing.T) {
 			expected: []string{"Com.Instagram.Android", "com.instagram.android", "com.twitter.android"},
 		},
 		{
-			name:        "single segment invalid",
-			input:       []string{"instagram"},
-			expectError: true,
-			errorSubstr: "must match format",
+			name:     "valid canonical desktop app identifiers",
+			input:    []string{"discord", "steam", "blocked_app", "Spotify.exe"},
+			expected: []string{"Spotify", "blocked_app", "discord", "steam"},
 		},
 		{
-			name:        "starts with digit invalid",
-			input:       []string{"1com.instagram.android"},
+			name:        "protected Windows system process rejected",
+			input:       []string{"explorer.exe"},
 			expectError: true,
-			errorSubstr: "must match format",
+			errorSubstr: "protected",
 		},
 		{
-			name:        "contains hyphen invalid for java package",
-			input:       []string{"com.instagram-app.android"},
+			name:        "protected Windows shell rejected",
+			input:       []string{"cmd"},
 			expectError: true,
-			errorSubstr: "must match format",
+			errorSubstr: "protected",
+		},
+		{
+			name:        "protected PowerShell rejected",
+			input:       []string{"powershell.exe"},
+			expectError: true,
+			errorSubstr: "protected",
+		},
+		{
+			name:        "protected ONUSLY agent rejected",
+			input:       []string{"onusly-agent"},
+			expectError: true,
+			errorSubstr: "protected",
+		},
+		{
+			name:        "shell injection rejected",
+			input:       []string{"app; calc.exe"},
+			expectError: true,
+			errorSubstr: "illegal characters",
+		},
+		{
+			name:        "shell pipe rejected",
+			input:       []string{"app | calc"},
+			expectError: true,
+			errorSubstr: "illegal characters",
+		},
+		{
+			name:        "path traversal forward slash rejected",
+			input:       []string{"../../usr/bin/app"},
+			expectError: true,
+			errorSubstr: "path traversal",
+		},
+		{
+			name:        "path traversal backslash rejected",
+			input:       []string{`C:\Windows\System32\app.exe`},
+			expectError: true,
+			errorSubstr: "path traversal",
+		},
+		{
+			name:        "invalid characters rejected",
+			input:       []string{"invalid@app!"},
+			expectError: true,
+			errorSubstr: "illegal characters",
 		},
 		{
 			name:        "empty package name",
@@ -89,6 +130,88 @@ func TestNormalizeAndValidateApps(t *testing.T) {
 				for i := range result {
 					if result[i] != tt.expected[i] {
 						t.Errorf("at index %d: expected %q, got %q", i, tt.expected[i], result[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestNormalizeAndValidateApplicationTargets(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       []goals.ApplicationTarget
+		expected    []goals.ApplicationTarget
+		expectError bool
+		errorSubstr string
+	}{
+		{
+			name: "valid mixed targets normalized and sorted by kind then identifier",
+			input: []goals.ApplicationTarget{
+				{Kind: "android_package", Identifier: "com.whatsapp"},
+				{Kind: "desktop_app", Identifier: "Discord.exe"},
+				{Kind: "desktop_app", Identifier: "steam"},
+			},
+			expected: []goals.ApplicationTarget{
+				{Kind: "android_package", Identifier: "com.whatsapp"},
+				{Kind: "desktop_app", Identifier: "Discord"},
+				{Kind: "desktop_app", Identifier: "steam"},
+			},
+		},
+		{
+			name: "invalid kind rejected",
+			input: []goals.ApplicationTarget{
+				{Kind: "ios_bundle", Identifier: "com.apple.app"},
+			},
+			expectError: true,
+			errorSubstr: "invalid application target kind",
+		},
+		{
+			name: "protected system process rejected for desktop_app",
+			input: []goals.ApplicationTarget{
+				{Kind: "desktop_app", Identifier: "explorer.exe"},
+			},
+			expectError: true,
+			errorSubstr: "protected",
+		},
+		{
+			name: "shell metacharacters rejected for desktop_app",
+			input: []goals.ApplicationTarget{
+				{Kind: "desktop_app", Identifier: "discord; calc.exe"},
+			},
+			expectError: true,
+			errorSubstr: "illegal characters",
+		},
+		{
+			name: "malformed android package rejected",
+			input: []goals.ApplicationTarget{
+				{Kind: "android_package", Identifier: "not_a_package"},
+			},
+			expectError: true,
+			errorSubstr: "must match format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := goals.NormalizeAndValidateApplicationTargets(tt.input)
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errorSubstr != "" && !strings.Contains(err.Error(), tt.errorSubstr) {
+					t.Errorf("expected error containing %q, got %q", tt.errorSubstr, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if len(result) != len(tt.expected) {
+					t.Fatalf("expected %d targets, got %d (%v)", len(tt.expected), len(result), result)
+				}
+				for i := range result {
+					if result[i].Kind != tt.expected[i].Kind || result[i].Identifier != tt.expected[i].Identifier {
+						t.Errorf("at index %d: expected %+v, got %+v", i, tt.expected[i], result[i])
 					}
 				}
 			}

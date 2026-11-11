@@ -9,8 +9,11 @@ import {
   KeyRound,
   CheckCircle2,
   Server,
+  Trash2,
+  X,
+  Ban,
 } from "lucide-react";
-import { getDevicesCoverage, confirmDevicePairing } from "../lib/api";
+import { getDevicesCoverage, confirmDevicePairing, revokeDevice } from "../lib/api";
 
 function formatRelativeTime(dateStr) {
   if (!dateStr) return "Never";
@@ -28,6 +31,79 @@ function formatRelativeTime(dateStr) {
   }
 }
 
+function getLifecycleBadge(d) {
+  const status = (d.status || "").toUpperCase();
+  const health = (d.healthStatus || "").toUpperCase();
+
+  if (status === "REVOKED" || health === "DEVICE_REVOKED") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold text-red-400">
+        <Ban size={10} />
+        Revoked
+      </span>
+    );
+  }
+  if (status === "AUTHENTICATION_REQUIRED" || status === "AUTH_REQUIRED" || health === "AUTHENTICATION_REQUIRED") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+        <AlertTriangle size={10} />
+        Auth Required
+      </span>
+    );
+  }
+  if (health === "DNS_UNAVAILABLE") {
+    return (
+      <div>
+        <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+          <AlertTriangle size={10} />
+          DNS Unavailable
+        </span>
+        <div className="text-[10px] text-amber-400/80 mt-0.5">Loopback DNS resolver stopped</div>
+      </div>
+    );
+  }
+  if (health === "APP_ENFORCEMENT_DEGRADED") {
+    return (
+      <div>
+        <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+          <AlertTriangle size={10} />
+          App Monitor Degraded
+        </span>
+      </div>
+    );
+  }
+  if (!d.enforcing || (d.issues && d.issues.length > 0) || health === "DEGRADED" || health === "POLICY_MISSING" || health === "POLICY_STALE") {
+    return (
+      <div>
+        <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+          <AlertTriangle size={10} />
+          Degraded
+        </span>
+        {d.issues && d.issues.length > 0 && (
+          <div className="text-[10px] text-amber-400/80 mt-0.5">
+            {d.issues.join(", ").replace(/_/g, " ")}
+          </div>
+        )}
+      </div>
+    );
+  }
+  const isRecent = d.lastHeartbeatAt && Date.now() - new Date(d.lastHeartbeatAt).getTime() < 5 * 60 * 1000;
+  if (!isRecent) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-neutral-700 bg-neutral-800 px-2 py-0.5 text-[10px] font-bold text-neutral-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-neutral-500" />
+        Offline
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white">
+      <span className="h-1.5 w-1.5 rounded-full bg-white" />
+      Online
+    </span>
+  );
+}
+
 export default function DeviceCoverageSection() {
   const [data, setData] = useState({ userId: "", totalCount: 0, enforcing: false, devices: [] });
   const [loading, setLoading] = useState(true);
@@ -35,6 +111,9 @@ export default function DeviceCoverageSection() {
   const [pairCode, setPairCode] = useState("");
   const [pairingLoading, setPairingLoading] = useState(false);
   const [pairingMsg, setPairingMsg] = useState({ text: "", type: "" });
+  const [deviceToRevoke, setDeviceToRevoke] = useState(null);
+  const [revoking, setRevoking] = useState(false);
+  const [revokeError, setRevokeError] = useState("");
 
   const loadCoverage = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -97,6 +176,31 @@ export default function DeviceCoverageSection() {
     }
   };
 
+  const handleConfirmRevoke = async () => {
+    if (!deviceToRevoke) return;
+    setRevoking(true);
+    setRevokeError("");
+    try {
+      await revokeDevice(deviceToRevoke.deviceId, "user_revoked");
+      const shortId = deviceToRevoke.deviceId.slice(0, 8);
+      setDeviceToRevoke(null);
+      setPairingMsg({ text: `Device (${shortId}...) was successfully revoked.`, type: "success" });
+      await loadCoverage(true);
+    } catch (err) {
+      setRevokeError(err.message || "Failed to revoke device.");
+    } finally {
+      setRevoking(false);
+    }
+  };
+
+  // Exclude revoked devices from active fleet enforcement calculation
+  const activeDevices = (data.devices || []).filter(
+    (d) => (d.status || "").toUpperCase() !== "REVOKED"
+  );
+  const allEnforcing =
+    activeDevices.length > 0 &&
+    activeDevices.every((d) => d.enforcing && (!d.issues || d.issues.length === 0));
+
   return (
     <div className="card-stat rounded-2xl p-6 shadow-sm border border-white/[0.08] transition-all space-y-5">
       {/* Header */}
@@ -111,12 +215,12 @@ export default function DeviceCoverageSection() {
               {data.devices.length > 0 && (
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
-                    data.enforcing
+                    allEnforcing
                       ? "border-white/20 bg-white/10 text-white"
                       : "border-amber-500/30 bg-amber-500/10 text-amber-300"
                   }`}
                 >
-                  {data.enforcing ? (
+                  {allEnforcing ? (
                     <>
                       <ShieldCheck size={11} className="text-white" />
                       All Enforcing
@@ -216,12 +320,13 @@ export default function DeviceCoverageSection() {
                 <th className="pb-2.5">Version</th>
                 <th className="pb-2.5">Blocklist Version</th>
                 <th className="pb-2.5">Last Heartbeat</th>
-                <th className="pb-2.5 text-right">Status</th>
+                <th className="pb-2.5">Status</th>
+                <th className="pb-2.5 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
               {data.devices.map((d) => {
-                const isHealthy = d.enforcing && (!d.issues || d.issues.length === 0);
+                const isRevoked = (d.status || "").toUpperCase() === "REVOKED";
                 return (
                   <tr key={d.deviceId} className="hover:bg-white/[0.02] transition">
                     <td className="py-3 font-medium text-white flex items-center gap-2">
@@ -249,24 +354,24 @@ export default function DeviceCoverageSection() {
                     <td className="py-3 text-neutral-400 font-mono text-[11px]">v{d.clientVersion}</td>
                     <td className="py-3 text-neutral-400 font-mono text-[11px]">{d.blocklistVersion || "—"}</td>
                     <td className="py-3 text-neutral-400">{formatRelativeTime(d.lastHeartbeatAt)}</td>
+                    <td className="py-3">
+                      {getLifecycleBadge(d)}
+                    </td>
                     <td className="py-3 text-right">
-                      {isHealthy ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-white">
-                          <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                          Enforcing
-                        </span>
+                      {isRevoked ? (
+                        <span className="text-[11px] text-neutral-500 font-medium">Decommissioned</span>
                       ) : (
-                        <div>
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400">
-                            <AlertTriangle size={11} />
-                            Lapsed
-                          </span>
-                          {d.issues && d.issues.length > 0 && (
-                            <div className="text-[10px] text-amber-400/80">
-                              {d.issues.join(", ").replace(/_/g, " ")}
-                            </div>
-                          )}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRevokeError("");
+                            setDeviceToRevoke(d);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/20 hover:text-red-300 transition"
+                        >
+                          <Trash2 size={12} />
+                          <span>Revoke</span>
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -274,6 +379,80 @@ export default function DeviceCoverageSection() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Revoke Confirmation Modal */}
+      {deviceToRevoke && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <AlertTriangle size={18} className="text-red-400" />
+                Revoke Device Authorization
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDeviceToRevoke(null)}
+                disabled={revoking}
+                className="text-neutral-400 hover:text-white transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-300 leading-relaxed">
+              Are you sure you want to revoke authorization for this device?
+            </p>
+
+            <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Device ID:</span>
+                <span className="font-mono text-white">{deviceToRevoke.deviceId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Platform:</span>
+                <span className="text-white capitalize">{deviceToRevoke.platform}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Client Type:</span>
+                <span className="text-white capitalize">{deviceToRevoke.clientType}</span>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300 space-y-1">
+              <p className="font-bold">Security Notice:</p>
+              <p className="text-[11px] leading-relaxed">
+                Revoking this device will permanently invalidate its credentials, disable automated enforcement, and require re-pairing to reconnect.
+              </p>
+            </div>
+
+            {revokeError && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/20 p-2.5 text-xs text-red-200">
+                {revokeError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeviceToRevoke(null)}
+                disabled={revoking}
+                className="rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/5 transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRevoke}
+                disabled={revoking}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-500 transition disabled:opacity-50"
+              >
+                {revoking ? <RefreshCw size={13} className="animate-spin text-white" /> : <Ban size={13} />}
+                <span>{revoking ? "Revoking..." : "Confirm Revocation"}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

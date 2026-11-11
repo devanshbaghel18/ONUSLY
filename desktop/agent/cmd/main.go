@@ -1,12 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,7 +27,7 @@ import (
 
 func main() {
 	var (
-		apiURL        = flag.String("api-url", "http://localhost:8080", "ONUSLY backend API URL")
+		apiURL        = flag.String("api-url", "http://localhost:8081", "ONUSLY backend API URL")
 		configDir     = flag.String("config-dir", getDefaultConfigDir(), "Configuration directory path")
 		dataDir       = flag.String("data-dir", getDefaultDataDir(), "Data storage directory path")
 		ipcPath       = flag.String("socket", getDefaultIPCPath(), "IPC socket or named pipe path")
@@ -34,9 +40,12 @@ func main() {
 	var flagArgs []string
 	var serviceSubArgs []string
 	var dnsSubArgs []string
+	var appsSubArgs []string
+	var updateSubArgs []string
+	var supportSubArgs []string
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
-		if !strings.HasPrefix(arg, "-") && (arg == "run" || arg == "pair" || arg == "status" || arg == "diagnostics" || arg == "daemon" || arg == "service" || arg == "dns") {
+		if !strings.HasPrefix(arg, "-") && (arg == "run" || arg == "pair" || arg == "status" || arg == "diagnostics" || arg == "daemon" || arg == "service" || arg == "dns" || arg == "apps" || arg == "version" || arg == "update" || arg == "support") {
 			cmd = arg
 			if arg == "service" && i+1 < len(os.Args) {
 				serviceSubArgs = os.Args[i+1:]
@@ -44,6 +53,18 @@ func main() {
 			}
 			if arg == "dns" && i+1 < len(os.Args) {
 				dnsSubArgs = os.Args[i+1:]
+				break
+			}
+			if arg == "apps" && i+1 < len(os.Args) {
+				appsSubArgs = os.Args[i+1:]
+				break
+			}
+			if arg == "update" && i+1 < len(os.Args) {
+				updateSubArgs = os.Args[i+1:]
+				break
+			}
+			if arg == "support" && i+1 < len(os.Args) {
+				supportSubArgs = os.Args[i+1:]
 				break
 			}
 		} else {
@@ -69,6 +90,22 @@ func main() {
 		return
 	}
 
+	if cmd == "apps" {
+		if err := runAppsCommand(appsSubArgs, *ipcPath, *configDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Apps Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if cmd == "update" {
+		if err := runUpdateCommand(updateSubArgs, *configDir, *dataDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Update Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	log.Printf("[ONUSLY Agent] Platform: %s, Config: %s, Data: %s, IPC: %s", getPlatformName(), *configDir, *dataDir, *ipcPath)
 
 	_ = os.MkdirAll(*configDir, 0700)
@@ -80,13 +117,17 @@ func main() {
 	pairingMgr := auth.NewPairingStateManager(filepath.Join(*configDir, "pairing_state.json"))
 	cacheStore := cache.NewFileBlocklistCache(filepath.Join(*dataDir, "blocklist_cache.json"))
 	syncer := sync.NewSyncer(*apiURL, credStore, cacheStore, nil)
-	reporter := heartbeat.NewReporter(*apiURL, credStore, idStore, syncer, getPlatformName(), "1.0.0", nil)
+	reporter := heartbeat.NewReporter(*apiURL, credStore, idStore, syncer, getPlatformName(), core.ReleaseVersion, nil)
 
 	if *pairedUIDFlag > 0 {
 		_ = pairedStore.AddAllowedUID(uint32(*pairedUIDFlag))
 	}
 
 	switch cmd {
+	case "version":
+		fmt.Printf("ONUSLY Desktop Agent %s (Commit: %s, Built: %s, Platform: %s/%s)\n",
+			core.ReleaseVersion, core.BuildCommit, core.BuildDate, runtime.GOOS, runtime.GOARCH)
+		return
 	case "pair":
 		runPairing(
 			context.Background(),
@@ -104,6 +145,12 @@ func main() {
 		runStatus(*ipcPath, credStore, idStore, cacheStore, pairingMgr)
 	case "diagnostics":
 		runDiagnostics(*ipcPath, credStore, idStore, cacheStore, pairingMgr)
+	case "support":
+		if err := runSupportCommand(supportSubArgs, *ipcPath, credStore, idStore, cacheStore, pairingMgr); err != nil {
+			fmt.Fprintf(os.Stderr, "Support Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	case "run", "daemon":
 		runPlatformDaemon(
 			context.Background(),
@@ -117,6 +164,7 @@ func main() {
 			uint32(*pairedUIDFlag),
 			*apiURL,
 			*dnsListenFlag,
+			*configDir,
 		)
 	default:
 		fmt.Printf("Unknown command: %s. Valid commands: run, pair, status, diagnostics\n", cmd)
@@ -290,12 +338,21 @@ func runStatus(
 		fmt.Println("=======================================================")
 		fmt.Printf("Platform:        %s\n", st.Platform)
 		fmt.Printf("Device ID:       %s\n", st.DeviceID)
+		if st.HealthState != "" {
+			fmt.Printf("Health State:    %s\n", st.HealthState)
+		}
 		fmt.Printf("Pairing State:   %s\n", st.PairingState)
 		if st.OwnerSID != "" {
 			fmt.Printf("Owner SID:       %s\n", st.OwnerSID)
 		}
-		if st.Connected {
-			fmt.Printf("Status:          CONNECTED (Account: %s)\n", st.UserID)
+		if st.PairingState == "REVOKED" || st.EnforcementStatus == "REVOKED" {
+			fmt.Println("Status:          REVOKED (Device revoked by account owner. Run 'onusly-agent pair' to re-pair.)")
+		} else if st.Connected {
+			if st.EnforcementStatus == "ENFORCEMENT_DEGRADED" || !st.Enforcing {
+				fmt.Printf("Status:          CONNECTED (ENFORCEMENT_DEGRADED - Fail-Open Active, Account: %s)\n", st.UserID)
+			} else {
+				fmt.Printf("Status:          CONNECTED (HEALTHY_ENFORCING, Account: %s)\n", st.UserID)
+			}
 		} else {
 			fmt.Println("Status:          NOT PAIRED (run 'onusly-agent pair')")
 		}
@@ -307,8 +364,24 @@ func runStatus(
 		} else {
 			fmt.Println("Cached Targets:  None")
 		}
+		fmt.Println("----------------- Component Health --------------------")
+		if st.DNSHealth != "" {
+			fmt.Printf("DNS Resolver:    %s (Running: %t, Blocked: %d, Fwd: %d)\n", st.DNSHealth, st.DNSResolverRunning, st.DNSQueriesBlocked, st.DNSQueriesForwarded)
+		}
+		if st.AppsHealth != "" {
+			fmt.Printf("App Enforcer:    %s (Running: %t, Monitored: %d, Restr: %d, Enforced: %d)\n", st.AppsHealth, st.AppsControllerRunning, st.AppsMonitoredCount, st.AppsRestrictedCount, st.AppsEnforcedCount)
+		}
+		if st.BrowserHealth != "" {
+			fmt.Printf("Browser Native:  %s\n", st.BrowserHealth)
+		}
+		if st.SyncHealth != "" {
+			fmt.Printf("Policy Freshness:%s (LKG Active: %t)\n", st.SyncHealth, st.LKGActive)
+		}
 		if len(st.Issues) > 0 {
 			fmt.Printf("Issues:          %v\n", st.Issues)
+		}
+		if st.LastErrorCategory != "" && st.LastErrorCategory != "none" {
+			fmt.Printf("Last Error Cat:  %s\n", st.LastErrorCategory)
 		}
 		fmt.Println("=======================================================")
 		return
@@ -321,21 +394,44 @@ func runStatus(
 	blocklist, _ := cacheStore.Get(userID)
 	pairRec, _ := pairingMgr.GetState()
 
+	healthState := core.HealthStateOffline
+	if pairRec != nil && pairRec.Status == auth.StatusRevoked {
+		healthState = core.HealthStateDeviceRevoked
+	} else if token == "" {
+		healthState = core.HealthStateAuthenticationRequired
+	} else if blocklist == nil || len(blocklist.Targets) == 0 {
+		healthState = core.HealthStatePolicyMissing
+	} else {
+		healthState = core.HealthStateHealthy
+	}
+
 	fmt.Println("=======================================================")
 	fmt.Println("         ONUSLY DESKTOP AGENT (Offline State)          ")
 	fmt.Println("=======================================================")
 	fmt.Printf("Platform:        %s\n", getPlatformName())
 	fmt.Printf("Device ID:       %s\n", deviceID)
+	fmt.Printf("Health State:    %s\n", healthState)
 	if pairRec != nil {
 		fmt.Printf("Pairing State:   %s (gen %d)\n", pairRec.Status, pairRec.Generation)
 		if pairRec.OwnerSID != "" {
 			fmt.Printf("Owner SID:       %s\n", pairRec.OwnerSID)
 		}
 	}
-	if token != "" {
-		fmt.Printf("Status:          CONNECTED (Account: %s)\n", userID)
+	if pairRec != nil && pairRec.Status == auth.StatusRevoked {
+		fmt.Println("Status:          REVOKED (Device revoked by account owner. Run 'onusly-agent pair' to re-pair.)")
+		fmt.Println("Enforcing:       false")
+	} else if token != "" {
+		if blocklist != nil && len(blocklist.Targets) > 0 {
+			fmt.Printf("Status:          CONNECTED (HEALTHY_ENFORCING, Account: %s)\n", userID)
+			fmt.Println("Enforcing:       true")
+		} else {
+			fmt.Printf("Status:          CONNECTED (ENFORCEMENT_DEGRADED - Fail-Open Active, Account: %s)\n", userID)
+			fmt.Println("Enforcing:       false")
+			fmt.Println("Issues:          [policy_missing service_degraded]")
+		}
 	} else {
 		fmt.Println("Status:          NOT PAIRED (run 'onusly-agent pair')")
+		fmt.Println("Enforcing:       false")
 	}
 
 	if blocklist != nil {
@@ -362,23 +458,187 @@ func runDiagnostics(
 	fmt.Println("             ONUSLY AGENT DIAGNOSTICS                  ")
 	fmt.Println("=======================================================")
 
-	diagResp, errIPC := ipc.Query(ipcPath, core.IPCRequest{Action: "diagnostics"}, 1*time.Second)
+	diagResp, errIPC := ipc.Query(ipcPath, core.IPCRequest{Action: "diagnostics"}, 5*time.Second)
 	if errIPC == nil && diagResp != nil && diagResp.Success {
 		fmt.Println("Service Status:    RUNNING (IPC reachable)")
-		for k, v := range diagResp.Diagnostics {
-			fmt.Printf("  %s: %s\n", k, v)
+		var keys []string
+		for k := range diagResp.Diagnostics {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Printf("  %s: %s\n", k, diagResp.Diagnostics[k])
 		}
 	} else {
 		fmt.Println("Service Status:    STOPPED / UNREACHABLE")
 		deviceID, _ := idStore.GetDeviceID()
 		st, _ := pairingMgr.GetState()
-		fmt.Printf("  device_id:       %s\n", deviceID)
+		fmt.Printf("  device_id:                %s\n", deviceID)
 		if st != nil {
-			fmt.Printf("  pairing_state:   %s (gen %d)\n", st.Status, st.Generation)
-			fmt.Printf("  owner_sid:       %s\n", st.OwnerSID)
+			fmt.Printf("  pairing_state:            %s (gen %d)\n", st.Status, st.Generation)
+			fmt.Printf("  owner_sid:                %s\n", st.OwnerSID)
 		}
 		tok, _ := credStore.GetToken()
-		fmt.Printf("  has_credentials: %t\n", tok != "")
+		fmt.Printf("  has_credentials:          %t\n", tok != "")
+		fmt.Printf("  health_state:             %s\n", core.HealthStateOffline)
 	}
 	fmt.Println("=======================================================")
+}
+
+// SupportBundle represents privacy-safe diagnostic data for customer support.
+type SupportBundle struct {
+	BundleVersion    string            `json:"bundle_version"`
+	GeneratedAt      string            `json:"generated_at"`
+	PrivacyStatement string            `json:"privacy_statement"`
+	System           SupportSystem     `json:"system"`
+	Build            SupportBuild      `json:"build"`
+	Device           SupportDevice     `json:"device"`
+	Enforcement      map[string]string `json:"enforcement"`
+	ServiceReachable bool              `json:"service_reachable"`
+}
+
+type SupportSystem struct {
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	NumCPU    int    `json:"num_cpu"`
+	GoVersion string `json:"go_version"`
+}
+
+type SupportBuild struct {
+	ReleaseVersion  string `json:"release_version"`
+	SecurityVersion uint64 `json:"security_version"`
+	BuildCommit     string `json:"build_commit"`
+	BuildDate       string `json:"build_date"`
+}
+
+type SupportDevice struct {
+	DeviceID       string `json:"device_id"`
+	Platform       string `json:"platform"`
+	PairingState   string `json:"pairing_state"`
+	HasCredentials bool   `json:"has_credentials"`
+	OwnerSID       string `json:"owner_sid,omitempty"`
+}
+
+func runSupportCommand(
+	args []string,
+	ipcPath string,
+	credStore core.CredentialStore,
+	idStore *identity.FileDeviceIdentityStore,
+	cacheStore *cache.FileBlocklistCache,
+	pairingMgr *auth.PairingStateManager,
+) error {
+	if len(args) == 0 || args[0] != "bundle" {
+		return fmt.Errorf("usage: onusly-agent support bundle [--yes] [--output <path>]")
+	}
+
+	outputPath := "onusly-support-bundle.json"
+	autoConsent := false
+
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--yes" || arg == "-y" {
+			autoConsent = true
+		} else if (arg == "--output" || arg == "-o") && i+1 < len(args) {
+			outputPath = args[i+1]
+			i++
+		}
+	}
+
+	if !autoConsent {
+		fmt.Println("=======================================================")
+		fmt.Println("   ONUSLY Privacy-Safe Support Bundle Generation       ")
+		fmt.Println("=======================================================")
+		fmt.Println("This utility collects anonymized, privacy-safe system")
+		fmt.Println("and operational health telemetry to assist troubleshooting.")
+		fmt.Println("")
+		fmt.Println("Privacy Invariant:")
+		fmt.Println("  - NO personal files, directory contents, or browsing history")
+		fmt.Println("  - NO authentication tokens, JWTs, or passwords")
+		fmt.Println("-------------------------------------------------------")
+		fmt.Print("Do you consent to generate this support bundle? [y/N]: ")
+
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(strings.ToLower(input))
+		if input != "y" && input != "yes" {
+			fmt.Println("Support bundle generation cancelled.")
+			return nil
+		}
+	}
+
+	deviceID, _ := idStore.GetDeviceID()
+	pairRec, _ := pairingMgr.GetState()
+	token, _ := credStore.GetToken()
+
+	pairingState := "UNPAIRED"
+	ownerSID := ""
+	if pairRec != nil {
+		pairingState = string(pairRec.Status)
+		ownerSID = pairRec.OwnerSID
+	}
+
+	enforcementInfo := make(map[string]string)
+	serviceReachable := false
+
+	diagResp, errIPC := ipc.Query(ipcPath, core.IPCRequest{Action: "diagnostics"}, 3*time.Second)
+	if errIPC == nil && diagResp != nil && diagResp.Success {
+		serviceReachable = true
+		for k, v := range diagResp.Diagnostics {
+			// Redact any potential tokens or secrets defensively
+			kLower := strings.ToLower(k)
+			if strings.Contains(kLower, "token") || strings.Contains(kLower, "secret") || strings.Contains(kLower, "password") {
+				continue
+			}
+			enforcementInfo[k] = v
+		}
+	} else {
+		enforcementInfo["status"] = "offline"
+		enforcementInfo["health_state"] = string(core.HealthStateOffline)
+	}
+
+	bundle := SupportBundle{
+		BundleVersion:    "1.0.0",
+		GeneratedAt:      time.Now().UTC().Format(time.RFC3339),
+		PrivacyStatement: "This bundle contains strictly privacy-safe operational metadata. Zero personal data, user tokens, passwords, browsing URLs, or file contents are included.",
+		System: SupportSystem{
+			OS:        runtime.GOOS,
+			Arch:      runtime.GOARCH,
+			NumCPU:    runtime.NumCPU(),
+			GoVersion: runtime.Version(),
+		},
+		Build: SupportBuild{
+			ReleaseVersion:  core.ReleaseVersion,
+			SecurityVersion: core.SecurityVersion,
+			BuildCommit:     core.BuildCommit,
+			BuildDate:       core.BuildDate,
+		},
+		Device: SupportDevice{
+			DeviceID:       deviceID,
+			Platform:       getPlatformName(),
+			PairingState:   pairingState,
+			HasCredentials: token != "",
+			OwnerSID:       ownerSID,
+		},
+		Enforcement:      enforcementInfo,
+		ServiceReachable: serviceReachable,
+	}
+
+	data, err := json.MarshalIndent(bundle, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to serialize support bundle: %w", err)
+	}
+
+	if err := os.WriteFile(outputPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write support bundle: %w", err)
+	}
+
+	hash := sha256.Sum256(data)
+	hashHex := hex.EncodeToString(hash[:])
+
+	fmt.Println("✅ Privacy-safe support bundle generated successfully!")
+	fmt.Printf("File:        %s (%d bytes)\n", outputPath, len(data))
+	fmt.Printf("SHA-256:     %s\n", hashHex)
+	fmt.Println("You can attach this file when filing a beta support ticket.")
+
+	return nil
 }

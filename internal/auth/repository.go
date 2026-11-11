@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -15,15 +16,28 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/internal/shared"
 )
 
-const tableName = "Onusly"
+const defaultTableName = "Onusly"
 
 type DynamoRepository struct {
-	client *dynamodb.Client
+	client    *dynamodb.Client
+	tableName string
 }
 
 func NewRepository() Repository {
+	tbl := os.Getenv("DYNAMODB_TABLE")
+	if tbl == "" {
+		tbl = defaultTableName
+	}
+	return NewRepositoryWithTable(shared.NewDynamoClient(), tbl)
+}
+
+func NewRepositoryWithTable(client *dynamodb.Client, tbl string) Repository {
+	if tbl == "" {
+		tbl = defaultTableName
+	}
 	return &DynamoRepository{
-		client: shared.NewDynamoClient(),
+		client:    client,
+		tableName: tbl,
 	}
 }
 
@@ -58,7 +72,7 @@ func isConflictError(err error) bool {
 
 func (r *DynamoRepository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	out, err := r.client.Query(ctx, &dynamodb.QueryInput{
-		TableName:              aws.String(tableName),
+		TableName:              aws.String(r.tableName),
 		IndexName:              aws.String("GSI1"),
 		KeyConditionExpression: aws.String("GSI1PK = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -87,7 +101,7 @@ func (r *DynamoRepository) GetUserByEmail(ctx context.Context, email string) (*U
 
 func (r *DynamoRepository) GetUserByID(ctx context.Context, userID string) (*User, error) {
 	out, err := r.client.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(tableName),
+		TableName: aws.String(r.tableName),
 		Key: map[string]types.AttributeValue{
 			"PK": &types.AttributeValueMemberS{Value: "USER#" + userID},
 			"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
@@ -114,7 +128,7 @@ func (r *DynamoRepository) GetUserByHandle(ctx context.Context, handle string) (
 
 	// 1. Direct O(1) lookup on HANDLE#<clean> reservation item
 	resOut, err := r.client.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(tableName),
+		TableName: aws.String(r.tableName),
 		Key: map[string]types.AttributeValue{
 			"PK": &types.AttributeValueMemberS{Value: "HANDLE#" + cleaned},
 			"SK": &types.AttributeValueMemberS{Value: "RESERVATION"},
@@ -163,14 +177,14 @@ func (r *DynamoRepository) CreateUser(ctx context.Context, user *User) error {
 			TransactItems: []types.TransactWriteItem{
 				{
 					Put: &types.Put{
-						TableName:           aws.String(tableName),
+						TableName:           aws.String(r.tableName),
 						Item:                item,
 						ConditionExpression: aws.String("attribute_not_exists(PK)"),
 					},
 				},
 				{
 					Put: &types.Put{
-						TableName:           aws.String(tableName),
+						TableName:           aws.String(r.tableName),
 						Item:                handleItem,
 						ConditionExpression: aws.String("attribute_not_exists(PK)"),
 					},
@@ -187,7 +201,7 @@ func (r *DynamoRepository) CreateUser(ctx context.Context, user *User) error {
 	}
 
 	_, err = r.client.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: aws.String(tableName),
+		TableName: aws.String(r.tableName),
 		Item:      item,
 	})
 	if err != nil {
@@ -220,7 +234,7 @@ func (r *DynamoRepository) UpdateUserHandle(ctx context.Context, userID, oldHand
 	transactItems := []types.TransactWriteItem{
 		{
 			Put: &types.Put{
-				TableName:           aws.String(tableName),
+				TableName:           aws.String(r.tableName),
 				Item:                handleItem,
 				ConditionExpression: aws.String("attribute_not_exists(PK) OR UserID = :uid"),
 				ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -230,7 +244,7 @@ func (r *DynamoRepository) UpdateUserHandle(ctx context.Context, userID, oldHand
 		},
 		{
 			Update: &types.Update{
-				TableName: aws.String(tableName),
+				TableName: aws.String(r.tableName),
 				Key: map[string]types.AttributeValue{
 					"PK": &types.AttributeValueMemberS{Value: "USER#" + userID},
 					"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
@@ -249,7 +263,7 @@ func (r *DynamoRepository) UpdateUserHandle(ctx context.Context, userID, oldHand
 	if cleanOld != "" && cleanOld != cleanNew {
 		transactItems = append(transactItems, types.TransactWriteItem{
 			Delete: &types.Delete{
-				TableName: aws.String(tableName),
+				TableName: aws.String(r.tableName),
 				Key: map[string]types.AttributeValue{
 					"PK": &types.AttributeValueMemberS{Value: "HANDLE#" + cleanOld},
 					"SK": &types.AttributeValueMemberS{Value: "RESERVATION"},

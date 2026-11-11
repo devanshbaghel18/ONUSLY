@@ -7,9 +7,11 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"runtime"
 	"sync"
 	"time"
 
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/apps"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/auth"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/dns"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
@@ -36,6 +38,7 @@ type Server struct {
 	running          bool
 	stopChan         chan struct{}
 	dnsServer        *dns.Server
+	appsCtrl         *apps.AppEnforcementController
 
 	// Windows fields
 	hCancelEvent uintptr
@@ -107,6 +110,13 @@ func (s *Server) SetDNSServer(ds *dns.Server) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.dnsServer = ds
+}
+
+// SetAppsController configures the application enforcement controller instance.
+func (s *Server) SetAppsController(ctrl *apps.AppEnforcementController) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appsCtrl = ctrl
 }
 
 // SetOwnerSID configures the authorized paired Windows user SID.
@@ -242,7 +252,7 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 
 		apiURL := s.GetAPIBaseURL()
 		if apiURL == "" {
-			apiURL = "http://localhost:8080"
+			apiURL = "http://localhost:8081"
 		}
 
 		client := s.pairingClient
@@ -275,7 +285,7 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 
 		apiURL := s.GetAPIBaseURL()
 		if apiURL == "" {
-			apiURL = "http://localhost:8080"
+			apiURL = "http://localhost:8081"
 		}
 
 		client := s.pairingClient
@@ -345,6 +355,33 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 			Status:      s.buildStatus(),
 		}
 
+	case "apps-inventory":
+		var appList []any
+		if s.appsCtrl != nil && s.appsCtrl.GetInventoryScanner() != nil {
+			discovered, errScan := s.appsCtrl.GetInventoryScanner().ScanApplications(ctx)
+			if errScan != nil {
+				return core.IPCResponse{
+					Success: false,
+					Error:   fmt.Sprintf("failed to scan applications: %v", errScan),
+				}
+			}
+			for _, app := range discovered {
+				appList = append(appList, app)
+			}
+		}
+		return core.IPCResponse{
+			Success: true,
+			Apps:    appList,
+			Status:  s.buildStatus(),
+		}
+
+	case "apps-status":
+		return core.IPCResponse{
+			Success:     true,
+			Status:      s.buildStatus(),
+			Diagnostics: s.buildDiagnostics(),
+		}
+
 	default:
 		return core.IPCResponse{
 			Success: false,
@@ -385,6 +422,23 @@ func (s *Server) buildStatus() *core.AgentStatus {
 	connected := token != "" && pairingState == string(auth.StatusPaired)
 	enforcing := connected && targetsCount > 0
 
+	var issues []string
+	var enforcementStatus string
+	if pairingState == string(auth.StatusRevoked) {
+		enforcementStatus = "REVOKED"
+		connected = false
+		enforcing = false
+		issues = append(issues, "device_revoked")
+	} else if !connected {
+		enforcementStatus = "UNPAIRED"
+	} else if blocklist == nil || targetsCount == 0 {
+		enforcing = false
+		enforcementStatus = "ENFORCEMENT_DEGRADED"
+		issues = append(issues, "policy_missing", "service_degraded")
+	} else {
+		enforcementStatus = "HEALTHY"
+	}
+
 	var dnsRunning bool
 	var dnsBlocked, dnsForwarded uint64
 	if s.dnsServer != nil {
@@ -394,23 +448,98 @@ func (s *Server) buildStatus() *core.AgentStatus {
 		dnsForwarded = fwd
 	}
 
+	var appsRunning bool
+	var appsMonitored, appsEnforced, appsFailed uint64
+	var appsRestricted int
+	if s.appsCtrl != nil {
+		appsRunning = s.appsCtrl.IsRunning()
+		st := s.appsCtrl.GetStats()
+		appsMonitored = st.MonitoredProcesses
+		appsEnforced = st.EnforcedTerminated
+		appsFailed = st.EnforcementFailed
+		snap := s.appsCtrl.GetPolicyManager().GetSnapshot()
+		if snap != nil {
+			for _, t := range snap.Targets {
+				if t.Restricted {
+					appsRestricted++
+				}
+			}
+		}
+	}
+
+	dnsHealth := core.ComponentHealthUnavailable
+	if dnsRunning {
+		dnsHealth = core.ComponentHealthHealthy
+	}
+
+	appsHealth := core.ComponentHealthUnavailable
+	if appsRunning {
+		if appsFailed > 0 {
+			appsHealth = core.ComponentHealthDegraded
+		} else {
+			appsHealth = core.ComponentHealthHealthy
+		}
+	}
+
+	browserHealth := core.ComponentHealthHealthy
+	syncHealth := core.ComponentHealthHealthy
+	if blocklist == nil {
+		syncHealth = core.ComponentHealthFailing
+	}
+
+	healthState := core.HealthStateHealthy
+	lastErrCategory := "none"
+	if pairingState == string(auth.StatusRevoked) {
+		healthState = core.HealthStateDeviceRevoked
+		lastErrCategory = "auth"
+	} else if !connected {
+		healthState = core.HealthStateAuthenticationRequired
+		lastErrCategory = "auth"
+	} else if blocklist == nil || targetsCount == 0 {
+		healthState = core.HealthStatePolicyMissing
+		lastErrCategory = "network"
+	} else if !dnsRunning {
+		healthState = core.HealthStateDNSUnavailable
+		lastErrCategory = "driver"
+	} else if appsFailed > 0 {
+		healthState = core.HealthStateAppEnforcementDegraded
+		lastErrCategory = "permission"
+	} else if len(issues) > 0 {
+		healthState = core.HealthStateDegraded
+	}
+
 	return &core.AgentStatus{
-		Connected:            connected,
-		UserID:               userID,
-		DeviceID:             deviceID,
-		Platform:             "windows",
-		Version:              "1.0.0",
-		LastSyncAt:           lastSync,
-		BlocklistVersion:     blocklistVersion,
-		TargetsCount:         targetsCount,
-		Enforcing:            enforcing,
-		Issues:               []string{},
-		PairingState:         pairingState,
-		OwnerSID:             ownerSID,
-		DNSResolverRunning:   dnsRunning,
-		DNSResolverListening: dnsRunning,
-		DNSQueriesBlocked:    dnsBlocked,
-		DNSQueriesForwarded:  dnsForwarded,
+		Connected:             connected,
+		UserID:                userID,
+		DeviceID:              deviceID,
+		Platform:              runtime.GOOS,
+		Version:               core.ReleaseVersion,
+		LastSyncAt:            lastSync,
+		BlocklistVersion:      blocklistVersion,
+		TargetsCount:          targetsCount,
+		Enforcing:             enforcing,
+		EnforcementStatus:     enforcementStatus,
+		HealthState:           healthState,
+		DNSHealth:             dnsHealth,
+		AppsHealth:            appsHealth,
+		BrowserHealth:         browserHealth,
+		SyncHealth:            syncHealth,
+		LastSyncOutcome:       "success",
+		LastErrorCategory:     lastErrCategory,
+		LKGActive:             blocklist != nil && targetsCount > 0,
+		CacheValid:            blocklist != nil,
+		Issues:                issues,
+		PairingState:          pairingState,
+		OwnerSID:              ownerSID,
+		DNSResolverRunning:    dnsRunning,
+		DNSResolverListening:  dnsRunning,
+		DNSQueriesBlocked:     dnsBlocked,
+		DNSQueriesForwarded:   dnsForwarded,
+		AppsControllerRunning: appsRunning,
+		AppsMonitoredCount:    appsMonitored,
+		AppsRestrictedCount:   appsRestricted,
+		AppsEnforcedCount:     appsEnforced,
+		AppsFailedCount:       appsFailed,
 	}
 }
 
@@ -434,21 +563,58 @@ func (s *Server) buildDiagnostics() map[string]string {
 	blocklist, _ := s.syncer.GetCachedBlocklist()
 	targetsCount := 0
 	version := ""
+	cacheValid := "false"
+	enforcing := false
+	enforcementStatus := "UNPAIRED"
+	healthState := core.HealthStateAuthenticationRequired
+	lastErrCategory := "auth"
+
+	connected := token != "" && pairingState == string(auth.StatusPaired)
+	if pairingState == string(auth.StatusRevoked) {
+		healthState = core.HealthStateDeviceRevoked
+		enforcementStatus = "REVOKED"
+		lastErrCategory = "auth"
+	} else if connected {
+		if blocklist != nil && len(blocklist.Targets) > 0 {
+			enforcing = true
+			enforcementStatus = "HEALTHY"
+			healthState = core.HealthStateHealthy
+			lastErrCategory = "none"
+		} else {
+			enforcing = false
+			enforcementStatus = "ENFORCEMENT_DEGRADED"
+			healthState = core.HealthStatePolicyMissing
+			lastErrCategory = "network"
+		}
+	}
+
 	if blocklist != nil {
 		targetsCount = len(blocklist.Targets)
 		version = blocklist.Version
+		cacheValid = "true"
 	}
 
 	diag := map[string]string{
-		"platform":          "windows",
-		"device_id":         deviceID,
-		"pairing_state":     pairingState,
-		"owner_sid":         ownerSID,
-		"has_credentials":   fmt.Sprintf("%t", token != ""),
-		"user_id":           userID,
-		"blocklist_version": version,
-		"targets_count":     fmt.Sprintf("%d", targetsCount),
-		"service_running":   "true",
+		"platform":            runtime.GOOS,
+		"arch":                runtime.GOARCH,
+		"version":             core.ReleaseVersion,
+		"build_commit":        core.BuildCommit,
+		"build_date":          core.BuildDate,
+		"device_id":           deviceID,
+		"pairing_state":       pairingState,
+		"owner_sid":           ownerSID,
+		"has_credentials":     fmt.Sprintf("%t", token != ""),
+		"user_id":             userID,
+		"blocklist_version":   version,
+		"targets_count":       fmt.Sprintf("%d", targetsCount),
+		"cache_valid":         cacheValid,
+		"lkg_active":          fmt.Sprintf("%t", blocklist != nil && targetsCount > 0),
+		"enforcing":           fmt.Sprintf("%t", enforcing),
+		"enforcement_status":  enforcementStatus,
+		"health_state":        healthState,
+		"browser_status":      "HEALTHY",
+		"last_error_category": lastErrCategory,
+		"service_running":     "true",
 	}
 
 	if s.dnsServer != nil {
@@ -460,6 +626,21 @@ func (s *Server) buildDiagnostics() map[string]string {
 		diag["dns_queries_forwarded"] = fmt.Sprintf("%d", fwd)
 		diag["dns_queries_cached"] = fmt.Sprintf("%d", cch)
 		diag["dns_queries_failed"] = fmt.Sprintf("%d", fld)
+	}
+
+	if s.appsCtrl != nil {
+		st := s.appsCtrl.GetStats()
+		diag["apps_controller_running"] = fmt.Sprintf("%t", s.appsCtrl.IsRunning())
+		diag["apps_monitored_processes"] = fmt.Sprintf("%d", st.MonitoredProcesses)
+		diag["apps_restricted_detected"] = fmt.Sprintf("%d", st.RestrictedDetected)
+		diag["apps_enforced_terminated"] = fmt.Sprintf("%d", st.EnforcedTerminated)
+		diag["apps_enforcement_failed"] = fmt.Sprintf("%d", st.EnforcementFailed)
+		diag["apps_capability_tier"] = "Tier 1 - Detection & Response"
+		if inv := s.appsCtrl.GetInventoryScanner(); inv != nil {
+			if appsList, err := inv.ScanApplications(context.Background()); err == nil {
+				diag["apps_inventory_count"] = fmt.Sprintf("%d", len(appsList))
+			}
+		}
 	}
 
 	return diag

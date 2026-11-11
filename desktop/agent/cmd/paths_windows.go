@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/apps"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/auth"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/dns"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
@@ -62,4 +63,8 @@ func resolvePairingOwner() (ownerSID string, ownerUID uint32, err error) {
 		return sess.UserSID, 0, nil
 	}
 	return "", 0, err
+}
+
+func newPlatformInventoryScanner() apps.InventoryScanner {
+	return apps.NewWindowsInventoryScanner(0)
 }

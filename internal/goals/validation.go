@@ -15,10 +15,85 @@ var (
 	// Starts with letter, segments separated by dot, each segment starts with letter followed by alphanumeric or underscore.
 	appPackageRegex = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$`)
 
+	// Canonical desktop application identifier regex:
+	// Starts with alphanumeric, can contain alphanumeric, dots, underscores, hyphens. Max 255 chars.
+	desktopAppRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
 	// DNS label regex:
 	// Starts and ends with alphanumeric, hyphens allowed in between; or single alphanumeric character.
 	dnsLabelRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 )
+
+// Protected operating system processes and ONUSLY components that must never be restricted.
+var protectedAppTargets = map[string]bool{
+	// Windows core system & shells
+	"csrss":                    true,
+	"smss":                     true,
+	"wininit":                  true,
+	"winlogon":                 true,
+	"services":                 true,
+	"lsass":                    true,
+	"svchost":                  true,
+	"dwm":                      true,
+	"explorer":                 true,
+	"taskmgr":                  true,
+	"sihost":                   true,
+	"fontdrvhost":             true,
+	"searchhost":              true,
+	"shellexperiencehost":     true,
+	"startmenuexperiencehost":  true,
+	"ctfmon":                  true,
+	"conhost":                 true,
+	"cmd":                     true,
+	"powershell":              true,
+	"pwsh":                    true,
+	"wsmprovhost":             true,
+	"dllhost":                 true,
+
+	// Linux core system & daemons
+	"systemd":                 true,
+	"init":                    true,
+	"kthreadd":                true,
+	"dbus-daemon":             true,
+	"systemd-journald":        true,
+	"systemd-logind":          true,
+	"systemd-resolved":        true,
+	"systemd-udevd":           true,
+	"xorg":                    true,
+	"wayland":                 true,
+	"gnome-shell":             true,
+	"plasmashell":             true,
+	"bash":                    true,
+	"sh":                      true,
+	"zsh":                     true,
+	"login":                   true,
+	"sshd":                    true,
+	"cron":                    true,
+	"polkitd":                 true,
+
+	// ONUSLY Desktop Agent & Native Messaging Host
+	"onusly-agent":            true,
+	"onusly-native-host":      true,
+	"onusly":                  true,
+}
+
+// IsProtectedAppTarget returns true if the target is an operating system component or ONUSLY binary.
+func IsProtectedAppTarget(app string) bool {
+	norm := strings.ToLower(strings.TrimSpace(app))
+	norm = strings.TrimSuffix(norm, ".exe")
+	norm = strings.TrimSuffix(norm, ".desktop")
+	if protectedAppTargets[norm] {
+		return true
+	}
+	compact := strings.ReplaceAll(strings.ReplaceAll(norm, "-", ""), "_", "")
+	for p := range protectedAppTargets {
+		pCompact := strings.ReplaceAll(strings.ReplaceAll(p, "-", ""), "_", "")
+		if compact == pCompact {
+			return true
+		}
+	}
+	return false
+}
 
 const (
 	MaxAppsCount      = 20
@@ -28,8 +103,9 @@ const (
 	MaxDNSLabelLength = 63
 )
 
-// NormalizeAndValidateApps trims, preserves case, validates against the Android package
-// regex (max 255 chars), deduplicates, and sorts ascending.
+// NormalizeAndValidateApps trims, validates against Android packages or canonical
+// desktop application identifiers (max 255 chars), rejects protected system processes,
+// deduplicates, and sorts ascending.
 // Returns an error identifying the bad value if any item is invalid, or if exceeding 20 items.
 func NormalizeAndValidateApps(rawApps []string) ([]string, error) {
 	if len(rawApps) == 0 {
@@ -47,13 +123,36 @@ func NormalizeAndValidateApps(rawApps []string) ([]string, error) {
 		if len(trimmed) > MaxAppLength {
 			return nil, fmt.Errorf("invalid app package name %q: length exceeds %d characters", raw, MaxAppLength)
 		}
-		if !appPackageRegex.MatchString(trimmed) {
-			return nil, fmt.Errorf("invalid app package name %q: must match format (e.g. com.example.app)", raw)
+
+		// Reject path traversal and directory paths
+		if strings.Contains(trimmed, "/") || strings.Contains(trimmed, "\\") {
+			return nil, fmt.Errorf("invalid app target %q: path traversal and directory paths are not allowed", raw)
 		}
 
-		if !seen[trimmed] {
-			seen[trimmed] = true
-			normalized = append(normalized, trimmed)
+		// Reject shell metacharacters / injection
+		for _, ch := range []string{"&", "|", ";", ">", "<", "$", "`", "*", "?", "~", "!", "(", ")", "{", "}", "[", "]", "'", "\"", "\n", "\r", "\t"} {
+			if strings.Contains(trimmed, ch) {
+				return nil, fmt.Errorf("invalid app target %q: illegal characters not allowed", raw)
+			}
+		}
+
+		// Strip .exe or .desktop suffix if supplied
+		cleanID := strings.TrimSuffix(trimmed, ".exe")
+		cleanID = strings.TrimSuffix(cleanID, ".desktop")
+
+		// Check protected processes
+		if IsProtectedAppTarget(cleanID) {
+			return nil, fmt.Errorf("invalid app target %q: system and ONUSLY processes are protected and cannot be restricted", raw)
+		}
+
+		// Must match Android package or canonical desktop identifier
+		if !appPackageRegex.MatchString(cleanID) && !desktopAppRegex.MatchString(cleanID) {
+			return nil, fmt.Errorf("invalid app target %q: must match format (e.g. com.example.app or discord)", raw)
+		}
+
+		if !seen[cleanID] {
+			seen[cleanID] = true
+			normalized = append(normalized, cleanID)
 		}
 	}
 
@@ -62,6 +161,79 @@ func NormalizeAndValidateApps(rawApps []string) ([]string, error) {
 	}
 
 	sort.Strings(normalized)
+	return normalized, nil
+}
+
+// NormalizeAndValidateApplicationTargets validates and normalizes explicitly typed targets.
+func NormalizeAndValidateApplicationTargets(rawTargets []ApplicationTarget) ([]ApplicationTarget, error) {
+	if len(rawTargets) == 0 {
+		return []ApplicationTarget{}, nil
+	}
+
+	seen := make(map[string]bool)
+	var normalized []ApplicationTarget
+
+	for _, t := range rawTargets {
+		kind := strings.ToLower(strings.TrimSpace(t.Kind))
+		id := strings.TrimSpace(t.Identifier)
+
+		if kind != "desktop_app" && kind != "android_package" {
+			return nil, fmt.Errorf("invalid application target kind %q: must be 'desktop_app' or 'android_package'", t.Kind)
+		}
+
+		if id == "" {
+			return nil, fmt.Errorf("invalid application target identifier for %s: cannot be empty", kind)
+		}
+		if len(id) > MaxAppLength {
+			return nil, fmt.Errorf("invalid application target identifier %q: length exceeds %d characters", id, MaxAppLength)
+		}
+
+		if kind == "desktop_app" {
+			id = strings.TrimSuffix(id, ".exe")
+			id = strings.TrimSuffix(id, ".desktop")
+
+			if IsProtectedAppTarget(id) {
+				return nil, fmt.Errorf("invalid application target %q: system and ONUSLY processes are protected and cannot be restricted", t.Identifier)
+			}
+			if strings.Contains(id, "/") || strings.Contains(id, "\\") {
+				return nil, fmt.Errorf("invalid application target %q: path traversal and directory paths are not allowed", t.Identifier)
+			}
+			for _, ch := range []string{"&", "|", ";", ">", "<", "$", "`", "*", "?", "~", "!", "(", ")", "{", "}", "[", "]", "'", "\"", "\n", "\r", "\t"} {
+				if strings.Contains(id, ch) {
+					return nil, fmt.Errorf("invalid application target %q: illegal characters not allowed", t.Identifier)
+				}
+			}
+			if !desktopAppRegex.MatchString(id) {
+				return nil, fmt.Errorf("invalid desktop app identifier %q: must start with letter or number", t.Identifier)
+			}
+		} else {
+			// android_package
+			if !appPackageRegex.MatchString(id) {
+				return nil, fmt.Errorf("invalid android package name %q: must match format (e.g. com.example.app)", t.Identifier)
+			}
+		}
+
+		key := kind + ":" + strings.ToLower(id)
+		if !seen[key] {
+			seen[key] = true
+			normalized = append(normalized, ApplicationTarget{
+				Kind:       kind,
+				Identifier: id,
+			})
+		}
+	}
+
+	if len(normalized) > MaxAppsCount {
+		return nil, fmt.Errorf("maximum %d application targets allowed, got %d", MaxAppsCount, len(normalized))
+	}
+
+	sort.Slice(normalized, func(i, j int) bool {
+		if normalized[i].Kind == normalized[j].Kind {
+			return normalized[i].Identifier < normalized[j].Identifier
+		}
+		return normalized[i].Kind < normalized[j].Kind
+	})
+
 	return normalized, nil
 }
 
@@ -232,4 +404,5 @@ var (
 	ErrAccountabilityLocked   = errors.New("cannot change accountability to none while targets are locked")
 	ErrAccountabilityRequired = errors.New("accountability_required")
 	ErrGoalInReview           = errors.New("goal_in_review")
+	ErrGoalConflict           = errors.New("goal_conflict: resource was modified concurrently")
 )

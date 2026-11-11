@@ -24,6 +24,9 @@ import {
   X,
   Pin,
   RotateCcw,
+  Laptop,
+  Globe,
+  Smartphone,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
 import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal, getGoalEnforcementStatus } from "../lib/api";
@@ -208,7 +211,7 @@ export default function GoalDetail() {
 
     try {
       try {
-        if (goal.status === "active") {
+        if (goal.status === "active" || goal.status === "rejected") {
           await updateGoal(goalId, {
             approvalType: shareTarget === "community" ? "community" : "friend",
             approverEmail: shareTarget === "friend" ? (friends.find((f) => f.id === selectedFriendId)?.email || friends.find((f) => f.id === selectedFriendId)?.handle) : undefined,
@@ -219,7 +222,7 @@ export default function GoalDetail() {
       }
 
       // Submit proof on behalf of owner so goal transitions to proof_submitted and is ready for friend to approve
-      if (goal.status === "active") {
+      if (goal.status === "active" || goal.status === "rejected") {
         try {
           await submitProof(goalId, {
             proofType: "text",
@@ -383,6 +386,17 @@ export default function GoalDetail() {
   // Handle Approver Decision (Approve or Reject)
   const handleDecideApproval = async (proofId, status) => {
     if (!goal) return;
+
+    if (status === "approved") {
+      if (!window.confirm(`Approve proof for "${goal.title}"? This will lift all application and domain restrictions on the owner's devices.`)) {
+        return;
+      }
+    } else {
+      if (!window.confirm(`Reject this proof? Application and domain restrictions will remain strictly enforced.`)) {
+        return;
+      }
+    }
+
     setDecisionError("");
     setDecisionSuccess("");
     setDecidingProofId(proofId);
@@ -397,7 +411,7 @@ export default function GoalDetail() {
       setDecisionSuccess(
         status === "approved"
           ? "🎉 Proof approved successfully! The goal is unlocked and constraints released."
-          : "Proof rejected. The goal has returned to active status."
+          : "Proof rejected. Target restrictions remain strictly enforced on all client devices."
       );
 
       // Trigger extension blocklist update immediately
@@ -666,9 +680,19 @@ export default function GoalDetail() {
                 {/* Status & Action Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
                   <div className="flex items-center gap-3">
-                    <span className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold text-white uppercase tracking-wider">
-                      <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
-                      {goal.status || "active"}
+                    <span className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${
+                      goal.status === "completed"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                        : goal.status === "rejected"
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                        : goal.status === "proof_submitted"
+                        ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
+                        : "border-white/20 bg-white/10 text-white"
+                    }`}>
+                      <span className={`h-2 w-2 rounded-full ${
+                        goal.status === "completed" ? "bg-emerald-400" : goal.status === "rejected" ? "bg-amber-400" : "bg-white animate-pulse"
+                      }`} />
+                      {goal.status === "proof_submitted" ? "Pending Review" : (goal.status || "active")}
                     </span>
 
                     <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-[#B5B5B5]">
@@ -720,6 +744,45 @@ export default function GoalDetail() {
                     )}
                   </div>
                 </div>
+
+                {/* Rejection Alert Banner (Owner & Approver) */}
+                {goal.status === "rejected" && (
+                  <div className="mt-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-bold text-sm text-amber-300">Proof Rejected by Accountability Partner</div>
+                        <p className="mt-1 text-neutral-300 leading-relaxed">
+                          Restrictions on your desktop and mobile devices remain strictly enforced. Review feedback below, address the requirements, and submit revised proof to request unlocking.
+                        </p>
+                      </div>
+                    </div>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        onClick={openShareModal}
+                        className="btn-premium shrink-0 rounded-xl bg-amber-400 hover:bg-amber-300 text-black px-4 py-2 font-bold transition shadow-sm"
+                      >
+                        Resubmit Proof
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Partner Approver Identity Banner */}
+                {!isOwner && (
+                  <div className="mt-5 rounded-2xl border border-white/20 bg-white/5 p-4 text-xs text-white flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <ShieldCheck size={20} className="text-white shrink-0" />
+                      <div>
+                        <div className="font-bold text-sm text-white">Approver Review Mode</div>
+                        <p className="mt-0.5 text-neutral-300">
+                          You are reviewing this commitment for owner: <strong className="text-white">{goal.ownerId}</strong>.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* View / Edit Mode */}
                 {!isEditingGoal || !isOwner ? (
@@ -862,7 +925,16 @@ export default function GoalDetail() {
                             key={target.label}
                             className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-neutral-300"
                           >
-                            <Lock size={12} className="text-neutral-400" />
+                            {target.type === "desktop" ? (
+                              <Laptop size={12} className="text-neutral-400" />
+                            ) : target.type === "app" ? (
+                              <Smartphone size={12} className="text-neutral-400" />
+                            ) : (
+                              <Globe size={12} className="text-neutral-400" />
+                            )}
+                            <span className="text-[10px] uppercase font-bold text-neutral-500 tracking-wider">
+                              {target.type === "desktop" ? "Desktop" : target.type === "app" ? "Android" : "Web"}
+                            </span>
                             <span>{target.label}</span>
                           </span>
                         ))}
@@ -1161,6 +1233,16 @@ export default function GoalDetail() {
                             <div className="flex items-center gap-2 text-xs text-white font-semibold bg-white/[0.06] border border-white/15 rounded-xl p-2.5">
                               <CheckCircle2 size={15} />
                               <span>Approved and unlocked! Constraints have been released.</span>
+                            </div>
+                          ) : goal.status === "rejected" ? (
+                            <div className="flex flex-col gap-1 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
+                              <div className="flex items-center gap-2 font-bold">
+                                <AlertCircle size={15} className="text-amber-400 shrink-0" />
+                                <span>Proof Rejected — Restrictions remain active</span>
+                              </div>
+                              <p className="text-[11px] text-neutral-300 pl-6">
+                                Review your partner's feedback and click "Share for Verification" to submit revised proof.
+                              </p>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2 text-xs text-neutral-400 bg-neutral-900/60 border border-white/10 rounded-xl p-2.5">

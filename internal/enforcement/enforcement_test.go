@@ -385,6 +385,165 @@ func TestEnforcement_VersionRules(t *testing.T) {
 	if rejectedRes.Version == submittedRes.Version {
 		t.Errorf("version remained at proof_submitted version after rejection")
 	}
+
+	// Rule 12: Goal with status "rejected" is included in blocklist
+	mockLister.goalsByUser["user-1"] = []goals.Goal{
+		{
+			ID:             baseGoal.ID,
+			Title:          baseGoal.Title,
+			Status:         "rejected",
+			CreatedAt:      baseGoal.CreatedAt,
+			BlockedApps:    baseGoal.BlockedApps,
+			BlockedDomains: baseGoal.BlockedDomains,
+		},
+	}
+	explicitRejectedRes, _ := service.GetBlocklist(context.Background(), "user-1")
+	if len(explicitRejectedRes.Targets) != 1 {
+		t.Errorf("rejected goal was not included in blocklist")
+	}
+	if explicitRejectedRes.Targets[0].Status != "rejected" {
+		t.Errorf("expected target status to be rejected, got %s", explicitRejectedRes.Targets[0].Status)
+	}
+}
+
+func TestEnforcement_TargetTypingSeparation(t *testing.T) {
+	mockLister := &mockGoalLister{
+		goalsByUser: map[string][]goals.Goal{
+			"user-typed": {
+				{
+					ID:        "goal-typed-1",
+					Title:     "Separated Targets Goal",
+					Status:    "active",
+					CreatedAt: "2026-10-01T12:00:00Z",
+					BlockedApps: []string{
+						"com.whatsapp",
+						"discord",
+					},
+					BlockedDomains: []string{"whatsapp.com", "discord.com"},
+					ApplicationTargets: []goals.ApplicationTarget{
+						{Kind: "android_package", Identifier: "com.whatsapp"},
+						{Kind: "desktop_app", Identifier: "discord"},
+					},
+				},
+			},
+		},
+	}
+
+	service := enforcement.NewService(mockLister)
+	res, err := service.GetBlocklist(context.Background(), "user-typed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(res.Targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(res.Targets))
+	}
+
+	target := res.Targets[0]
+	if len(target.ApplicationTargets) != 2 {
+		t.Fatalf("expected 2 applicationTargets, got %d (%+v)", len(target.ApplicationTargets), target.ApplicationTargets)
+	}
+
+	// Verify android_package
+	foundAndroid := false
+	foundDesktop := false
+	for _, at := range target.ApplicationTargets {
+		if at.Kind == "android_package" && at.Identifier == "com.whatsapp" {
+			foundAndroid = true
+		}
+		if at.Kind == "desktop_app" && at.Identifier == "discord" {
+			foundDesktop = true
+		}
+	}
+
+	if !foundAndroid {
+		t.Errorf("expected android_package com.whatsapp in applicationTargets")
+	}
+	if !foundDesktop {
+		t.Errorf("expected desktop_app discord in applicationTargets")
+	}
+}
+
+func TestEnforcement_D61CompatibilityReleaseGate(t *testing.T) {
+	// D7 Phase A Release Gate:
+	// Verify that:
+	// 1. Explicit applicationTargets is authoritative
+	// 2. desktop_app targets (org.gnome.Calculator, com.example.editor, discord, steam) NEVER leak into legacy Apps
+	// 3. android_package targets (com.whatsapp, com.spotify.music) are included in legacy Apps for mobile clients
+	// 4. Historical untyped goals have empty ApplicationTargets on blocklist response (no silent permanent reclassification)
+	mockLister := &mockGoalLister{
+		goalsByUser: map[string][]goals.Goal{
+			"user-d7": {
+				{
+					ID:        "goal-typed-mixed",
+					Title:     "Mixed Typed Goal",
+					Status:    "active",
+					CreatedAt: "2026-10-01T12:00:00Z",
+					ApplicationTargets: []goals.ApplicationTarget{
+						{Kind: "desktop_app", Identifier: "org.gnome.Calculator"},
+						{Kind: "desktop_app", Identifier: "com.example.editor"},
+						{Kind: "android_package", Identifier: "com.whatsapp"},
+						{Kind: "android_package", Identifier: "com.spotify.music"},
+						{Kind: "desktop_app", Identifier: "discord"},
+						{Kind: "desktop_app", Identifier: "steam"},
+					},
+				},
+				{
+					ID:          "goal-legacy-untyped",
+					Title:       "Historical Untyped Goal",
+					Status:      "active",
+					CreatedAt:   "2026-10-01T13:00:00Z",
+					BlockedApps: []string{"com.historical.mobile"},
+				},
+			},
+		},
+	}
+
+	service := enforcement.NewService(mockLister)
+	res, err := service.GetBlocklist(context.Background(), "user-d7")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(res.Targets) != 2 {
+		t.Fatalf("expected 2 targets, got %d", len(res.Targets))
+	}
+
+	// 1. Check typed mixed goal
+	mixedTarget := res.Targets[0]
+	if len(mixedTarget.ApplicationTargets) != 6 {
+		t.Fatalf("expected 6 applicationTargets, got %d", len(mixedTarget.ApplicationTargets))
+	}
+
+	// Verify legacy apps slice has ONLY android packages, NO desktop apps
+	for _, app := range mixedTarget.Apps {
+		if app == "org.gnome.Calculator" || app == "com.example.editor" || app == "discord" || app == "steam" {
+			t.Fatalf("CRITICAL ISOLATION BREACH: Desktop app %q leaked into legacy Apps field!", app)
+		}
+	}
+
+	hasWA := false
+	hasSpotify := false
+	for _, app := range mixedTarget.Apps {
+		if app == "com.whatsapp" {
+			hasWA = true
+		}
+		if app == "com.spotify.music" {
+			hasSpotify = true
+		}
+	}
+	if !hasWA || !hasSpotify {
+		t.Errorf("Expected com.whatsapp and com.spotify.music in legacy Apps for Android, got: %v", mixedTarget.Apps)
+	}
+
+	// 2. Check historical untyped goal
+	legacyTarget := res.Targets[1]
+	if len(legacyTarget.ApplicationTargets) != 0 {
+		t.Errorf("Expected 0 synthesized applicationTargets for historical untyped goal, got: %v", legacyTarget.ApplicationTargets)
+	}
+	if len(legacyTarget.Apps) != 1 || legacyTarget.Apps[0] != "com.historical.mobile" {
+		t.Errorf("Expected original legacy apps preserved, got: %v", legacyTarget.Apps)
+	}
 }
 
 func TestEnforcement_Unauthorized(t *testing.T) {

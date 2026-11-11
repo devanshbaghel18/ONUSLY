@@ -1,0 +1,59 @@
+{
+  "release_version": "1.0.0-rc1",
+  "security_version": 1,
+  "release_channel": "beta",
+  "categories": [
+    {
+      "id": "environment_isolation",
+      "title": "Environment & Secret Isolation",
+      "items": [
+        { "id": "preflight_validation", "title": "Staging Preflight Validation Script", "status": "COMPLETED", "artifact": "scripts/staging_preflight.ps1" },
+        { "id": "table_isolation", "title": "Database Table Segregation (Onusly-Staging)", "status": "COMPLETED", "artifact": "internal/config/config.go" },
+        { "id": "secret_hygiene", "title": "Cryptographic Secret Complexity & Zero-Leakage", "status": "COMPLETED", "artifact": "internal/config/config.go" },
+        { "id": "allowed_origins", "title": "Allowed Origins & CORS Boundary Protection", "status": "COMPLETED", "artifact": "internal/config/config.go" }
+      ]
+    },
+    {
+      "id": "build_and_packaging",
+      "title": "Release Build & Packaging",
+      "items": [
+        { "id": "build_workflow", "title": "Automated Staging Build Pipeline", "status": "COMPLETED", "artifact": "scripts/build_staging_release.ps1" },
+        { "id": "windows_binaries", "title": "Windows AMD64 Agent & Native Host Binaries", "status": "COMPLETED", "artifact": "build/staging/onusly-agent-windows-amd64.exe" },
+        { "id": "linux_binaries", "title": "Linux AMD64 Agent & Native Host Cross-Compilation", "status": "COMPLETED", "artifact": "build/staging/onusly-agent-linux-amd64" },
+        { "id": "android_readiness", "title": "Mobile Android Package Readiness Check", "status": "COMPLETED", "artifact": "android/app/build.gradle.kts" },
+        { "id": "signed_manifests", "title": "Ed25519 Test-Signed Update Manifests", "status": "COMPLETED", "artifact": "build/staging/UPDATE_MANIFEST_windows_amd64.json" },
+        { "id": "checksums", "title": "Cryptographic Checksums (CHECKSUMS.txt)", "status": "COMPLETED", "artifact": "build/staging/CHECKSUMS.txt" },
+        { "id": "sboms", "title": "Software Bills of Materials (SBOMs)", "status": "COMPLETED", "artifact": "build/staging/sbom-go.json" }
+      ]
+    },
+    {
+      "id": "quality_and_rehearsal",
+      "title": "Automated Quality Gates & Rehearsal",
+      "items": [
+        { "id": "backup_rehearsal", "title": "Database Backup, Export & Disaster Recovery Rehearsal", "status": "COMPLETED", "artifact": "internal/enforcement/d15_backup_restore_test.go" },
+        { "id": "staging_acceptance", "title": "24-Step Staging User Journey Acceptance Test", "status": "COMPLETED", "artifact": "desktop/installer/windows/test_d15_staging_acceptance.ps1" },
+        { "id": "regression_suites", "title": "Full Milestone Regression Verification (D3-D14)", "status": "COMPLETED", "artifact": "docs/DESKTOP_IMPLEMENTATION_LEDGER.md" }
+      ]
+    },
+    {
+      "id": "observability_and_support",
+      "title": "Observability & Support Readiness",
+      "items": [
+        { "id": "prometheus_metrics", "title": "Prometheus Metric Exposition (/metrics)", "status": "COMPLETED", "artifact": "internal/metrics/metrics.go" },
+        { "id": "support_bundle_cli", "title": "Privacy-Safe Support Bundle Tool (onusly-agent support)", "status": "COMPLETED", "artifact": "desktop/agent/cmd/main.go" },
+        { "id": "support_runbook", "title": "Beta Support & Troubleshooting Manual", "status": "COMPLETED", "artifact": "docs/runbooks/BETA_SUPPORT_AND_TROUBLESHOOTING.md" },
+        { "id": "backup_runbook", "title": "Database Backup & Disaster Recovery Runbook", "status": "COMPLETED", "artifact": "docs/runbooks/DATABASE_BACKUP_AND_RESTORE.md" },
+        { "id": "rollout_plan", "title": "Controlled Beta Rollout Plan & Rollback Triggers", "status": "COMPLETED", "artifact": "docs/runbooks/BETA_ROLLOUT_PLAN.md" }
+      ]
+    },
+    {
+      "id": "service_invariant",
+      "title": "Live SCM Service & Identity Invariant",
+      "items": [
+        { "id": "scm_running", "title": "Live Service Running under NT AUTHORITY\\LocalService", "status": "COMPLETED", "artifact": "OnuslyDesktopAgent" },
+        { "id": "canonical_device_id", "title": "Canonical Device ID (143489b2-2fd8-428b-bfa8-2631cc2be8c3)", "status": "COMPLETED", "artifact": "C:\\ProgramData\\Onusly\\config\\device_id" }
+      ]
+    }
+  ]
+}
+

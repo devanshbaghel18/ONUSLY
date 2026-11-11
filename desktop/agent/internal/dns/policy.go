@@ -73,9 +73,10 @@ func (pm *PolicyManager) UpdateFromBlocklist(data *core.BlocklistData) (*PolicyS
 	for _, target := range data.Targets {
 		status := target.Status
 
-		// Only enforce active, proof_submitted, and rejected targets
-		// Completed goals are explicitly unblocked
-		isEnforcedStatus := status == "active" || status == "proof_submitted" || status == "rejected"
+		// Only enforce active, proof_submitted, and rejected targets.
+		// D9 Version Compatibility Invariant: An agent must never silently interpret an unknown
+		// or future security-critical goal status as permission to unblock. Only explicitly completed goals are allowed.
+		isEnforcedStatus := status != "" && status != "completed"
 		if !isEnforcedStatus {
 			continue
 		}

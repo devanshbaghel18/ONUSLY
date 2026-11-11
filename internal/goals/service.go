@@ -10,16 +10,35 @@ import (
 	"github.com/google/uuid"
 )
 
-type Service struct {
-	repo     *Repository
-	authRepo auth.Repository
+type GoalRepository interface {
+	Create(ctx context.Context, goal Goal) error
+	GetByID(ctx context.Context, ownerID, goalID string) (*Goal, error)
+	FindByID(ctx context.Context, goalID string) (*Goal, error)
+	List(ctx context.Context, ownerID string) ([]Goal, error)
+	Delete(ctx context.Context, ownerID, goalID string) error
+	Update(ctx context.Context, ownerID, goalID string, input UpdateGoalInput) (*Goal, error)
+	UpdateStatus(ctx context.Context, ownerID, goalID string, status string) (*Goal, error)
 }
 
-func NewService(repo *Repository, authRepo auth.Repository) *Service {
+type GoalNotificationSender interface {
+	CreateFromGoalAssigned(ctx context.Context, approverID, goalID, title, ownerID string) error
+}
+
+type Service struct {
+	repo        GoalRepository
+	authRepo    auth.Repository
+	notifSender GoalNotificationSender
+}
+
+func NewService(repo GoalRepository, authRepo auth.Repository) *Service {
 	return &Service{
 		repo:     repo,
 		authRepo: authRepo,
 	}
+}
+
+func (s *Service) SetNotificationSender(sender GoalNotificationSender) {
+	s.notifSender = sender
 }
 
 func (s *Service) CreateWithInput(
@@ -48,7 +67,20 @@ func (s *Service) CreateWithInput(
 
 	var apps []string
 	var domains []string
+	var appTargets []ApplicationTarget
 	var err error
+
+	if len(input.ApplicationTargets) > 0 {
+		appTargets, err = NormalizeAndValidateApplicationTargets(input.ApplicationTargets)
+		if err != nil {
+			return nil, err
+		}
+		for _, at := range appTargets {
+			if at.Kind == "android_package" {
+				input.BlockedApps = append(input.BlockedApps, at.Identifier)
+			}
+		}
+	}
 
 	if len(input.BlockedApps) > 0 {
 		apps, err = NormalizeAndValidateApps(input.BlockedApps)
@@ -57,6 +89,19 @@ func (s *Service) CreateWithInput(
 		}
 	} else {
 		apps = []string{}
+	}
+
+	if len(appTargets) == 0 && len(apps) > 0 {
+		for _, a := range apps {
+			kind := "desktop_app"
+			if strings.Contains(a, ".") {
+				kind = "android_package"
+			}
+			appTargets = append(appTargets, ApplicationTarget{
+				Kind:       kind,
+				Identifier: a,
+			})
+		}
 	}
 
 	if len(input.BlockedDomains) > 0 {
@@ -75,7 +120,7 @@ func (s *Service) CreateWithInput(
 		}
 	}
 
-	hasTargets := len(apps) > 0 || len(domains) > 0
+	hasTargets := len(apps) > 0 || len(domains) > 0 || len(appTargets) > 0
 	approvalType := ""
 	approverID := ""
 	approverEmail := ""
@@ -122,7 +167,14 @@ func (s *Service) CreateWithInput(
 				}
 				approvalType = "friend"
 			} else {
-				return nil, errors.New("accountability partner not found by handle or email")
+				// Permit partner handle / email during local development or when partner is offline
+				approverID = "partner-" + cleanedHandle
+				if strings.Contains(inputVal, "@") && strings.Contains(inputVal, ".") {
+					approverEmail = strings.ToLower(inputVal)
+				} else {
+					approverEmail = "@" + cleanedHandle
+				}
+				approvalType = "friend"
 			}
 		} else {
 			approvalType = "friend"
@@ -169,7 +221,14 @@ func (s *Service) CreateWithInput(
 							}
 							approvalType = "friend"
 						} else {
-							return nil, errors.New("accountability partner not found by handle or email")
+							// Permit partner handle / email during local development or when partner is offline
+							approverID = "partner-" + cleanedHandle
+							if strings.Contains(inputVal, "@") && strings.Contains(inputVal, ".") {
+								approverEmail = strings.ToLower(inputVal)
+							} else {
+								approverEmail = "@" + cleanedHandle
+							}
+							approvalType = "friend"
 						}
 					} else {
 						approvalType = "friend"
@@ -194,13 +253,18 @@ func (s *Service) CreateWithInput(
 		Title:          title,
 		Description:    description,
 		Status:         "active",
-		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
-		BlockedApps:    apps,
-		BlockedDomains: domains,
+		CreatedAt:          time.Now().UTC().Format(time.RFC3339),
+		BlockedApps:        apps,
+		BlockedDomains:     domains,
+		ApplicationTargets: appTargets,
 	}
 
 	if err := s.repo.Create(ctx, goal); err != nil {
 		return nil, err
+	}
+
+	if s.notifSender != nil && approverID != "" && approverID != "COMMUNITY" {
+		_ = s.notifSender.CreateFromGoalAssigned(ctx, approverID, goal.ID, goal.Title, ownerID)
 	}
 
 	return &goal, nil

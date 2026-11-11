@@ -28,6 +28,16 @@ func (h *Handler) GetBlocklist(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.service.GetBlocklist(r.Context(), userID)
 	if err != nil {
+		if errors.Is(err, ErrDeviceRevoked) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":   "DEVICE_REVOKED",
+				"code":    "device_revoked",
+				"message": "This device has been revoked by the account owner",
+			})
+			return
+		}
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -70,6 +80,16 @@ func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 
 	device, err := h.service.ProcessHeartbeat(r.Context(), userID, req)
 	if err != nil {
+		if errors.Is(err, ErrDeviceRevoked) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":   "DEVICE_REVOKED",
+				"code":    "device_revoked",
+				"message": "This device has been revoked by the account owner",
+			})
+			return
+		}
 		if errors.Is(err, ErrInvalidUUID) || errors.Is(err, ErrInvalidClientType) ||
 			errors.Is(err, ErrInvalidPlatform) || errors.Is(err, ErrInvalidBrowser) ||
 			errors.Is(err, ErrInvalidSentAt) || errors.Is(err, ErrInvalidIssues) ||
@@ -84,6 +104,47 @@ func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(device)
+}
+
+func (h *Handler) RevokeDevice(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	deviceID := r.PathValue("id")
+	if deviceID == "" {
+		http.Error(w, "missing device id", http.StatusBadRequest)
+		return
+	}
+
+	var req RevokeDeviceRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	resp, err := h.service.RevokeDevice(r.Context(), userID, deviceID, req.Reason)
+	if err != nil {
+		if errors.Is(err, ErrDeviceNotFound) {
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, ErrDeviceOwnershipMismatch) {
+			http.Error(w, "forbidden: device belongs to a different account", http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, ErrInvalidUUID) {
+			http.Error(w, "invalid device id format", http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handler) GetDevices(w http.ResponseWriter, r *http.Request) {

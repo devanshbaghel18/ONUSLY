@@ -2,42 +2,60 @@ package goals
 
 import "strings"
 
+// ApplicationTarget defines an explicitly typed enforcement target.
+type ApplicationTarget struct {
+	Kind       string `dynamodbav:"Kind" json:"kind"` // "desktop_app" | "android_package"
+	Identifier string `dynamodbav:"Identifier" json:"identifier"`
+}
+
 type Goal struct {
 	PK string `dynamodbav:"PK" json:"-"`
 	SK string `dynamodbav:"SK" json:"-"`
 
-	ID             string   `dynamodbav:"ID" json:"id"`
-	OwnerID        string   `dynamodbav:"OwnerID" json:"ownerId"`
-	ApproverID     string   `dynamodbav:"ApproverID" json:"approverId"`
-	ApproverEmail  string   `dynamodbav:"ApproverEmail,omitempty" json:"approverEmail,omitempty"`
-	ApprovalType   string   `dynamodbav:"ApprovalType,omitempty" json:"approvalType,omitempty"`
-	Title          string   `dynamodbav:"Title" json:"title"`
-	Description    string   `dynamodbav:"Description" json:"description"`
-	Status         string   `dynamodbav:"Status" json:"status"`
-	CreatedAt      string   `dynamodbav:"CreatedAt" json:"createdAt"`
-	UpdatedAt      string   `dynamodbav:"UpdatedAt,omitempty" json:"updatedAt,omitempty"`
-	BlockedApps    []string `dynamodbav:"BlockedApps,omitempty" json:"blockedApps,omitempty"`
-	BlockedDomains []string `dynamodbav:"BlockedDomains,omitempty" json:"blockedDomains,omitempty"`
+	// GSI1 for efficient indexed global lookup
+	GSI1PK string `dynamodbav:"GSI1PK,omitempty" json:"-"`
+	GSI1SK string `dynamodbav:"GSI1SK,omitempty" json:"-"`
+
+	ID                 string              `dynamodbav:"ID" json:"id"`
+	OwnerID            string              `dynamodbav:"OwnerID" json:"ownerId"`
+	ApproverID         string              `dynamodbav:"ApproverID" json:"approverId"`
+	ApproverEmail      string              `dynamodbav:"ApproverEmail,omitempty" json:"approverEmail,omitempty"`
+	ApprovalType       string              `dynamodbav:"ApprovalType,omitempty" json:"approvalType,omitempty"`
+	Title              string              `dynamodbav:"Title" json:"title"`
+	Description        string              `dynamodbav:"Description" json:"description"`
+	Status             string              `dynamodbav:"Status" json:"status"`
+	Version            int64               `dynamodbav:"Version,omitempty" json:"version,omitempty"`
+	CreatedAt          string              `dynamodbav:"CreatedAt" json:"createdAt"`
+	UpdatedAt          string              `dynamodbav:"UpdatedAt,omitempty" json:"updatedAt,omitempty"`
+	BlockedApps        []string            `dynamodbav:"BlockedApps,omitempty" json:"blockedApps,omitempty"`
+	BlockedDomains     []string            `dynamodbav:"BlockedDomains,omitempty" json:"blockedDomains,omitempty"`
+	ApplicationTargets []ApplicationTarget `dynamodbav:"ApplicationTargets,omitempty" json:"applicationTargets,omitempty"`
 }
 
 type CreateGoalInput struct {
-	Title          string   `json:"title"`
-	Description    string   `json:"description"`
-	ApprovalType   *string  `json:"approvalType"`
-	ApproverEmail  *string  `json:"approverEmail"`
-	BlockedApps    []string `json:"blockedApps"`
-	BlockedDomains []string `json:"blockedDomains"`
+	Title              string              `json:"title"`
+	Description        string              `json:"description"`
+	ApprovalType       *string             `json:"approvalType"`
+	ApproverEmail      *string             `json:"approverEmail"`
+	BlockedApps        []string            `json:"blockedApps"`
+	BlockedDomains     []string            `json:"blockedDomains"`
+	ApplicationTargets []ApplicationTarget `json:"applicationTargets,omitempty"`
 }
 
 type UpdateGoalInput struct {
-	Title          *string
-	Description    *string
-	ApprovalType   *string
-	ApproverEmail  *string
-	ApproverID     *string
-	UpdatedAt      string
-	BlockedApps    *[]string
-	BlockedDomains *[]string
+	Title              *string
+	Description        *string
+	ApprovalType       *string
+	ApproverEmail      *string
+	ApproverID         *string
+	UpdatedAt          string
+	BlockedApps        *[]string
+	BlockedDomains     *[]string
+	ApplicationTargets *[]ApplicationTarget
+
+	// Optimistic concurrency control fields
+	ExpectedVersion   *int64
+	ExpectedUpdatedAt *string
 
 	// Expected targets and conditions for atomic DynamoDB ConditionExpressions
 	ExpectedBlockedApps         []string

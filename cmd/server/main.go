@@ -22,6 +22,7 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/internal/events"
 	"github.com/devanshbaghel18/ONUSLY/internal/friends"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
+	"github.com/devanshbaghel18/ONUSLY/internal/metrics"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/notifications"
 	"github.com/devanshbaghel18/ONUSLY/internal/proof"
@@ -38,26 +39,68 @@ func health(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func cors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-		} else {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-		}
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, ngrok-skip-browser-warning, Bypass-Tunnel-Reminder, If-None-Match")
-		w.Header().Set("Access-Control-Expose-Headers", "ETag")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+func isAllowedOrigin(origin, host string, allowedOrigins []string) bool {
+	if origin == "" {
+		return true // Direct non-browser clients (CLI, agents, mobile apps)
+	}
+	origin = strings.TrimSpace(origin)
+	originLower := strings.ToLower(origin)
 
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
+	for _, o := range allowedOrigins {
+		if strings.EqualFold(originLower, strings.ToLower(strings.TrimSpace(o))) {
+			return true
 		}
+	}
 
-		next.ServeHTTP(w, r)
-	})
+	// Always permit local development and testing origins
+	if originLower == "http://localhost:3000" ||
+		originLower == "http://localhost:5173" ||
+		originLower == "http://127.0.0.1:3000" ||
+		originLower == "http://127.0.0.1:5173" ||
+		originLower == "http://localhost:8080" ||
+		originLower == "http://127.0.0.1:8080" {
+		return true
+	}
+
+	// Same-origin check
+	if host != "" {
+		hostLower := strings.ToLower(host)
+		if originLower == "http://"+hostLower || originLower == "https://"+hostLower {
+			return true
+		}
+	}
+
+	return false
+}
+
+func cors(allowedOrigins []string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				if isAllowedOrigin(origin, r.Host, allowedOrigins) {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
+				} else {
+					if r.Method == http.MethodOptions {
+						http.Error(w, "forbidden: origin not allowed", http.StatusForbidden)
+						return
+					}
+				}
+			}
+
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, ngrok-skip-browser-warning, Bypass-Tunnel-Reminder, If-None-Match, Idempotency-Key, X-Device-ID")
+			w.Header().Set("Access-Control-Expose-Headers", "ETag")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // validateAndResolveBindAddress enforces loopback-only binding in production to prevent
@@ -100,26 +143,42 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// DynamoDB table configuration (supports environment isolation e.g. Onusly-Staging)
+	tableName := cfg.DynamoTable
+	if tableName == "" {
+		tableName = "Onusly"
+	}
+
 	// DynamoDB
 	db := shared.NewDynamoClient()
 
 	// Auth repository, service & handler
-	authRepo := auth.NewRepository()
+	authRepo := auth.NewRepositoryWithTable(db, tableName)
 	authService := auth.NewService(authRepo, cfg)
 	authHandler := auth.NewHandler(authService)
 
+	// Rate limiters for sensitive endpoints
+	authLimiter := middleware.NewRateLimiter(30, time.Minute)
+	pairingLimiter := middleware.NewRateLimiter(20, time.Minute)
+
 	// Public routes
 	mux.HandleFunc("GET /health", health)
-	mux.HandleFunc("POST /auth/google", authHandler.GoogleLogin)
-	mux.HandleFunc("GET /auth/google/callback", authHandler.GoogleCallback)
+	mux.HandleFunc("GET /metrics", metrics.DefaultRegistry.Handler())
+	mux.Handle("POST /auth/google", authLimiter.Limit(http.HandlerFunc(authHandler.GoogleLogin)))
+	mux.Handle("GET /auth/google/callback", authLimiter.Limit(http.HandlerFunc(authHandler.GoogleCallback)))
 
-	// Downloads & Enterprise Extension CRX / Update Manifest
+	// Downloads & Enterprise Extension CRX / Update Manifest with path-traversal guard
 	downloadsDir := "frontend/public/downloads"
 	fileServer := http.FileServer(http.Dir(downloadsDir))
 	mux.Handle("GET /downloads/", http.StripPrefix("/downloads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, ".crx") {
+		cleanPath := strings.TrimSpace(r.URL.Path)
+		if strings.Contains(cleanPath, "..") || strings.Contains(cleanPath, "%2e") || strings.Contains(cleanPath, "\x00") {
+			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		if strings.HasSuffix(cleanPath, ".crx") {
 			w.Header().Set("Content-Type", "application/x-chrome-extension")
-		} else if strings.HasSuffix(r.URL.Path, ".xml") {
+		} else if strings.HasSuffix(cleanPath, ".xml") {
 			w.Header().Set("Content-Type", "application/xml")
 		}
 		fileServer.ServeHTTP(w, r)
@@ -131,24 +190,24 @@ func main() {
 	mux.HandleFunc("GET /ws/", realtime.ServeWS(wsHub, cfg.JWTSecret))
 
 	// Goals
-	goalRepo := goals.NewRepository(db, "Onusly")
+	goalRepo := goals.NewRepository(db, tableName)
 	goalService := goals.NewService(goalRepo, authRepo)
 	goalHandler := goals.NewHandler(goalService)
 
 	// Enforcement
-	enforcementRepo := enforcement.NewDynamoRepository(db, "Onusly")
+	enforcementRepo := enforcement.NewDynamoRepository(db, tableName)
 	enforcementService := enforcement.NewService(goalService)
 	enforcementService.SetDeviceRepository(enforcementRepo)
 	enforcementService.SetTokenGenerator(authService)
 	enforcementHandler := enforcement.NewHandler(enforcementService)
 
 	// Proof
-	proofRepo := proof.NewRepository(db, "Onusly")
+	proofRepo := proof.NewRepository(db, tableName)
 	proofService := proof.NewService(proofRepo, goalService)
 	proofHandler := proof.NewHandler(proofService)
 
 	// Approval
-	approvalRepo := approval.NewRepository(db, "Onusly")
+	approvalRepo := approval.NewRepository(db, tableName)
 	approvalService := approval.NewService(
 		approvalRepo,
 		goalService,
@@ -186,10 +245,11 @@ func main() {
 	approvalService.SetPublisher(domainPublisher)
 
 	// Notifications
-	notifRepo := notifications.NewRepository(db, "Onusly")
+	notifRepo := notifications.NewRepository(db, tableName)
 	notifService := notifications.NewService(notifRepo)
 	notifService.SetBroadcaster(&serverNotifBroadcaster{hub: wsHub})
 	enforcementService.SetNotificationSender(notifService)
+	goalService.SetNotificationSender(notifService)
 	notifHandler := notifications.NewHandler(notifService)
 
 	// Background Notification Worker
@@ -202,7 +262,7 @@ func main() {
 	approvalHandler := approval.NewHandler(approvalService)
 
 	// Chat Repository, Store & Handler
-	chatRepo := chat.NewRepository(db, "Onusly")
+	chatRepo := chat.NewRepository(db, tableName)
 	chatResolver := &serverUserResolver{authRepo: authRepo}
 	chatHandler := chat.NewHandler(chatRepo)
 	chatHandler.SetUserResolver(chatResolver)
@@ -212,7 +272,7 @@ func main() {
 	wsHub.SetUserResolver(chatResolver)
 
 	// Friends & Communities Repository, Service & Handler
-	friendsRepo := friends.NewRepository(db, "Onusly")
+	friendsRepo := friends.NewRepository(db, tableName)
 	friendsService := friends.NewService(friendsRepo, chatResolver, wsHub)
 	friendsHandler := friends.NewHandler(friendsService)
 
@@ -375,6 +435,10 @@ func main() {
 		enforcementHandler.GetDevices,
 	)
 	goalRoutes.HandleFunc(
+		"POST /enforcement/devices/{id}/revoke",
+		enforcementHandler.RevokeDevice,
+	)
+	goalRoutes.HandleFunc(
 		"GET /goals/{id}/enforcement-status",
 		enforcementHandler.GetGoalEnforcementStatus,
 	)
@@ -383,12 +447,16 @@ func main() {
 		enforcementHandler.ConfirmPairing,
 	)
 
-	// Public Device Pairing Endpoints
-	mux.HandleFunc("POST /enforcement/pair/request", enforcementHandler.RequestPairing)
-	mux.HandleFunc("POST /enforcement/pair/exchange", enforcementHandler.ExchangePairing)
+	// Idempotency store for mutation endpoints
+	idempotencyStore := middleware.NewMemoryIdempotencyStore(24 * time.Hour)
+	idempotentProtected := middleware.Idempotency(idempotencyStore)(goalRoutes)
+
+	// Public Device Pairing Endpoints (protected by rate limiting and idempotency)
+	mux.Handle("POST /enforcement/pair/request", pairingLimiter.Limit(middleware.Idempotency(idempotencyStore)(http.HandlerFunc(enforcementHandler.RequestPairing))))
+	mux.Handle("POST /enforcement/pair/exchange", pairingLimiter.Limit(middleware.Idempotency(idempotencyStore)(http.HandlerFunc(enforcementHandler.ExchangePairing))))
 
 	// JWT authentication for all protected routes
-	protectedRoutes := middleware.Auth(cfg.JWTSecret)(goalRoutes)
+	protectedRoutes := middleware.Auth(cfg.JWTSecret)(idempotentProtected)
 
 	mux.Handle("/goals", protectedRoutes)
 	mux.Handle("/goals/", protectedRoutes)
@@ -410,9 +478,19 @@ func main() {
 		log.Fatalf("Server bind address configuration error: %v", err)
 	}
 
+	// Apply defense-in-depth pipeline to root handler:
+	// 1. Protective HTTP security headers (nosniff, DENY, CSP, XSS)
+	// 2. Request body size ceiling (1MB) to prevent denial-of-service memory exhaustion
+	// 3. Strict origin-whitelisted CORS
+	rootHandler := middleware.SecurityHeaders(
+		middleware.MaxBytesLimiter(1024*1024)(
+			cors(cfg.AllowedOrigins)(mux),
+		),
+	)
+
 	server := &http.Server{
 		Addr:         addr,
-		Handler:      cors(mux),
+		Handler:      rootHandler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -430,6 +508,9 @@ func main() {
 
 	<-stopCtx.Done()
 	log.Println("Gracefully stopping server...")
+
+	notifWorker.Stop()
+	log.Println("Notification worker drained and stopped.")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

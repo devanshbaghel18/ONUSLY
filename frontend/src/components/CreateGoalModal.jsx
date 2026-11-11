@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { Lock, X, Loader2, Plus, Globe, Smartphone, Trash2 } from "lucide-react";
+import { Lock, X, Loader2, Plus, Globe, Smartphone, Trash2, Laptop, AlertCircle } from "lucide-react";
 import { createGoal } from "../lib/api";
-import { APP_CATALOG } from "../lib/blockedApps";
+import { APP_CATALOG, isProtectedProcess, normalizeDesktopAppTarget } from "../lib/blockedApps";
 import { notifyExtensionSync } from "../lib/extensionSync";
 
 export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
@@ -10,7 +10,8 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
   const [selectedCatalogIds, setSelectedCatalogIds] = useState(["youtube", "instagram", "twitter"]);
   const [customTargets, setCustomTargets] = useState([]);
   const [customInput, setCustomInput] = useState("");
-  const [customType, setCustomType] = useState("app"); // "app" or "domain"
+  const [customType, setCustomType] = useState("desktop"); // "desktop", "domain", "app"
+  const [customTargetError, setCustomTargetError] = useState("");
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [approvalType, setApprovalType] = useState("friend");
   const [approverEmail, setApproverEmail] = useState("");
@@ -66,78 +67,90 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
   };
 
   const handleAddCustomTarget = () => {
+    setCustomTargetError("");
     const trimmed = customInput.trim();
     if (!trimmed) return;
 
-    const lower = trimmed.toLowerCase();
-    const cleanDomain = lower
-      .replace(/^(?:https?:\/\/)?(?:www\.)?/i, "")
-      .split("/")[0]
-      .split("?")[0];
-
-    // Check if entered target matches any entry in APP_CATALOG
-    const catalogMatch = APP_CATALOG.find((item) => {
-      const matchPkg =
-        item.packageName?.toLowerCase() === lower ||
-        (Array.isArray(item.packageNames) &&
-          item.packageNames.some((p) => p.toLowerCase() === lower));
-      const matchDom =
-        Array.isArray(item.domains) &&
-        item.domains.some((d) => {
-          const dClean = d.toLowerCase().replace(/^(?:www\.)?/i, "");
-          return dClean === cleanDomain || dClean === lower || d.toLowerCase() === lower;
-        });
-      return matchPkg || matchDom;
-    });
-
-    const newTargets = [];
-    if (!customTargets.some((t) => t.value.toLowerCase() === trimmed.toLowerCase())) {
-      newTargets.push({
-        id: `custom-${Date.now()}-${Math.random()}`,
-        type: customType,
-        value: trimmed,
-      });
-    }
-
-    // If user adds a custom website domain in APP_CATALOG (e.g. instagram.com),
-    // also add the mapped package name (com.instagram.android) to apps so the phone app is also blocked.
-    // If user adds a custom app package in APP_CATALOG, also add the mapped domains.
-    if (catalogMatch) {
-      if (customType === "domain" && catalogMatch.packageName) {
-        if (
-          !customTargets.some(
-            (t) => t.value.toLowerCase() === catalogMatch.packageName.toLowerCase()
-          ) &&
-          !newTargets.some(
-            (t) => t.value.toLowerCase() === catalogMatch.packageName.toLowerCase()
-          )
-        ) {
-          newTargets.push({
-            id: `custom-pkg-${Date.now()}-${Math.random()}`,
-            type: "app",
-            value: catalogMatch.packageName,
-          });
-        }
-      } else if (customType === "app" && Array.isArray(catalogMatch.domains)) {
-        catalogMatch.domains.forEach((d) => {
-          if (
-            !customTargets.some((t) => t.value.toLowerCase() === d.toLowerCase()) &&
-            !newTargets.some((t) => t.value.toLowerCase() === d.toLowerCase())
-          ) {
-            newTargets.push({
-              id: `custom-dom-${Date.now()}-${Math.random()}`,
-              type: "domain",
-              value: d,
-            });
-          }
-        });
+    if (customType === "desktop") {
+      const clean = normalizeDesktopAppTarget(trimmed);
+      if (isProtectedProcess(clean)) {
+        setCustomTargetError(`"${clean}" is a protected operating system / ONUSLY component and cannot be restricted.`);
+        return;
       }
+      if (/[/\\&|;><$`*?~!(){}[\]'"\n\r\t]/.test(clean)) {
+        setCustomTargetError("Invalid application identifier: shell metacharacters and directory paths are not allowed.");
+        return;
+      }
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(clean)) {
+        setCustomTargetError("Invalid application identifier format (must start with letter or number).");
+        return;
+      }
+      if (customTargets.some((t) => t.value.toLowerCase() === clean.toLowerCase())) {
+        setCustomTargetError(`"${clean}" is already in your custom targets.`);
+        return;
+      }
+      setCustomTargets((prev) => [
+        ...prev,
+        {
+          id: `custom-desk-${Date.now()}-${Math.random()}`,
+          type: "desktop",
+          value: clean,
+        },
+      ]);
+      setCustomInput("");
+      return;
     }
 
-    if (newTargets.length > 0) {
-      setCustomTargets((prev) => [...prev, ...newTargets]);
+    if (customType === "domain") {
+      const lower = trimmed.toLowerCase();
+      const cleanDomain = lower
+        .replace(/^(?:https?:\/\/)?(?:www\.)?/i, "")
+        .split("/")[0]
+        .split("?")[0];
+      if (!cleanDomain.includes(".")) {
+        setCustomTargetError("Invalid domain format (e.g. youtube.com, reddit.com).");
+        return;
+      }
+      if (customTargets.some((t) => t.value.toLowerCase() === cleanDomain)) {
+        setCustomTargetError(`"${cleanDomain}" is already in your custom targets.`);
+        return;
+      }
+      setCustomTargets((prev) => [
+        ...prev,
+        {
+          id: `custom-dom-${Date.now()}-${Math.random()}`,
+          type: "domain",
+          value: cleanDomain,
+        },
+      ]);
+      setCustomInput("");
+      return;
     }
-    setCustomInput("");
+
+    if (customType === "app") {
+      if (isProtectedProcess(trimmed)) {
+        setCustomTargetError(`"${trimmed}" is a protected process and cannot be restricted.`);
+        return;
+      }
+      if (!/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(trimmed)) {
+        setCustomTargetError("Android package must match format (e.g. com.example.app).");
+        return;
+      }
+      if (customTargets.some((t) => t.value.toLowerCase() === trimmed.toLowerCase())) {
+        setCustomTargetError(`"${trimmed}" is already in your custom targets.`);
+        return;
+      }
+      setCustomTargets((prev) => [
+        ...prev,
+        {
+          id: `custom-app-${Date.now()}-${Math.random()}`,
+          type: "app",
+          value: trimmed,
+        },
+      ]);
+      setCustomInput("");
+      return;
+    }
   };
 
   const handleRemoveCustomTarget = (id) => {
@@ -156,13 +169,25 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
     // Build lists of real package names and domains from catalog + custom
     const appsSet = new Set();
     const domainsSet = new Set();
+    const applicationTargets = [];
 
     selectedCatalogIds.forEach((catId) => {
       const item = APP_CATALOG.find((c) => c.id === catId);
       if (item) {
-        if (item.packageName) appsSet.add(item.packageName);
+        if (item.packageName) {
+          appsSet.add(item.packageName);
+          applicationTargets.push({ kind: "android_package", identifier: item.packageName });
+        }
         if (Array.isArray(item.packageNames)) {
-          item.packageNames.forEach((pkg) => appsSet.add(pkg));
+          item.packageNames.forEach((pkg) => {
+            appsSet.add(pkg);
+            const kind = pkg.includes(".") ? "android_package" : "desktop_app";
+            applicationTargets.push({ kind, identifier: pkg });
+          });
+        }
+        if (item.id && !item.packageName?.includes(item.id)) {
+          appsSet.add(item.id);
+          applicationTargets.push({ kind: "desktop_app", identifier: item.id });
         }
         (item.domains || []).forEach((d) => domainsSet.add(d));
       }
@@ -170,39 +195,14 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
 
     customTargets.forEach((ct) => {
       const trimmedVal = ct.value.trim();
-      const lower = trimmedVal.toLowerCase();
-      const cleanDomain = lower
-        .replace(/^(?:https?:\/\/)?(?:www\.)?/i, "")
-        .split("/")[0]
-        .split("?")[0];
-
-      const catalogMatch = APP_CATALOG.find((item) => {
-        const matchPkg =
-          item.packageName?.toLowerCase() === lower ||
-          (Array.isArray(item.packageNames) &&
-            item.packageNames.some((p) => p.toLowerCase() === lower));
-        const matchDom =
-          Array.isArray(item.domains) &&
-          item.domains.some((d) => {
-            const dClean = d.toLowerCase().replace(/^(?:www\.)?/i, "");
-            return dClean === cleanDomain || dClean === lower || d.toLowerCase() === lower;
-          });
-        return matchPkg || matchDom;
-      });
-
-      if (ct.type === "app") {
+      if (ct.type === "desktop") {
         appsSet.add(trimmedVal);
-        if (catalogMatch && Array.isArray(catalogMatch.domains)) {
-          catalogMatch.domains.forEach((d) => domainsSet.add(d));
-        }
+        applicationTargets.push({ kind: "desktop_app", identifier: trimmedVal });
+      } else if (ct.type === "app") {
+        appsSet.add(trimmedVal);
+        applicationTargets.push({ kind: "android_package", identifier: trimmedVal });
       } else {
         domainsSet.add(trimmedVal);
-        if (catalogMatch) {
-          if (catalogMatch.packageName) appsSet.add(catalogMatch.packageName);
-          if (Array.isArray(catalogMatch.packageNames)) {
-            catalogMatch.packageNames.forEach((pkg) => appsSet.add(pkg));
-          }
-        }
       }
     });
 
@@ -229,6 +229,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
         approverEmail: trimmedApprover,
         blockedApps: Array.from(appsSet),
         blockedDomains: Array.from(domainsSet),
+        applicationTargets,
       });
 
       if (onGoalCreated) {
@@ -372,17 +373,50 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
                 onClick={() => setShowCustomInput((v) => !v)}
                 className="text-[11px] font-semibold text-[#A3A3A3] hover:text-white transition underline"
               >
-                {showCustomInput ? "Hide" : "+ Add Custom Package / Domain"}
+                {showCustomInput ? "Hide" : "+ Add Desktop App / Domain / Package"}
               </button>
             </div>
 
             {showCustomInput && (
-              <div className="mt-3 space-y-2 border-t border-[#262626] pt-3">
-                <div className="flex items-center gap-2 text-[11px]">
+              <div className="mt-3 space-y-3 border-t border-[#262626] pt-3">
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
                   <button
                     type="button"
-                    onClick={() => setCustomType("app")}
-                    className={`flex items-center gap-1 rounded-lg px-2.5 py-1 font-semibold transition ${
+                    onClick={() => {
+                      setCustomType("desktop");
+                      setCustomTargetError("");
+                    }}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-semibold transition ${
+                      customType === "desktop"
+                        ? "bg-white text-black font-bold"
+                        : "bg-[#222222] text-[#A3A3A3] hover:text-white"
+                    }`}
+                  >
+                    <Laptop size={11} />
+                    <span>Desktop App</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomType("domain");
+                      setCustomTargetError("");
+                    }}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-semibold transition ${
+                      customType === "domain"
+                        ? "bg-white text-black font-bold"
+                        : "bg-[#222222] text-[#A3A3A3] hover:text-white"
+                    }`}
+                  >
+                    <Globe size={11} />
+                    <span>Website / Domain</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomType("app");
+                      setCustomTargetError("");
+                    }}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-semibold transition ${
                       customType === "app"
                         ? "bg-white text-black font-bold"
                         : "bg-[#222222] text-[#A3A3A3] hover:text-white"
@@ -391,25 +425,16 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
                     <Smartphone size={11} />
                     <span>Android Package</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setCustomType("domain")}
-                    className={`flex items-center gap-1 rounded-lg px-2.5 py-1 font-semibold transition ${
-                      customType === "domain"
-                        ? "bg-white text-black font-bold"
-                        : "bg-[#222222] text-[#A3A3A3] hover:text-white"
-                    }`}
-                  >
-                    <Globe size={11} />
-                    <span>Domain / URL</span>
-                  </button>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={customInput}
-                    onChange={(e) => setCustomInput(e.target.value)}
+                    onChange={(e) => {
+                      setCustomInput(e.target.value);
+                      if (customTargetError) setCustomTargetError("");
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
@@ -417,9 +442,11 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
                       }
                     }}
                     placeholder={
-                      customType === "app"
-                        ? "e.g. com.snapchat.android"
-                        : "e.g. news.ycombinator.com"
+                      customType === "desktop"
+                        ? "e.g. discord, steam, spotify, or VLC.exe"
+                        : customType === "domain"
+                        ? "e.g. news.ycombinator.com"
+                        : "e.g. com.snapchat.android"
                     }
                     className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-3 py-2 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none transition"
                   />
@@ -431,6 +458,71 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
                     Add
                   </button>
                 </div>
+
+                {/* Live Normalized Preview */}
+                {customInput.trim() && (
+                  <div className="text-[11px] px-1 font-mono">
+                    {customType === "desktop" ? (
+                      (() => {
+                        const clean = normalizeDesktopAppTarget(customInput.trim());
+                        if (isProtectedProcess(clean)) {
+                          return (
+                            <span className="text-amber-400 font-sans">
+                              ⚠️ "{clean}" is a protected system process and cannot be restricted.
+                            </span>
+                          );
+                        }
+                        if (/[/\\&|;><$`*?~!(){}[\]'"\n\r\t]/.test(clean)) {
+                          return (
+                            <span className="text-amber-400 font-sans">
+                              ⚠️ Invalid characters: shell characters and paths are not allowed.
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className="text-[#A1A1AA]">
+                            Normalized Target: <span className="text-white font-bold">{clean}</span>
+                          </span>
+                        );
+                      })()
+                    ) : customType === "domain" ? (
+                      <span className="text-[#A1A1AA]">
+                        Normalized Domain:{" "}
+                        <span className="text-white font-bold">
+                          {customInput
+                            .trim()
+                            .toLowerCase()
+                            .replace(/^(?:https?:\/\/)?(?:www\.)?/i, "")
+                            .split("/")[0]
+                            .split("?")[0]}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-[#A1A1AA]">
+                        Target Package: <span className="text-white font-bold">{customInput.trim()}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {customTargetError && (
+                  <div className="text-[11px] text-amber-400 px-1">
+                    {customTargetError}
+                  </div>
+                )}
+
+                {/* Tier 1 Detection & Response Disclosure */}
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-[#A1A1AA] flex items-start gap-2.5">
+                  <AlertCircle size={15} className="text-white/60 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <div>
+                      <span className="font-semibold text-white">Tier 1 — Detection & Response:</span> Restricted desktop applications may briefly launch before ONUSLY detects and closes them.
+                    </div>
+                    <div className="text-[11px] text-[#737373]">
+                      Immunity Notice: Core operating system binaries (e.g. Explorer, Task Manager, Command Prompt, PowerShell) and ONUSLY agent components are protected and cannot be restricted.
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -441,16 +533,21 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
                     key={ct.id}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-[#3A3A3A] bg-[#1A1A1A] px-2.5 py-1 text-[11px] text-neutral-300"
                   >
-                    {ct.type === "app" ? (
+                    {ct.type === "desktop" ? (
+                      <Laptop size={10} className="text-neutral-400" />
+                    ) : ct.type === "app" ? (
                       <Smartphone size={10} className="text-neutral-400" />
                     ) : (
                       <Globe size={10} className="text-neutral-400" />
                     )}
+                    <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">
+                      {ct.type === "desktop" ? "Desktop" : ct.type === "app" ? "Android" : "Web"}
+                    </span>
                     <span>{ct.value}</span>
                     <button
                       type="button"
                       onClick={() => handleRemoveCustomTarget(ct.id)}
-                      className="text-[#737373] hover:text-white transition"
+                      className="text-[#737373] hover:text-white transition ml-0.5"
                     >
                       <Trash2 size={10} />
                     </button>

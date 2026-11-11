@@ -18,6 +18,9 @@ import {
   Send,
   Pin,
   RotateCcw,
+  Laptop,
+  Globe,
+  Smartphone,
 } from "lucide-react";
 import { getGoals, deleteGoal, submitProof, updateGoal, repeatGoal } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -427,6 +430,11 @@ export default function Goals() {
                             <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300 glow-pill-white">
                               Pending
                             </span>
+                          ) : g.status === "rejected" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-300">
+                              <Lock size={11} className="text-amber-400" />
+                              Rejected
+                            </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300">
                               <Lock size={11} className="text-neutral-400" />
@@ -487,8 +495,14 @@ export default function Goals() {
                               key={target.label}
                               className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-neutral-300 transition-colors hover:border-white/20"
                             >
-                              <Lock size={9} className="text-neutral-400" />
-                              {target.label}
+                              {target.type === "desktop" ? (
+                                <Laptop size={10} className="text-neutral-400" />
+                              ) : target.type === "app" ? (
+                                <Smartphone size={10} className="text-neutral-400" />
+                              ) : (
+                                <Globe size={10} className="text-neutral-400" />
+                              )}
+                              <span>{target.label}</span>
                             </span>
                           ))
                         ) : (

@@ -9,15 +9,39 @@ import (
 )
 
 var (
-	ErrInvalidUUID       = errors.New("invalid device id: must be a valid UUID")
-	ErrInvalidClientType = errors.New("invalid client type: must be android, extension, or desktop_agent")
-	ErrInvalidPlatform   = errors.New("invalid platform: must be android, linux, windows, or macos")
-	ErrInvalidBrowser    = errors.New("invalid browser: must be chrome, edge, brave, firefox, or omitted")
-	ErrInvalidSentAt     = errors.New("invalid sentAt: timestamp cannot be empty, unparseable, or in future")
-	ErrInvalidIssues     = errors.New("invalid issue: contains unrecognized issue code")
-	ErrDeviceNotFound    = errors.New("device not found")
-	ErrGoalNotFound      = errors.New("goal not found")
-	ErrUnauthorizedGoal  = errors.New("unauthorized access to goal enforcement status")
+	ErrInvalidUUID             = errors.New("invalid device id: must be a valid UUID")
+	ErrInvalidClientType       = errors.New("invalid client type: must be android, extension, or desktop_agent")
+	ErrInvalidPlatform         = errors.New("invalid platform: must be android, linux, windows, or macos")
+	ErrInvalidBrowser          = errors.New("invalid browser: must be chrome, edge, brave, firefox, or omitted")
+	ErrInvalidSentAt           = errors.New("invalid sentAt: timestamp cannot be empty, unparseable, or in future")
+	ErrInvalidIssues           = errors.New("invalid issue: contains unrecognized issue code")
+	ErrDeviceNotFound          = errors.New("device not found")
+	ErrDeviceRevoked           = errors.New("device has been revoked by account owner")
+	ErrCredentialExpired       = errors.New("device credential has expired")
+	ErrUnauthorizedDevice      = errors.New("unauthorized device access")
+	ErrDeviceOwnershipMismatch = errors.New("device belongs to a different account")
+	ErrGoalNotFound            = errors.New("goal not found")
+	ErrUnauthorizedGoal        = errors.New("unauthorized access to goal enforcement status")
+)
+
+const (
+	DeviceStatusPaired       = "paired"
+	DeviceStatusRevoked      = "revoked"
+	DeviceStatusAuthRequired = "auth_required"
+)
+
+// Authoritative Health States for devices and clients
+const (
+	HealthStateHealthy                = "HEALTHY"
+	HealthStateDegraded               = "DEGRADED"
+	HealthStateOffline                = "OFFLINE"
+	HealthStateAuthenticationRequired = "AUTHENTICATION_REQUIRED"
+	HealthStateDeviceRevoked          = "DEVICE_REVOKED"
+	HealthStatePolicyStale            = "POLICY_STALE"
+	HealthStatePolicyMissing          = "POLICY_MISSING"
+	HealthStateDNSUnavailable         = "DNS_UNAVAILABLE"
+	HealthStateBrowserDegraded        = "BROWSER_INTEGRATION_DEGRADED"
+	HealthStateAppEnforcementDegraded = "APP_ENFORCEMENT_DEGRADED"
 )
 
 var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -52,13 +76,20 @@ var validIssues = map[string]bool{
 	"service_degraded":       true,
 }
 
+// ApplicationTarget defines an explicitly typed application restriction.
+type ApplicationTarget struct {
+	Kind       string `json:"kind"`       // "desktop_app" | "android_package"
+	Identifier string `json:"identifier"` // e.g. "discord", "com.whatsapp"
+}
+
 // TargetItem represents a single goal's active enforcement targets.
 type TargetItem struct {
-	GoalID    string   `json:"goalId"`
-	GoalTitle string   `json:"goalTitle"`
-	Status    string   `json:"status"`
-	Apps      []string `json:"apps"`
-	Domains   []string `json:"domains"`
+	GoalID             string              `json:"goalId"`
+	GoalTitle          string              `json:"goalTitle"`
+	Status             string              `json:"status"`
+	Apps               []string            `json:"apps"` // preserved for backward-compatibility with existing goals/Android clients
+	Domains            []string            `json:"domains"`
+	ApplicationTargets []ApplicationTarget `json:"applicationTargets,omitempty"`
 
 	// unexported field for ordering
 	createdAt string `json:"-"`
@@ -178,22 +209,40 @@ func (r *HeartbeatRequest) Validate() error {
 // PK = USER#<sub
 // SK = DEVICE#<deviceId>
 type Device struct {
-	PK               string   `dynamodbav:"PK" json:"-"`
-	SK               string   `dynamodbav:"SK" json:"-"`
-	DeviceID         string   `dynamodbav:"DeviceId" json:"deviceId"`
-	UserID           string   `dynamodbav:"UserId" json:"userId"`
-	ClientType       string   `dynamodbav:"ClientType" json:"clientType"`
-	Platform         string   `dynamodbav:"Platform" json:"platform"`
-	Browser          string   `dynamodbav:"Browser,omitempty" json:"browser,omitempty"`
-	ClientVersion    string   `dynamodbav:"ClientVersion" json:"clientVersion"`
-	Enforcing        bool     `dynamodbav:"Enforcing" json:"enforcing"`
-	BlocklistVersion string   `dynamodbav:"BlocklistVersion" json:"blocklistVersion"`
-	Issues           []string `dynamodbav:"Issues" json:"issues"`
-	LastHeartbeatAt  string   `dynamodbav:"LastHeartbeatAt" json:"lastHeartbeatAt"`
-	LapseEpisodeID   string   `dynamodbav:"LapseEpisodeID,omitempty" json:"lapseEpisodeId,omitempty"`
-	CreatedAt        string   `dynamodbav:"CreatedAt" json:"createdAt"`
-	UpdatedAt        string   `dynamodbav:"UpdatedAt" json:"updatedAt"`
-	ExpiresAt        int64    `dynamodbav:"ExpiresAt" json:"expiresAt"` // Unix timestamp (30 days TTL)
+	PK                string   `dynamodbav:"PK" json:"-"`
+	SK                string   `dynamodbav:"SK" json:"-"`
+	DeviceID          string   `dynamodbav:"DeviceId" json:"deviceId"`
+	UserID            string   `dynamodbav:"UserId" json:"userId"`
+	ClientType        string   `dynamodbav:"ClientType" json:"clientType"`
+	Platform          string   `dynamodbav:"Platform" json:"platform"`
+	Browser           string   `dynamodbav:"Browser,omitempty" json:"browser,omitempty"`
+	ClientVersion     string   `dynamodbav:"ClientVersion" json:"clientVersion"`
+	Enforcing         bool     `dynamodbav:"Enforcing" json:"enforcing"`
+	BlocklistVersion  string   `dynamodbav:"BlocklistVersion" json:"blocklistVersion"`
+	Issues            []string `dynamodbav:"Issues" json:"issues"`
+	Status            string   `dynamodbav:"Status,omitempty" json:"status"` // "paired" | "revoked" | "auth_required"
+	HealthStatus      string   `dynamodbav:"HealthStatus,omitempty" json:"healthStatus,omitempty"`
+	RevokedAt         string   `dynamodbav:"RevokedAt,omitempty" json:"revokedAt,omitempty"`
+	RevocationReason  string   `dynamodbav:"RevocationReason,omitempty" json:"revocationReason,omitempty"`
+	CredentialVersion int64    `dynamodbav:"CredentialVersion,omitempty" json:"credentialVersion,omitempty"`
+	DeviceName        string   `dynamodbav:"DeviceName,omitempty" json:"deviceName,omitempty"`
+	LastHeartbeatAt   string   `dynamodbav:"LastHeartbeatAt" json:"lastHeartbeatAt"`
+	LapseEpisodeID    string   `dynamodbav:"LapseEpisodeID,omitempty" json:"lapseEpisodeId,omitempty"`
+	CreatedAt         string   `dynamodbav:"CreatedAt" json:"createdAt"`
+	UpdatedAt         string   `dynamodbav:"UpdatedAt" json:"updatedAt"`
+	ExpiresAt         int64    `dynamodbav:"ExpiresAt" json:"expiresAt"` // Unix timestamp (30 days TTL)
+}
+
+// RevokeDeviceRequest represents payload for POST /enforcement/devices/{id}/revoke
+type RevokeDeviceRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// RevokeDeviceResponse returns the confirmation of revocation
+type RevokeDeviceResponse struct {
+	DeviceID  string `json:"deviceId"`
+	Status    string `json:"status"`
+	RevokedAt string `json:"revokedAt"`
 }
 
 // DeviceCoverageResponse returns all registered devices for the authenticated owner

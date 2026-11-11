@@ -33,6 +33,15 @@ func (m *mockDeviceRepo) UpsertDevice(ctx context.Context, device enforcement.De
 	return nil
 }
 
+func (m *mockDeviceRepo) UpdateHeartbeat(ctx context.Context, device enforcement.Device) error {
+	key := device.UserID + "#" + device.DeviceID
+	if existing, ok := m.devices[key]; ok && existing.Status == enforcement.DeviceStatusRevoked {
+		return enforcement.ErrDeviceRevoked
+	}
+	m.devices[key] = device
+	return nil
+}
+
 func (m *mockDeviceRepo) ListDevices(ctx context.Context, userID string) ([]enforcement.Device, error) {
 	var list []enforcement.Device
 	for _, d := range m.devices {
@@ -50,6 +59,21 @@ func (m *mockDeviceRepo) GetDevice(ctx context.Context, userID, deviceID string)
 		return nil, enforcement.ErrDeviceNotFound
 	}
 	return &d, nil
+}
+
+func (m *mockDeviceRepo) RevokeDevice(ctx context.Context, userID, deviceID, reason string) error {
+	key := userID + "#" + deviceID
+	d, ok := m.devices[key]
+	if !ok {
+		return enforcement.ErrDeviceNotFound
+	}
+	d.Status = enforcement.DeviceStatusRevoked
+	d.RevokedAt = time.Now().UTC().Format(time.RFC3339)
+	d.RevocationReason = reason
+	d.Enforcing = false
+	d.CredentialVersion++
+	m.devices[key] = d
+	return nil
 }
 
 func (m *mockDeviceRepo) SavePairingSession(ctx context.Context, session enforcement.PairingSession) error {

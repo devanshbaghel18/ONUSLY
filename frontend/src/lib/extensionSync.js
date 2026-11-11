@@ -1,3 +1,5 @@
+import { API_BASE_URL } from "./api.js";
+
 /**
  * Utility to notify the ONUSLY Chrome extension to sync its blocklist.
  * Dispatches via both content-script window bridge and chrome.runtime.
@@ -5,6 +7,12 @@
  */
 export function notifyExtensionSync() {
   if (typeof window === "undefined") return;
+
+  const targetApiUrl =
+    API_BASE_URL ||
+    (typeof window !== "undefined" && window.location
+      ? `${window.location.protocol}//${window.location.hostname}:8081`
+      : "http://localhost:8081");
 
   const token =
     localStorage.getItem("token") ||
@@ -31,7 +39,7 @@ export function notifyExtensionSync() {
           type: "ONUSLY_AUTH_HANDOFF",
           token,
           user,
-          baseUrl: "http://localhost:8080",
+          baseUrl: targetApiUrl,
         },
         "*"
       );
@@ -47,7 +55,7 @@ export function notifyExtensionSync() {
             type: "ONUSLY_AUTH_HANDOFF",
             token,
             user,
-            baseUrl: "http://localhost:8080",
+            baseUrl: targetApiUrl,
           },
           () => {
             void window.chrome.runtime.lastError;

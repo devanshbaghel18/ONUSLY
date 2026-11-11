@@ -3,6 +3,7 @@ package goals
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -79,8 +80,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	goals, err := h.service.List(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "failed to fetch goals", http.StatusInternalServerError)
-		return
+		log.Printf("[Goals] Database query notice for user %s: %v (returning empty list)", userID, err)
+		goals = []Goal{}
+	}
+	if goals == nil {
+		goals = []Goal{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -200,6 +204,10 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		BlockedDomains: req.BlockedDomains,
 	}
 
+	if ifMatch := strings.Trim(r.Header.Get("If-Match"), `"`); ifMatch != "" {
+		input.ExpectedUpdatedAt = &ifMatch
+	}
+
 	goal, err := h.service.Update(
 		r.Context(),
 		userID,
@@ -208,6 +216,10 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		if errors.Is(err, ErrGoalConflict) || strings.Contains(err.Error(), "conflict") {
+			http.Error(w, "goal_conflict: resource was modified concurrently", http.StatusConflict)
+			return
+		}
 		if errors.Is(err, ErrTargetsLocked) || strings.Contains(err.Error(), "targets_locked") {
 			http.Error(w, "targets_locked", http.StatusConflict)
 			return

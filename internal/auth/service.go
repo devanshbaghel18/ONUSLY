@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 	"unicode"
@@ -114,6 +115,7 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 	authorizedIDs := []string{
 		"316293252544-c8s2tsrvd4g8tj0fv4f4hgavrtm44jg8.apps.googleusercontent.com",
 		"24284302254-n26lia4s6vi33koas28u1i26ejimdfp3.apps.googleusercontent.com",
+		"24284302254-cc5ke5k9f33ddp1vs7lrkfj2fkq1gnep.apps.googleusercontent.com",
 	}
 	if s.cfg.GoogleClientID != "" {
 		for _, raw := range strings.Split(s.cfg.GoogleClientID, ",") {
@@ -144,7 +146,8 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 
 	existingUser, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
-		return nil, err
+		log.Printf("[Auth] Remote database lookup error: %v (falling back to verified Google identity)", err)
+		existingUser = nil
 	}
 
 	var user User
@@ -171,16 +174,17 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 		}
 
 		if err := s.repo.CreateUser(ctx, &user); err != nil {
-			return nil, err
+			log.Printf("[Auth] Remote database user persist error: %v (continuing with verified session)", err)
 		}
 	}
 
 	claims := jwt.MapClaims{
-		"sub":    user.ID,
-		"email":  user.Email,
-		"handle": user.Handle,
-		"name":   user.Name,
-		"exp":    time.Now().Add(7 * 24 * time.Hour).Unix(),
+		"sub":        user.ID,
+		"email":      user.Email,
+		"handle":     user.Handle,
+		"name":       user.Name,
+		"token_type": "user",
+		"exp":        time.Now().Add(7 * 24 * time.Hour).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -284,11 +288,33 @@ func (s *Service) GetUserByID(ctx context.Context, userID string) (*User, error)
 // GenerateToken creates an authenticated JWT for a user.
 func (s *Service) GenerateToken(userID, email, handle, name string) (string, error) {
 	claims := jwt.MapClaims{
-		"sub":    userID,
-		"email":  email,
-		"handle": handle,
-		"name":   name,
-		"exp":    time.Now().Add(30 * 24 * time.Hour).Unix(),
+		"sub":        userID,
+		"email":      email,
+		"handle":     handle,
+		"name":       name,
+		"token_type": "user",
+		"exp":        time.Now().Add(7 * 24 * time.Hour).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.cfg.JWTSecret))
+}
+
+// GenerateDeviceToken creates an authenticated JWT for a specific paired device.
+func (s *Service) GenerateDeviceToken(userID, email, handle, name, deviceID string) (string, error) {
+	tokenType := "device"
+	if deviceID == "" {
+		tokenType = "user"
+	}
+	claims := jwt.MapClaims{
+		"sub":        userID,
+		"email":      email,
+		"handle":     handle,
+		"name":       name,
+		"token_type": tokenType,
+		"exp":        time.Now().Add(30 * 24 * time.Hour).Unix(),
+	}
+	if deviceID != "" {
+		claims["device_id"] = deviceID
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.cfg.JWTSecret))

@@ -8,9 +8,11 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/apps"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/auth"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/dns"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/heartbeat"
@@ -37,6 +39,7 @@ func runPlatformDaemon(
 	explicitUID uint32,
 	apiURL string,
 	dnsListenAddr string,
+	configDir string,
 ) {
 	if dnsListenAddr == "" {
 		dnsListenAddr = "127.0.0.1:53"
@@ -103,35 +106,99 @@ func runPlatformDaemon(
 			ipcServer.SetDNSServer(dnsServer)
 		}
 
+		// Initialize native application enforcement subsystem
+		appScanner := apps.NewWindowsInventoryScanner(30 * time.Minute)
+		appMonitor := apps.NewWindowsProcessMonitor(1 * time.Second)
+		appEnforcer := apps.NewWindowsAppEnforcer()
+		appPolicyMgr := apps.NewAppPolicyManager()
+		appController := apps.NewAppEnforcementController(appMonitor, appPolicyMgr, appEnforcer, appScanner)
+
+		if errApps := appController.Start(workerCtx); errApps != nil {
+			log.Printf("[ONUSLY Windows] Notice: App enforcement controller start error: %v", errApps)
+		} else {
+			log.Printf("[ONUSLY Windows] Native App Enforcement active (%s)", appEnforcer.CapabilityTier())
+		}
+		ipcServer.SetAppsController(appController)
+
 		if err := ipcServer.Start(workerCtx); err != nil {
 			log.Printf("[ONUSLY Windows] IPC Server Start error: %v", err)
 			if dnsServer != nil {
 				_ = dnsServer.Stop()
 			}
+			if appController != nil {
+				_ = appController.Stop()
+			}
 			return err
+		}
+
+		backupFilePath := filepath.Join(configDir, "dns_backup.json")
+		adapterMgr := newPlatformAdapterManager()
+
+		handleLifecycleErr := func(err error) {
+			if err == nil {
+				return
+			}
+			if errors.Is(err, core.ErrDeviceRevoked) {
+				log.Println("[ONUSLY Windows] CRITICAL: Device has been remotely REVOKED by account owner. Deactivating local enforcement immediately.")
+				if pairingMgr != nil {
+					_, _ = pairingMgr.Transition(auth.StatusRevoked, "")
+				}
+				if credStore != nil {
+					_ = credStore.ClearToken()
+				}
+				if syncer != nil {
+					_ = syncer.ClearCache()
+				}
+				if dnsPolicy != nil {
+					_, _ = dnsPolicy.UpdateFromBlocklist(&core.BlocklistData{})
+				}
+				if appController != nil {
+					appController.UpdateBlocklist(&core.BlocklistData{})
+				}
+				if adapterMgr != nil && backupFilePath != "" {
+					if errRest := adapterMgr.RestoreDNS(backupFilePath); errRest != nil {
+						log.Printf("[ONUSLY Windows] Warning restoring DNS fail-open after revocation: %v", errRest)
+					} else {
+						log.Println("[ONUSLY Windows] Original DNS configuration restored from backup (fail-open) following revocation.")
+					}
+				}
+			} else if errors.Is(err, core.ErrCredentialExpired) {
+				log.Println("[ONUSLY Windows] WARNING: Device credentials have EXPIRED. Re-authentication required.")
+				if pairingMgr != nil {
+					_, _ = pairingMgr.Transition(auth.StatusAuthRequired, "")
+				}
+			}
 		}
 
 		// Initial blocklist sync
 		initData, errSync := syncer.Sync(workerCtx)
 		if errSync != nil {
 			log.Printf("[ONUSLY Windows] Notice: initial sync: %v (offline cache active)", errSync)
+			handleLifecycleErr(errSync)
 		} else if initData != nil {
 			log.Printf("[ONUSLY Windows] Initial sync complete: %d target(s) locked (version %s)",
 				len(initData.Targets), initData.Version)
 		}
 
-		// Update DNS policy snapshot from synced data or offline cache
+		// Update DNS policy snapshot and App policy snapshot from synced data or offline cache
 		if initData != nil {
 			dnsPolicy.UpdateFromBlocklist(initData)
+			appController.UpdateBlocklist(initData)
 		} else {
-			cachedBlock, _ := syncer.GetCachedBlocklist()
-			if cachedBlock != nil {
+			cachedBlock, errCache := syncer.GetCachedBlocklist()
+			if errCache != nil {
+				log.Printf("[ONUSLY Windows] Notice: offline cache lookup: %v", errCache)
+			} else if cachedBlock != nil {
+				log.Printf("[ONUSLY Windows] Loaded offline cache: %d target(s) (version %s)", len(cachedBlock.Targets), cachedBlock.Version)
 				dnsPolicy.UpdateFromBlocklist(cachedBlock)
+				appController.UpdateBlocklist(cachedBlock)
 			}
 		}
 
 		// Initial heartbeat
-		_ = reporter.SendHeartbeat(workerCtx, nil)
+		if errHb := reporter.SendHeartbeat(workerCtx, nil); errHb != nil {
+			handleLifecycleErr(errHb)
+		}
 
 		syncTicker := time.NewTicker(60 * time.Second)
 		defer syncTicker.Stop()
@@ -142,9 +209,12 @@ func runPlatformDaemon(
 		for {
 			select {
 			case <-cancelChan:
-				log.Println("[ONUSLY Windows] Worker received cancellation. Stopping IPC and DNS servers...")
+				log.Println("[ONUSLY Windows] Worker received cancellation. Stopping IPC, DNS, and App subsystems...")
 				if dnsServer != nil {
 					_ = dnsServer.Stop()
+				}
+				if appController != nil {
+					_ = appController.Stop()
 				}
 				_ = ipcServer.Stop()
 				return nil
@@ -152,6 +222,9 @@ func runPlatformDaemon(
 			case <-workerCtx.Done():
 				if dnsServer != nil {
 					_ = dnsServer.Stop()
+				}
+				if appController != nil {
+					_ = appController.Stop()
 				}
 				_ = ipcServer.Stop()
 				return nil
@@ -165,8 +238,10 @@ func runPlatformDaemon(
 				res, err := syncer.Sync(workerCtx)
 				if err != nil {
 					log.Printf("[ONUSLY Windows] Sync notice: %v", err)
+					handleLifecycleErr(err)
 				} else if res != nil {
 					dnsPolicy.UpdateFromBlocklist(res)
+					appController.UpdateBlocklist(res)
 					log.Printf("[ONUSLY Windows] Synchronized blocklist: %d target(s) (version %s)", len(res.Targets), res.Version)
 				}
 
@@ -175,10 +250,20 @@ func runPlatformDaemon(
 				var issues []string
 				if currentSess == nil || !currentSess.IsAttached {
 					issues = []string{} // Detached console reports Enforcing: false, Issues: []
-				} else if dnsServer != nil && !dnsServer.IsRunning() {
-					issues = append(issues, "dns_resolver_offline")
+				} else {
+					if dnsServer != nil && !dnsServer.IsRunning() {
+						issues = append(issues, "dns_resolver_offline")
+					}
+					if appController != nil {
+						appStats := appController.Stats()
+						if appStats.EnforcementFailed > 0 {
+							issues = append(issues, "app_enforcement_failed")
+						}
+					}
 				}
-				_ = reporter.SendHeartbeat(workerCtx, issues)
+				if errHb := reporter.SendHeartbeat(workerCtx, issues); errHb != nil {
+					handleLifecycleErr(errHb)
+				}
 			}
 		}
 	}

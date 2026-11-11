@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "package:ext": "python3 ../scripts/package-extension.py",
-    "build": "python3 ../scripts/package-extension.py && vite build",
+    "package:ext": "node -e \"const cp=require('child_process');try{cp.execSync('python3 ../scripts/package-extension.py',{stdio:'inherit'})}catch(e){cp.execSync('python ../scripts/package-extension.py',{stdio:'inherit'})}\"",
+    "build": "node -e \"const cp=require('child_process');try{cp.execSync('python3 ../scripts/package-extension.py',{stdio:'inherit'})}catch(e){cp.execSync('python ../scripts/package-extension.py',{stdio:'inherit'})}\" && vite build",
     "lint": "eslint .",
     "test": "node --test tests/**/*.test.js",
     "preview": "vite preview"

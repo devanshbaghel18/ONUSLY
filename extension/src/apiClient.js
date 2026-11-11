@@ -44,11 +44,19 @@ export async function fetchBlocklist(
     headers["If-None-Match"] = ifNoneMatch.trim();
   }
 
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 6000) : null;
+
   try {
-    const response = await fetchFn(url, {
+    const fetchOptions = {
       method: "GET",
       headers,
-    });
+    };
+    if (controller) {
+      fetchOptions.signal = controller.signal;
+    }
+    const response = await fetchFn(url, fetchOptions);
+    if (timeoutId) clearTimeout(timeoutId);
 
     if (response.status === 304) {
       return { type: "NOT_MODIFIED" };
@@ -125,8 +133,10 @@ export async function fetchBlocklist(
     return {
       type: "ERROR",
       status: -1,
-      message: err.message || "Network request failed",
+      message: err.name === "AbortError" ? "Request timed out" : (err.message || "Network request failed"),
     };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 
@@ -149,17 +159,26 @@ export async function sendHeartbeat(
   const cleanBase = baseUrl.trim().replace(/\/+$/, "");
   const url = `${cleanBase}/enforcement/heartbeat`;
 
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 6000) : null;
+
   try {
-    const res = await fetchFn(url, {
+    const fetchOptions = {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
-    });
+    };
+    if (controller) {
+      fetchOptions.signal = controller.signal;
+    }
+    const res = await fetchFn(url, fetchOptions);
+    if (timeoutId) clearTimeout(timeoutId);
     return res.ok;
   } catch {
+    if (timeoutId) clearTimeout(timeoutId);
     return false;
   }
 }

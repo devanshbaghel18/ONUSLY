@@ -83,6 +83,7 @@ export async function createGoal({
   approverEmail,
   blockedApps = [],
   blockedDomains = [],
+  applicationTargets = [],
 }) {
   const payload = {
     title: title.trim(),
@@ -96,6 +97,7 @@ export async function createGoal({
   }
   if (blockedApps && blockedApps.length > 0) payload.blockedApps = blockedApps;
   if (blockedDomains && blockedDomains.length > 0) payload.blockedDomains = blockedDomains;
+  if (applicationTargets && applicationTargets.length > 0) payload.applicationTargets = applicationTargets;
 
   return request("/goals", {
     method: "POST",
@@ -336,6 +338,13 @@ export async function sendHeartbeat(payload) {
   return request("/enforcement/heartbeat", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function revokeDevice(deviceId, reason = "user_revoked") {
+  return request(`/enforcement/devices/${encodeURIComponent(deviceId)}/revoke`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
   });
 }
 

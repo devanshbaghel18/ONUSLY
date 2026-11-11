@@ -79,7 +79,90 @@ export const APP_CATALOG = [
     packageName: "com.pinterest",
     domains: ["pinterest.com"],
   },
+  {
+    id: "steam",
+    name: "Steam",
+    packageName: "com.valvesoftware.android.steam.community",
+    packageNames: ["steam", "com.valvesoftware.android.steam.community"],
+    domains: ["steampowered.com", "steamcommunity.com"],
+  },
+  {
+    id: "spotify",
+    name: "Spotify",
+    packageName: "com.spotify.music",
+    packageNames: ["spotify", "com.spotify.music"],
+    domains: ["spotify.com"],
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    packageName: "com.Slack",
+    packageNames: ["slack", "com.Slack"],
+    domains: ["slack.com"],
+  },
+  {
+    id: "telegram",
+    name: "Telegram",
+    packageName: "org.telegram.messenger",
+    packageNames: ["telegram", "org.telegram.messenger"],
+    domains: ["t.me", "web.telegram.org"],
+  },
+  {
+    id: "vlc",
+    name: "VLC Media Player",
+    packageName: "org.videolan.vlc",
+    packageNames: ["vlc", "org.videolan.vlc"],
+    domains: ["videolan.org"],
+  },
+  {
+    id: "obs",
+    name: "OBS Studio",
+    packageName: "com.obsproject.Studio",
+    packageNames: ["obs", "obs64", "obs32", "com.obsproject.Studio"],
+    domains: ["obsproject.com"],
+  },
 ];
+
+export const PROTECTED_SYSTEM_PROCESSES = [
+  "csrss", "smss", "wininit", "winlogon", "services", "lsass", "svchost",
+  "dwm", "explorer", "taskmgr", "sihost", "fontdrvhost", "searchhost",
+  "shellexperiencehost", "startmenuexperiencehost", "ctfmon", "conhost",
+  "cmd", "powershell", "pwsh", "wsmprovhost", "dllhost",
+  "systemd", "init", "kthreadd", "dbus-daemon", "systemd-journald",
+  "systemd-logind", "systemd-resolved", "systemd-udevd", "xorg", "wayland",
+  "gnome-shell", "plasmashell", "bash", "sh", "zsh", "login", "sshd", "cron", "polkitd",
+  "onusly-agent", "onusly-native-host", "onusly",
+];
+
+export function isProtectedProcess(name) {
+  if (!name || typeof name !== "string") return false;
+  const clean = name.trim().toLowerCase().replace(/\.exe$/i, "").replace(/\.desktop$/i, "");
+  const compact = clean.replace(/[-_ ]/g, "");
+  return PROTECTED_SYSTEM_PROCESSES.some((p) => {
+    const pClean = p.toLowerCase();
+    const pCompact = pClean.replace(/[-_ ]/g, "");
+    return clean === pClean || compact === pCompact;
+  });
+}
+
+export function normalizeDesktopAppTarget(raw) {
+  if (!raw || typeof raw !== "string") return "";
+  let clean = raw.trim().toLowerCase();
+  clean = clean.replace(/\.exe$/i, "").replace(/\.desktop$/i, "");
+  return clean;
+}
+
+export function inferTargetType(target) {
+  if (!target || typeof target !== "string") return "desktop";
+  const trimmed = target.trim();
+  if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes(":") || /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(trimmed)) {
+    if (/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(trimmed) && (trimmed.startsWith("com.") || trimmed.startsWith("org.") || trimmed.startsWith("tv."))) {
+      return "app";
+    }
+    return "domain";
+  }
+  return "desktop";
+}
 
 // Backward-compatibility alias
 export const APPS_TO_BLOCK = APP_CATALOG.map((item) => ({
@@ -143,6 +226,7 @@ export function getUniqueDisplayTargets(apps = [], domains = [], fallback = []) 
       results.push({
         raw: item,
         label,
+        type: inferTargetType(item),
       });
     }
   }

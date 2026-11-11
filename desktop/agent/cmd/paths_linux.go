@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/apps"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/auth"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/dns"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
@@ -58,4 +59,8 @@ func resolvePairingOwner() (ownerSID string, ownerUID uint32, err error) {
 		targetUID = uint32(os.Geteuid())
 	}
 	return "", targetUID, nil
+}
+
+func newPlatformInventoryScanner() apps.InventoryScanner {
+	return apps.NewLinuxInventoryScanner(0)
 }
