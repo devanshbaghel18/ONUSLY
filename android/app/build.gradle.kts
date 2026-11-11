@@ -55,6 +55,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("debug")
         }
         debug {
             applicationIdSuffix = ""
@@ -73,6 +74,20 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+}
+
+tasks.withType<Test>().configureEach {
+    maxParallelForks = 1
+    forkEvery = 0
+    jvmArgs = listOf(
+        "-Xmx192m",
+        "-Xms32m",
+        "-Xss256k",
+        "-XX:+UseSerialGC",
+        "-XX:TieredStopAtLevel=1",
+        "-XX:-UseCompressedOops",
+        "-XX:CICompilerCount=1"
+    )
 }
 
 dependencies {

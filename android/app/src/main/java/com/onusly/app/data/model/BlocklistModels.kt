@@ -1,5 +1,10 @@
 package com.onusly.app.data.model
 
+data class ApplicationTarget(
+    val kind: String, // "android_package" | "desktop_app"
+    val identifier: String // e.g. "com.discord", "discord.exe"
+)
+
 data class BlocklistResponse(
     val userId: String,
     val version: String,
@@ -12,7 +17,8 @@ data class BlocklistTarget(
     val goalTitle: String,
     val status: String,
     val apps: List<String>,
-    val domains: List<String>
+    val domains: List<String>,
+    val applicationTargets: List<ApplicationTarget> = emptyList()
 )
 
 data class CachedBlocklist(

@@ -12,10 +12,11 @@ data class Goal(
     val createdAt: String = "",
     val updatedAt: String = "",
     val blockedApps: List<String> = emptyList(),
-    val blockedDomains: List<String> = emptyList()
+    val blockedDomains: List<String> = emptyList(),
+    val applicationTargets: List<ApplicationTarget> = emptyList()
 ) {
     val isTargeted: Boolean
-        get() = blockedApps.isNotEmpty() || blockedDomains.isNotEmpty()
+        get() = blockedApps.isNotEmpty() || blockedDomains.isNotEmpty() || applicationTargets.isNotEmpty()
 
     val isActive: Boolean
         get() = status.equals("active", ignoreCase = true)
@@ -36,7 +37,8 @@ data class CreateGoalRequest(
     val approvalType: String? = null,
     val approverEmail: String? = null,
     val blockedApps: List<String> = emptyList(),
-    val blockedDomains: List<String> = emptyList()
+    val blockedDomains: List<String> = emptyList(),
+    val applicationTargets: List<ApplicationTarget> = emptyList()
 )
 
 data class UpdateGoalRequest(
@@ -45,7 +47,8 @@ data class UpdateGoalRequest(
     val approvalType: String? = null,
     val approverEmail: String? = null,
     val blockedApps: List<String>? = null,
-    val blockedDomains: List<String>? = null
+    val blockedDomains: List<String>? = null,
+    val applicationTargets: List<ApplicationTarget>? = null
 )
 
 data class Proof(

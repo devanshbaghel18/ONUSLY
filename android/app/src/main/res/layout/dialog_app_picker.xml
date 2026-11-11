@@ -58,12 +58,54 @@
         android:hint="Search installed apps or packages..."
         android:inputType="textFilter" />
 
+    <!-- Manual Package Input Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/etManualPackage"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:background="@color/surface_card"
+            android:paddingHorizontal="10dp"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_muted"
+            android:textSize="12sp"
+            android:hint="Or enter package (e.g. com.example.app)"
+            android:inputType="textUri" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAddManualPackage"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:text="Add"
+            android:textSize="12sp"
+            android:textColor="@color/text_primary"
+            android:backgroundTint="@color/primary"
+            app:cornerRadius="6dp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvManualPackageError"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/error"
+        android:textSize="11sp"
+        android:visibility="gone" />
+
     <!-- List of Apps -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvInstalledApps"
         android:layout_width="match_parent"
-        android:layout_height="280dp"
-        android:layout_marginTop="10dp"
+        android:layout_height="240dp"
+        android:layout_marginTop="8dp"
         android:scrollbars="vertical" />
 
     <!-- Buttons Row -->

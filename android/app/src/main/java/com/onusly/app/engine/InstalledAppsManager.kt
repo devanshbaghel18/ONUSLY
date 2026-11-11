@@ -6,6 +6,9 @@ import com.onusly.app.data.model.InstalledAppInfo
 
 object InstalledAppsManager {
 
+    private val PACKAGE_NAME_REGEX = Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$")
+    private val DESKTOP_EXTENSIONS = setOf(".exe", ".desktop", ".bat", ".cmd", ".dll", ".so", ".sh", ".bin", ".msi")
+
     val SYSTEM_PLATFORM_PREFIXES = listOf(
         "android",
         "com.android.",
@@ -22,6 +25,37 @@ object InstalledAppsManager {
         "com.motorola.",
         "com.lge."
     )
+
+    fun isValidPackageName(packageName: String): Boolean {
+        val trimmed = packageName.trim()
+        if (trimmed.length > 255 || trimmed.isEmpty()) return false
+        val lower = trimmed.lowercase()
+        if (DESKTOP_EXTENSIONS.any { lower.endsWith(it) }) return false
+        if (trimmed.contains("/") || trimmed.contains("\\") || trimmed.contains(":") || trimmed.contains(" ")) return false
+        return PACKAGE_NAME_REGEX.matches(trimmed)
+    }
+
+    sealed class ValidationResult {
+        object Valid : ValidationResult()
+        data class Invalid(val reason: String) : ValidationResult()
+    }
+
+    fun validatePackageForTargeting(
+        packageName: String,
+        allowedPackages: Set<String> = BlockerEngine.ALWAYS_ALLOWED_PACKAGES
+    ): ValidationResult {
+        val trimmed = packageName.trim()
+        if (trimmed.isBlank()) {
+            return ValidationResult.Invalid("Package name cannot be empty.")
+        }
+        if (!isValidPackageName(trimmed)) {
+            return ValidationResult.Invalid("Invalid package format. Must follow reverse-domain format (e.g. com.example.app).")
+        }
+        if (isSystemOrExcluded(trimmed, allowedPackages)) {
+            return ValidationResult.Invalid("System, safety, emergency, and launcher applications cannot be restricted.")
+        }
+        return ValidationResult.Valid
+    }
 
     fun isSystemOrExcluded(
         packageName: String,

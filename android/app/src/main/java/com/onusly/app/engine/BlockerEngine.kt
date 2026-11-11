@@ -124,15 +124,45 @@ object BlockerEngine {
                 continue
             }
 
-            val matchesApp = target.apps.any { appItem ->
-                appItem.equals(normalizedPkg, ignoreCase = true) ||
-                TargetCatalog.getPackagesForAppOrAlias(appItem).any { it.equals(normalizedPkg, ignoreCase = true) }
-            }
-            val matchesDomain = target.domains.any { domain ->
-                TargetCatalog.getAppsForDomain(domain).any { it.equals(normalizedPkg, ignoreCase = true) }
+            var matches = false
+
+            // D12 & D6.1: Strict Target Typing
+            if (target.applicationTargets.isNotEmpty()) {
+                // Consume ONLY targets of kind "android_package".
+                // Strictly IGNORE targets of kind "desktop_app" (even reverse-DNS desktop names like org.gnome.Calculator)
+                // and any unknown target kinds to prevent cross-platform collisions!
+                matches = target.applicationTargets.any { at ->
+                    if (!at.kind.equals("android_package", ignoreCase = true)) {
+                        false
+                    } else {
+                        val cleanId = at.identifier.trim()
+                        cleanId.equals(normalizedPkg, ignoreCase = true) ||
+                        TargetCatalog.getPackagesForAppOrAlias(cleanId).any { it.equals(normalizedPkg, ignoreCase = true) }
+                    }
+                }
+            } else {
+                // Backward-compatibility fallback for legacy policies lacking ApplicationTargets:
+                // Consume only identifiers without desktop binary extensions (.exe, .desktop, .bat, .app).
+                matches = target.apps.any { appItem ->
+                    val cleanApp = appItem.trim()
+                    val lower = cleanApp.lowercase()
+                    if (lower.endsWith(".exe") || lower.endsWith(".desktop") || lower.endsWith(".bat") || lower.endsWith(".app")) {
+                        false
+                    } else {
+                        cleanApp.equals(normalizedPkg, ignoreCase = true) ||
+                        TargetCatalog.getPackagesForAppOrAlias(cleanApp).any { it.equals(normalizedPkg, ignoreCase = true) }
+                    }
+                }
             }
 
-            if (matchesApp || matchesDomain) {
+            // Also check domain-associated apps
+            if (!matches) {
+                matches = target.domains.any { domain ->
+                    TargetCatalog.getAppsForDomain(domain).any { it.equals(normalizedPkg, ignoreCase = true) }
+                }
+            }
+
+            if (matches) {
                 matchingTargets.add(target)
             }
         }

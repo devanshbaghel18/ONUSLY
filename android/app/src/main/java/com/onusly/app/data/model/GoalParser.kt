@@ -11,6 +11,20 @@ object GoalParser {
         return if (value == "null") fallback else value
     }
 
+    private fun parseApplicationTargets(obj: JSONObject): List<ApplicationTarget> {
+        val appTargetsArray = obj.optJSONArray("applicationTargets") ?: return emptyList()
+        val appTargetsList = mutableListOf<ApplicationTarget>()
+        for (i in 0 until appTargetsArray.length()) {
+            val atObj = appTargetsArray.optJSONObject(i) ?: continue
+            val kind = optSafeString(atObj, "kind")
+            val identifier = optSafeString(atObj, "identifier")
+            if (kind.isNotBlank() && identifier.isNotBlank()) {
+                appTargetsList.add(ApplicationTarget(kind = kind.trim(), identifier = identifier.trim()))
+            }
+        }
+        return appTargetsList
+    }
+
     fun parseGoal(obj: JSONObject): Goal {
         val id = optSafeString(obj, "id")
         val ownerId = optSafeString(obj, "ownerId")
@@ -43,6 +57,8 @@ object GoalParser {
             }
         }
 
+        val applicationTargets = parseApplicationTargets(obj)
+
         return Goal(
             id = id,
             ownerId = ownerId,
@@ -55,7 +71,8 @@ object GoalParser {
             createdAt = createdAt,
             updatedAt = updatedAt,
             blockedApps = blockedApps,
-            blockedDomains = blockedDomains
+            blockedDomains = blockedDomains,
+            applicationTargets = applicationTargets
         )
     }
 
@@ -106,6 +123,17 @@ object GoalParser {
             obj.put("blockedDomains", domainsArray)
         }
 
+        if (request.applicationTargets.isNotEmpty()) {
+            val appTargetsArray = JSONArray()
+            for (at in request.applicationTargets) {
+                val atObj = JSONObject()
+                atObj.put("kind", at.kind.trim())
+                atObj.put("identifier", at.identifier.trim())
+                appTargetsArray.put(atObj)
+            }
+            obj.put("applicationTargets", appTargetsArray)
+        }
+
         return obj.toString()
     }
 
@@ -126,6 +154,17 @@ object GoalParser {
             val domainsArray = JSONArray()
             list.forEach { domainsArray.put(it.trim()) }
             obj.put("blockedDomains", domainsArray)
+        }
+
+        request.applicationTargets?.let { list ->
+            val appTargetsArray = JSONArray()
+            for (at in list) {
+                val atObj = JSONObject()
+                atObj.put("kind", at.kind.trim())
+                atObj.put("identifier", at.identifier.trim())
+                appTargetsArray.put(atObj)
+            }
+            obj.put("applicationTargets", appTargetsArray)
         }
 
         return obj.toString()
@@ -192,6 +231,24 @@ object GoalParser {
 
     fun parseApprovalResult(jsonString: String): ApprovalResult {
         val obj = JSONObject(jsonString)
+        val status = when {
+            obj.has("status") && !obj.isNull("status") && obj.optString("status").isNotBlank() -> obj.optString("status")
+            obj.has("decision") && !obj.isNull("decision") && obj.optString("decision").isNotBlank() -> obj.optString("decision")
+            else -> ""
+        }
+        return ApprovalResult(
+            id = optSafeString(obj, "id"),
+            goalId = optSafeString(obj, "goalId"),
+            proofId = optSafeString(obj, "proofId"),
+            ownerId = optSafeString(obj, "ownerId"),
+            approverId = optSafeString(obj, "approverId"),
+            status = status,
+            comment = optSafeString(obj, "comment"),
+            decidedAt = optSafeString(obj, "decidedAt")
+        )
+    }
+
+    fun parseApprovalResult(obj: JSONObject): ApprovalResult {
         val status = when {
             obj.has("status") && !obj.isNull("status") && obj.optString("status").isNotBlank() -> obj.optString("status")
             obj.has("decision") && !obj.isNull("decision") && obj.optString("decision").isNotBlank() -> obj.optString("decision")

@@ -143,6 +143,9 @@ class SyncRepository(
             is SyncResult.Error -> {
                 if (result.statusCode == 401 || result.message.contains("HTTP 401")) {
                     onUserSignOut()
+                } else if (result.statusCode == 403 && (result.message.contains("device_revoked", ignoreCase = true) || result.message.contains("DEVICE_REVOKED", ignoreCase = true) || result.message.contains("revoked", ignoreCase = true))) {
+                    // Remote device revocation: deactivate local enforcement, clear cache and credentials
+                    onUserSignOut()
                 } else {
                     // Keep existing cache
                     refreshFlowFromCache()

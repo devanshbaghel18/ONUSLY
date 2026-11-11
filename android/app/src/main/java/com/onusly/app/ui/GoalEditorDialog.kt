@@ -282,6 +282,10 @@ class GoalEditorDialog(
 
         setSavingState(true)
 
+        val typedTargets = allApps.map {
+            com.onusly.app.data.model.ApplicationTarget(kind = "android_package", identifier = it)
+        }
+
         scope.launch {
             if (existingGoal == null) {
                 // CREATE GOAL
@@ -292,7 +296,8 @@ class GoalEditorDialog(
                     approvalType = approvalType,
                     approverEmail = approver.ifBlank { null },
                     blockedApps = allApps,
-                    blockedDomains = allDomains
+                    blockedDomains = allDomains,
+                    applicationTargets = typedTargets
                 )
 
                 val result = goalsRepository.createGoal(req)
@@ -314,7 +319,8 @@ class GoalEditorDialog(
                     approvalType = if (shouldSendAccountability) "friend" else null,
                     approverEmail = if (shouldSendAccountability) approver.ifBlank { null } else null,
                     blockedApps = allApps,
-                    blockedDomains = allDomains
+                    blockedDomains = allDomains,
+                    applicationTargets = typedTargets
                 )
 
                 val result = goalsRepository.updateGoal(existingGoal.id, req)

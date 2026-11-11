@@ -11,6 +11,20 @@ object BlocklistParser {
         return if (value == "null") fallback else value
     }
 
+    private fun parseApplicationTargets(targetObj: JSONObject): List<ApplicationTarget> {
+        val appTargetsArray = targetObj.optJSONArray("applicationTargets") ?: return emptyList()
+        val appTargetsList = mutableListOf<ApplicationTarget>()
+        for (k in 0 until appTargetsArray.length()) {
+            val atObj = appTargetsArray.optJSONObject(k) ?: continue
+            val kind = optSafeString(atObj, "kind")
+            val identifier = optSafeString(atObj, "identifier")
+            if (kind.isNotBlank() && identifier.isNotBlank()) {
+                appTargetsList.add(ApplicationTarget(kind = kind.trim(), identifier = identifier.trim()))
+            }
+        }
+        return appTargetsList
+    }
+
     fun parseResponse(jsonString: String): BlocklistResponse {
         val root = JSONObject(jsonString)
         val userId = optSafeString(root, "userId")
@@ -46,13 +60,16 @@ object BlocklistParser {
                 }
             }
 
+            val appTargetsList = parseApplicationTargets(targetObj)
+
             targetsList.add(
                 BlocklistTarget(
                     goalId = goalId,
                     goalTitle = goalTitle,
                     status = status,
                     apps = appsList,
-                    domains = domainsList
+                    domains = domainsList,
+                    applicationTargets = appTargetsList
                 )
             )
         }
@@ -90,6 +107,17 @@ object BlocklistParser {
                 domainsArray.put(domain)
             }
             targetObj.put("domains", domainsArray)
+
+            if (target.applicationTargets.isNotEmpty()) {
+                val appTargetsArray = JSONArray()
+                for (at in target.applicationTargets) {
+                    val atObj = JSONObject()
+                    atObj.put("kind", at.kind)
+                    atObj.put("identifier", at.identifier)
+                    appTargetsArray.put(atObj)
+                }
+                targetObj.put("applicationTargets", appTargetsArray)
+            }
 
             targetsArray.put(targetObj)
         }
@@ -136,13 +164,16 @@ object BlocklistParser {
                     }
                 }
 
+                val appTargetsList = parseApplicationTargets(targetObj)
+
                 targetsList.add(
                     BlocklistTarget(
                         goalId = goalId,
                         goalTitle = goalTitle,
                         status = status,
                         apps = appsList,
-                        domains = domainsList
+                        domains = domainsList,
+                        applicationTargets = appTargetsList
                     )
                 )
             }
@@ -154,7 +185,7 @@ object BlocklistParser {
                 lastSyncTimestamp = lastSyncTimestamp,
                 targets = targetsList
             )
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
