@@ -10,6 +10,7 @@ param(
     [switch]$RetainLogs,
     [switch]$PurgeAll,
     [switch]$PurgeData, # Backward-compatible alias for PurgeAll
+    [switch]$ForceResetDNS, # Explicit administrator override to reset orphaned loopback DNS adapters to DHCP when backup is missing
     [switch]$SkipElevationCheck,
     [switch]$SkipRegistry,
     [switch]$NonInteractive
@@ -230,25 +231,56 @@ if (-not $SkipRegistry) {
 # 3.5. Fail-Open Network DNS Restoration
 Write-Step "Checking Adapter DNS Redirection (Fail-Open Safety Restoration)..."
 $dnsBackupFile = "$DataRoot\config\dns_backup.json"
+if (-not (Test-Path $dnsBackupFile)) {
+    if (Test-Path "$DataRoot\dns_backup.json") {
+        $dnsBackupFile = "$DataRoot\dns_backup.json"
+    }
+}
+
 if (Test-Path $dnsBackupFile) {
     try {
         $dnsState = Get-Content $dnsBackupFile -Raw | ConvertFrom-Json
         if ($dnsState.originalDns) {
             foreach ($adapter in $dnsState.originalDns) {
-                if ($adapter.isDhcp -or (-not $adapter.serverAddresses) -or $adapter.serverAddresses.Count -eq 0) {
+                if ($adapter.isDhcp) {
+                    Write-Host "  Restoring $($adapter.interfaceAlias) to DHCP..." -ForegroundColor DarkGray
                     Set-DnsClientServerAddress -InterfaceIndex $adapter.interfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue
                 } else {
+                    Write-Host "  Restoring $($adapter.interfaceAlias) to Static DNS ($($adapter.serverAddresses -join ', '))..." -ForegroundColor DarkGray
                     Set-DnsClientServerAddress -InterfaceIndex $adapter.interfaceIndex -ServerAddresses $adapter.serverAddresses -ErrorAction SilentlyContinue
                 }
             }
             Clear-DnsClientCache -ErrorAction SilentlyContinue
-            Write-Success "Restored original DNS configuration across all network interfaces."
+            Write-Success "Restored original DNS configuration across all network interfaces from backup."
         }
     } catch {
-        Write-Warn "Error restoring adapter DNS settings from $dnsBackupFile: $_"
+        Write-Warn "Error restoring adapter DNS settings from ${dnsBackupFile}: $_"
     }
 } else {
-    Write-Host "  No DNS backup file present; network adapters are already using standard configuration." -ForegroundColor DarkGray
+    Write-Host "  No DNS backup file present; checking network adapters..." -ForegroundColor DarkGray
+}
+
+# D7.1 Safety Scan: Never blindly reset adapters pointing to 127.0.0.1 to DHCP if backup is missing/corrupt!
+try {
+    $loopbackAdapters = Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.ServerAddresses -contains "127.0.0.1" }
+    if ($loopbackAdapters) {
+        foreach ($la in $loopbackAdapters) {
+            if ($ForceResetDNS) {
+                Write-Host "  [FORCE] Administrator explicitly specified -ForceResetDNS. Resetting $($la.InterfaceAlias) (index $($la.InterfaceIndex)) to DHCP..." -ForegroundColor Yellow
+                Set-DnsClientServerAddress -InterfaceIndex $la.InterfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue
+            } else {
+                Write-Host "  [WARNING] Adapter '$($la.InterfaceAlias)' (index $($la.InterfaceIndex)) is pointing to 127.0.0.1, but DNS backup is missing or corrupt." -ForegroundColor Yellow
+                Write-Host "            To prevent discarding potentially pre-existing static DNS configurations (e.g. 1.1.1.1, 8.8.8.8), ONUSLY will not automatically force DHCP." -ForegroundColor Yellow
+                Write-Host "            Manual recovery options:" -ForegroundColor Cyan
+                Write-Host "              - If DHCP:   Set-DnsClientServerAddress -InterfaceIndex $($la.InterfaceIndex) -ResetServerAddresses" -ForegroundColor Cyan
+                Write-Host "              - If Static: Set-DnsClientServerAddress -InterfaceIndex $($la.InterfaceIndex) -ServerAddresses <your-static-servers>" -ForegroundColor Cyan
+                Write-Host "              - Or pass:   uninstall.ps1 -ForceResetDNS" -ForegroundColor Cyan
+            }
+        }
+        Clear-DnsClientCache -ErrorAction SilentlyContinue
+    }
+} catch {
+    # Non-fatal safety check
 }
 
 # 4. Binary and Program Files Cleanup

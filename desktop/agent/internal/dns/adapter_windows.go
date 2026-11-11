@@ -46,6 +46,7 @@ type psDnsClientAddress struct {
 	InterfaceAlias  string   `json:"InterfaceAlias"`
 	InterfaceIndex  int      `json:"InterfaceIndex"`
 	AddressFamily   int      `json:"AddressFamily"`
+	IsDHCP          bool     `json:"IsDHCP"`
 	ServerAddresses []string `json:"ServerAddresses"`
 }
 
@@ -61,8 +62,19 @@ func (m *WindowsAdapterManager) DiscoverAdapters() ([]AdapterDNSConfig, error) {
 	execCmd := m.execCommand
 	m.mu.Unlock()
 
-	// Query via PowerShell Get-DnsClientServerAddress
-	psCmd := `Get-DnsClientServerAddress -AddressFamily IPv4 | Select-Object InterfaceAlias, InterfaceIndex, AddressFamily, ServerAddresses | ConvertTo-Json -Compress`
+	// Query via PowerShell inspecting both Get-DnsClientServerAddress and netsh for both IPv4 and IPv6 to reliably distinguish DHCP from Static DNS
+	psCmd := `$adapters = Get-DnsClientServerAddress | Where-Object { $_.InterfaceAlias -notmatch 'loopback|vethernet' }; ` +
+		`$results = @(); ` +
+		`foreach ($a in $adapters) { ` +
+		`  $alias = $a.InterfaceAlias; ` +
+		`  $family = if ($a.AddressFamily -eq 23) { 'ipv6' } else { 'ipv4' }; ` +
+		`  $out = netsh interface $family show dns name="$alias" 2>&1 | Out-String; ` +
+		`  $hasStatic = $out -match 'Statically Configured DNS Servers'; ` +
+		`  $hasDhcp = $out -match 'DNS servers configured through DHCP'; ` +
+		`  $isDhcp = if ($hasStatic) { $false } elseif ($hasDhcp) { $true } else { $a.ServerAddresses.Count -eq 0 }; ` +
+		`  $results += [PSCustomObject]@{ InterfaceAlias = $alias; InterfaceIndex = $a.InterfaceIndex; AddressFamily = $a.AddressFamily; IsDHCP = $isDhcp; ServerAddresses = $a.ServerAddresses }; ` +
+		`}; ` +
+		`$results | ConvertTo-Json -Compress`
 	cmd := execCmd("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", psCmd)
 	out, err := cmd.Output()
 	if err != nil {
@@ -96,7 +108,7 @@ func (m *WindowsAdapterManager) DiscoverAdapters() ([]AdapterDNSConfig, error) {
 			continue
 		}
 
-		isDhcp := len(item.ServerAddresses) == 0
+		isDhcp := item.IsDHCP
 		servers := item.ServerAddresses
 		if servers == nil {
 			servers = []string{}
@@ -119,9 +131,49 @@ func (m *WindowsAdapterManager) DiscoverAdapters() ([]AdapterDNSConfig, error) {
 
 // BackupDNS records the current DNS settings for all discovered adapters into backupFilePath.
 func (m *WindowsAdapterManager) BackupDNS(backupFilePath string) (*DNSBackupState, error) {
+	// D7 Safety Guarantee: If a valid backup already exists, NEVER overwrite it with loopback settings!
+	if data, err := os.ReadFile(backupFilePath); err == nil {
+		var existingState DNSBackupState
+		if err := json.Unmarshal(data, &existingState); err == nil && len(existingState.OriginalDns) > 0 {
+			hasValidNonLoopback := false
+			for _, a := range existingState.OriginalDns {
+				for _, s := range a.ServerAddresses {
+					if s != "127.0.0.1" && s != "::1" && !strings.HasPrefix(s, "127.") {
+						hasValidNonLoopback = true
+						break
+					}
+				}
+				if a.IsDHCP {
+					hasValidNonLoopback = true
+					break
+				}
+			}
+			if hasValidNonLoopback {
+				return &existingState, nil
+			}
+		}
+	}
+
 	adapters, err := m.DiscoverAdapters()
 	if err != nil {
 		return nil, err
+	}
+
+	// Sanitize discovered adapters: if an adapter's ONLY server is loopback (127.0.0.1/::1),
+	// treat it as DHCP rather than permanently locking into loopback if ONUSLY previously crashed.
+	for i := range adapters {
+		nonLoopbackServers := make([]string, 0, len(adapters[i].ServerAddresses))
+		for _, s := range adapters[i].ServerAddresses {
+			if s != "127.0.0.1" && s != "::1" && !strings.HasPrefix(s, "127.") {
+				nonLoopbackServers = append(nonLoopbackServers, s)
+			}
+		}
+		if len(nonLoopbackServers) == 0 && len(adapters[i].ServerAddresses) > 0 {
+			adapters[i].IsDHCP = true
+			adapters[i].ServerAddresses = []string{}
+		} else {
+			adapters[i].ServerAddresses = nonLoopbackServers
+		}
 	}
 
 	state := &DNSBackupState{
@@ -177,7 +229,13 @@ func (m *WindowsAdapterManager) ApplyLoopbackDNS(loopbackIPv4, loopbackIPv6 stri
 		// Mock testing mode: update mock adapters without modifying live host network
 		m.mu.Lock()
 		for i := range m.mockAdapters {
-			m.mockAdapters[i].ServerAddresses = []string{loopbackIPv4}
+			if m.mockAdapters[i].AddressFamily == 23 {
+				if loopbackIPv6 != "" {
+					m.mockAdapters[i].ServerAddresses = []string{loopbackIPv6}
+				}
+			} else {
+				m.mockAdapters[i].ServerAddresses = []string{loopbackIPv4}
+			}
 		}
 		m.mu.Unlock()
 		state.IsActive = true
@@ -191,12 +249,25 @@ func (m *WindowsAdapterManager) ApplyLoopbackDNS(loopbackIPv4, loopbackIPv6 stri
 		if !adapter.IsPhysical {
 			continue
 		}
-		psSetCmd := fmt.Sprintf(`Set-DnsClientServerAddress -InterfaceIndex %d -ServerAddresses ("%s")`, adapter.InterfaceIndex, loopbackIPv4)
+		var loopbackAddr string
+		var afStr string
+		if adapter.AddressFamily == 23 {
+			loopbackAddr = loopbackIPv6
+			afStr = "IPv6"
+		} else {
+			loopbackAddr = loopbackIPv4
+			afStr = "IPv4"
+		}
+		if loopbackAddr == "" {
+			continue
+		}
+
+		psSetCmd := fmt.Sprintf(`Get-DnsClientServerAddress -InterfaceIndex %d -AddressFamily %s | Set-DnsClientServerAddress -ServerAddresses ("%s")`, adapter.InterfaceIndex, afStr, loopbackAddr)
 		cmd := execCmd("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", psSetCmd)
 		if out, errSet := cmd.CombinedOutput(); errSet != nil {
 			// Fail-open: if setting fails on any adapter, restore original configuration immediately
 			_ = m.RestoreDNS(backupFilePath)
-			return fmt.Errorf("failed to set loopback DNS on adapter %s (index %d): %w (output: %s)", adapter.InterfaceAlias, adapter.InterfaceIndex, errSet, string(out))
+			return fmt.Errorf("failed to set loopback DNS on adapter %s (family %s, index %d): %w (output: %s)", adapter.InterfaceAlias, afStr, adapter.InterfaceIndex, errSet, string(out))
 		}
 	}
 
@@ -215,14 +286,25 @@ func (m *WindowsAdapterManager) RestoreDNS(backupFilePath string) error {
 	data, err := os.ReadFile(backupFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // No backup exists; already clean
+			// Check if any physical adapter is currently pointing to loopback
+			adapters, discErr := m.DiscoverAdapters()
+			if discErr == nil {
+				for _, a := range adapters {
+					for _, s := range a.ServerAddresses {
+						if s == "127.0.0.1" || s == "::1" || strings.HasPrefix(s, "127.") {
+							return fmt.Errorf("cannot restore DNS: backup file %q is missing while loopback redirection is active on adapter %s; manual recovery required to avoid overwriting potential static DNS", backupFilePath, a.InterfaceAlias)
+						}
+					}
+				}
+			}
+			return nil // No backup exists and no adapter points to loopback; already clean
 		}
 		return fmt.Errorf("failed to read DNS backup file: %w", err)
 	}
 
 	var state DNSBackupState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return fmt.Errorf("corrupt DNS backup file: %w", err)
+		return fmt.Errorf("corrupt DNS backup file: %w; manual recovery required to avoid overwriting potential static DNS", err)
 	}
 
 	m.mu.Lock()
@@ -243,20 +325,25 @@ func (m *WindowsAdapterManager) RestoreDNS(backupFilePath string) error {
 	var errs []string
 	for _, adapter := range state.OriginalDns {
 		var psRestoreCmd string
+		afStr := "IPv4"
+		if adapter.AddressFamily == 23 {
+			afStr = "IPv6"
+		}
+
 		if adapter.IsDHCP || len(adapter.ServerAddresses) == 0 {
-			psRestoreCmd = fmt.Sprintf(`Set-DnsClientServerAddress -InterfaceIndex %d -ResetServerAddresses`, adapter.InterfaceIndex)
+			psRestoreCmd = fmt.Sprintf(`Get-DnsClientServerAddress -InterfaceIndex %d -AddressFamily %s | Set-DnsClientServerAddress -ResetServerAddresses`, adapter.InterfaceIndex, afStr)
 		} else {
 			quotedAddrs := make([]string, len(adapter.ServerAddresses))
 			for i, a := range adapter.ServerAddresses {
 				quotedAddrs[i] = fmt.Sprintf(`"%s"`, a)
 			}
 			addrListStr := strings.Join(quotedAddrs, ",")
-			psRestoreCmd = fmt.Sprintf(`Set-DnsClientServerAddress -InterfaceIndex %d -ServerAddresses (%s)`, adapter.InterfaceIndex, addrListStr)
+			psRestoreCmd = fmt.Sprintf(`Get-DnsClientServerAddress -InterfaceIndex %d -AddressFamily %s | Set-DnsClientServerAddress -ServerAddresses (%s)`, adapter.InterfaceIndex, afStr, addrListStr)
 		}
 
 		cmd := execCmd("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", psRestoreCmd)
 		if out, errRest := cmd.CombinedOutput(); errRest != nil {
-			errs = append(errs, fmt.Sprintf("adapter %s: %v (%s)", adapter.InterfaceAlias, errRest, string(out)))
+			errs = append(errs, fmt.Sprintf("adapter %s (family %s): %v (%s)", adapter.InterfaceAlias, afStr, errRest, string(out)))
 		}
 	}
 

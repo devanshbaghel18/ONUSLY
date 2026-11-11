@@ -11,6 +11,9 @@ param(
     [string]$ServiceName = "OnuslyDesktopAgent",
     [string]$ServiceSid = "S-1-5-80-3463423020-2351545225-1748562058-3133284821-4013307172",
     [switch]$Repair,
+    [switch]$Upgrade,
+    [string]$StagedDir = "",
+    [switch]$AllowDowngrade,
     [string]$SimulateFailureStage = "",
     [switch]$SkipElevationCheck,
     [switch]$SkipRegistry,
@@ -190,7 +193,35 @@ $repoRoot = (Resolve-Path "$PSScriptRoot\..\..\..").Path
 $agentExe = ""
 $nativeHostExe = ""
 
-if (-not [string]::IsNullOrWhiteSpace($SourceBinDir) -and (Test-Path "$SourceBinDir\onusly-agent.exe") -and (Test-Path "$SourceBinDir\onusly-native-host.exe")) {
+if (-not [string]::IsNullOrWhiteSpace($StagedDir)) {
+    Write-Step "Resolving Staged Update Binaries from $StagedDir..."
+    if (Test-Path "$StagedDir\manifest.json") {
+        Write-Step "Verifying Signed Staged Update Manifest..."
+        $agentCli = if (Test-Path "$SourceBinDir\onusly-agent.exe") { "$SourceBinDir\onusly-agent.exe" } elseif (Test-Path "$InstallDir\onusly-agent.exe") { "$InstallDir\onusly-agent.exe" } else { "go" }
+        $verifyArgs = if ($AllowDowngrade) { @("update", "verify", "$StagedDir\manifest.json", "$StagedDir", "--allow-downgrade") } else { @("update", "verify", "$StagedDir\manifest.json", "$StagedDir") }
+        if ($agentCli -eq "go") {
+            $verifyOut = & go run ./desktop/agent/cmd @verifyArgs 2>&1
+        } else {
+            $verifyOut = & $agentCli @verifyArgs 2>&1
+        }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "Cryptographic verification of staged update failed: $verifyOut"
+        }
+        Write-Success "Staged update manifest and artifact digests verified successfully."
+    }
+
+    if (Test-Path "$StagedDir\onusly-agent-windows-amd64.exe") {
+        $agentExe = "$StagedDir\onusly-agent-windows-amd64.exe"
+    } elseif (Test-Path "$StagedDir\onusly-agent.exe") {
+        $agentExe = "$StagedDir\onusly-agent.exe"
+    }
+
+    if (Test-Path "$StagedDir\onusly-native-host-windows-amd64.exe") {
+        $nativeHostExe = "$StagedDir\onusly-native-host-windows-amd64.exe"
+    } elseif (Test-Path "$StagedDir\onusly-native-host.exe") {
+        $nativeHostExe = "$StagedDir\onusly-native-host.exe"
+    }
+} elseif (-not [string]::IsNullOrWhiteSpace($SourceBinDir) -and (Test-Path "$SourceBinDir\onusly-agent.exe") -and (Test-Path "$SourceBinDir\onusly-native-host.exe")) {
     $agentExe = "$SourceBinDir\onusly-agent.exe"
     $nativeHostExe = "$SourceBinDir\onusly-native-host.exe"
 } else {
@@ -953,6 +984,49 @@ try {
                     Write-Warn "Error reverting browser policies during rollback: $_"
                 }
             }
+
+            # 2.5 D7.1 Fail-Open DNS Restoration on Rollback
+            $dnsBackupPath = "$DataRoot\config\dns_backup.json"
+            if (-not (Test-Path $dnsBackupPath)) {
+                if (Test-Path "$DataRoot\dns_backup.json") {
+                    $dnsBackupPath = "$DataRoot\dns_backup.json"
+                }
+            }
+
+            if (Test-Path $dnsBackupPath) {
+                Write-Host "  Restoring original adapter DNS configuration from backup..."
+                try {
+                    $dnsState = Get-Content $dnsBackupPath -Raw | ConvertFrom-Json
+                    if ($dnsState.originalDns) {
+                        foreach ($adapter in $dnsState.originalDns) {
+                            if ($adapter.isDhcp) {
+                                Write-Host "  Restoring $($adapter.interfaceAlias) to DHCP..." -ForegroundColor DarkGray
+                                Set-DnsClientServerAddress -InterfaceIndex $adapter.interfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue
+                            } else {
+                                Write-Host "  Restoring $($adapter.interfaceAlias) to Static DNS ($($adapter.serverAddresses -join ', '))..." -ForegroundColor DarkGray
+                                Set-DnsClientServerAddress -InterfaceIndex $adapter.interfaceIndex -ServerAddresses $adapter.serverAddresses -ErrorAction SilentlyContinue
+                            }
+                        }
+                        Clear-DnsClientCache -ErrorAction SilentlyContinue
+                    }
+                } catch {
+                    Write-Warn "Error restoring DNS during rollback: $_"
+                }
+            }
+            # Safety check: ensure no loopback orphan remains; never blindly reset to DHCP if backup is missing
+            try {
+                $lbAdapters = Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.ServerAddresses -contains "127.0.0.1" }
+                if ($lbAdapters) {
+                    foreach ($la in $lbAdapters) {
+                        Write-Host "  [WARNING] Adapter '$($la.InterfaceAlias)' (index $($la.InterfaceIndex)) is pointing to 127.0.0.1 after rollback, but DNS backup is missing or corrupt." -ForegroundColor Yellow
+                        Write-Host "            To prevent discarding potentially pre-existing static DNS configurations (e.g. 1.1.1.1, 8.8.8.8), ONUSLY will not automatically force DHCP." -ForegroundColor Yellow
+                        Write-Host "            Manual recovery options:" -ForegroundColor Cyan
+                        Write-Host "              - If DHCP:   Set-DnsClientServerAddress -InterfaceIndex $($la.InterfaceIndex) -ResetServerAddresses" -ForegroundColor Cyan
+                        Write-Host "              - If Static: Set-DnsClientServerAddress -InterfaceIndex $($la.InterfaceIndex) -ServerAddresses <your-static-servers>" -ForegroundColor Cyan
+                    }
+                    Clear-DnsClientCache -ErrorAction SilentlyContinue
+                }
+            } catch {}
 
             # 3. Restore previous binaries from .backup
             if (Test-Path "$binBackupDir\onusly-agent.exe.bak") {

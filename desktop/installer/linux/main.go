@@ -2,19 +2,28 @@ package main
 
 import (
 	"bufio"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
+	"github.com/devanshbaghel18/ONUSLY/desktop/core/update"
 	"github.com/devanshbaghel18/ONUSLY/desktop/policy"
 )
+
+const PinnedStagingPublicKeyHex = "4b84dd004818fa8db3463a5647565d774847e9282367cb6eb8838234bb4fbc0d"
 
 const systemdServiceTemplate = `[Unit]
 Description=ONUSLY Desktop Unified Enforcement Agent
@@ -26,7 +35,8 @@ ExecStart=/usr/local/bin/onusly-agent run --api-url=%s --config-dir=/etc/onusly 
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
-CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_CHOWN CAP_KILL CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_CHOWN CAP_KILL
 NoNewPrivileges=true
 
 [Install]
@@ -40,6 +50,9 @@ func main() {
 		updateURL      = flag.String("update-url", "", "Custom Chrome extension update manifest URL (default derived from api-url)")
 		nonInteractive = flag.Bool("yes", false, "Accept consent disclosures automatically without interactive prompt")
 		userMode       = flag.Bool("user", false, "Install in user mode without requiring root")
+		stagedDir      = flag.String("staged-dir", "", "Directory containing verified update manifest and artifacts")
+		upgrade        = flag.Bool("upgrade", false, "Upgrade existing installation from staged directory")
+		allowDowngrade = flag.Bool("allow-downgrade", false, "Allow authorized downgrade during upgrade")
 	)
 	flag.Parse()
 
@@ -52,6 +65,15 @@ func main() {
 		home, _ := os.UserHomeDir()
 		nativeHostBin = filepath.Join(home, ".local", "bin", "onusly-native-host")
 		agentBin = filepath.Join(home, ".local", "bin", "onusly-agent")
+	}
+
+	if *upgrade {
+		if *stagedDir == "" {
+			fmt.Println("Error: -staged-dir is required when invoking -upgrade")
+			os.Exit(1)
+		}
+		runUpgrade(*stagedDir, *allowDowngrade, isRoot, agentBin, nativeHostBin)
+		return
 	}
 
 	policyMgr := policy.NewLinuxPolicyManager(nativeHostBin, "", useUserScope)
@@ -303,4 +325,164 @@ func copyFileIfExists(src, dst string, mode os.FileMode) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func getTrustedPublicKey() (ed25519.PublicKey, error) {
+	keyStr := strings.TrimSpace(os.Getenv("ONUSLY_UPDATE_PUBLIC_KEY"))
+	if keyStr == "" {
+		keyStr = PinnedStagingPublicKeyHex
+	}
+
+	if len(keyStr) == 64 {
+		b, err := hex.DecodeString(keyStr)
+		if err == nil && len(b) == ed25519.PublicKeySize {
+			return ed25519.PublicKey(b), nil
+		}
+	}
+
+	b, err := base64.StdEncoding.DecodeString(keyStr)
+	if err == nil && len(b) == ed25519.PublicKeySize {
+		return ed25519.PublicKey(b), nil
+	}
+
+	return nil, fmt.Errorf("invalid trusted public key format %q", keyStr)
+}
+
+func runUpgrade(stagedDir string, allowDowngrade, isRoot bool, agentBin, nativeHostBin string) {
+	fmt.Println("=================================================================")
+	fmt.Println("         ONUSLY DESKTOP — SECURE LINUX UPGRADE                   ")
+	fmt.Println("=================================================================")
+
+	manifestPath := filepath.Join(stagedDir, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		fmt.Printf("❌ Failed to read staged manifest %s: %v\n", manifestPath, err)
+		os.Exit(1)
+	}
+
+	var manifest update.Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		fmt.Printf("❌ Staged manifest has invalid JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	pubKey, err := getTrustedPublicKey()
+	if err != nil {
+		fmt.Printf("❌ Failed to load trusted public key: %v\n", err)
+		os.Exit(1)
+	}
+
+	antiRollbackPath := "/etc/onusly/anti_rollback.json"
+	rollbackMgr := update.NewAntiRollbackManager(antiRollbackPath)
+
+	channel := os.Getenv("ONUSLY_UPDATE_CHANNEL")
+	if channel == "" {
+		channel = "stable"
+	}
+
+	verifierCfg := update.VerifierConfig{
+		TrustedPublicKey: pubKey,
+		CurrentOS:        "linux",
+		CurrentArch:      "amd64",
+		CurrentChannel:   channel,
+		CurrentVersion:   core.ReleaseVersion,
+		RollbackMgr:      rollbackMgr,
+	}
+
+	verifier, err := update.NewUpdateVerifier(verifierCfg)
+	if err != nil {
+		fmt.Printf("❌ Failed to construct verifier: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 1. Dual-check manifest at elevation boundary
+	if err := verifier.VerifyManifest(&manifest, allowDowngrade); err != nil {
+		fmt.Printf("❌ Security verification of update manifest failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("✅ Manifest signature, freshness, and anti-rollback verified.")
+
+	// 2. Verify all staged component digests
+	for _, comp := range manifest.Components {
+		artPath := filepath.Join(stagedDir, comp.Filename)
+		if err := verifier.VerifyArtifact(&comp, artPath); err != nil {
+			fmt.Printf("❌ Artifact verification failed for %s (%s): %v\n", comp.ComponentID, comp.Filename, err)
+			os.Exit(1)
+		}
+		fmt.Printf("✅ Staged component %s (%s) SHA-256 verified.\n", comp.ComponentID, comp.Filename)
+	}
+
+	// 3. Stage backups of running binaries
+	agentBak := agentBin + ".bak"
+	hostBak := nativeHostBin + ".bak"
+
+	_ = copyFileIfExists(agentBin, agentBak, 0755)
+	_ = copyFileIfExists(nativeHostBin, hostBak, 0755)
+
+	rollback := func(reason string) {
+		fmt.Printf("⚠️ Upgrade failed (%s). Executing automated rollback...\n", reason)
+		if _, err := os.Stat(agentBak); err == nil {
+			_ = copyFileIfExists(agentBak, agentBin, 0755)
+			_ = os.Remove(agentBak)
+		}
+		if _, err := os.Stat(hostBak); err == nil {
+			_ = copyFileIfExists(hostBak, nativeHostBin, 0755)
+			_ = os.Remove(hostBak)
+		}
+		if isRoot {
+			_ = exec.Command("systemctl", "restart", "onusly-agent").Run()
+		}
+		fmt.Println("↩️ System cleanly rolled back to previous version.")
+		os.Exit(1)
+	}
+
+	// 4. Atomically replace binaries
+	for _, comp := range manifest.Components {
+		src := filepath.Join(stagedDir, comp.Filename)
+		target := agentBin
+		if comp.ComponentID == "native_host" {
+			target = nativeHostBin
+		}
+		tmpDst := fmt.Sprintf("%s.tmp.%d", target, os.Getpid())
+		if err := copyFileIfExists(src, tmpDst, 0755); err != nil {
+			rollback(fmt.Sprintf("failed to copy %s to %s", src, tmpDst))
+		}
+		if err := os.Rename(tmpDst, target); err != nil {
+			rollback(fmt.Sprintf("failed to atomically commit %s to %s", tmpDst, target))
+		}
+	}
+	fmt.Println("✅ Binaries atomically upgraded in place.")
+
+	// 5. Restart systemd service if running as root
+	if isRoot {
+		fmt.Println("🔄 Restarting systemd service: onusly-agent...")
+		if err := exec.Command("systemctl", "restart", "onusly-agent").Run(); err != nil {
+			rollback(fmt.Sprintf("failed to restart service: %v", err))
+		}
+
+		// 6. Post-update health check: probe socket /run/onusly/agent.sock
+		fmt.Println("🩺 Running post-update health check...")
+		time.Sleep(1 * time.Second)
+		healthy := false
+		for attempt := 1; attempt <= 10; attempt++ {
+			c, err := net.DialTimeout("unix", "/run/onusly/agent.sock", 1*time.Second)
+			if err == nil {
+				c.Close()
+				healthy = true
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if !healthy {
+			rollback("service failed post-update health check (socket unresponsive)")
+		}
+		fmt.Println("✅ Post-update health check passed: service active and responsive on IPC socket.")
+	}
+
+	// 7. Cleanup backups and record accepted version
+	_ = os.Remove(agentBak)
+	_ = os.Remove(hostBak)
+	_ = rollbackMgr.RecordAccepted(&manifest)
+
+	fmt.Printf("🎉 Upgrade to ONUSLY %s successfully completed!\n", manifest.ReleaseVersion)
 }
