@@ -3,6 +3,7 @@ package sync_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/cache"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/sync"
+	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 )
 
 type mockCredStore struct {
@@ -104,5 +106,98 @@ func TestSyncer_LifecycleAndOfflinePreservation(t *testing.T) {
 	}
 	if dataOffline.Targets[0].Domains[0] != "instagram.com" {
 		t.Errorf("expected offline cache to maintain instagram.com restriction")
+	}
+}
+
+func TestSyncer_DeviceRevokedAndCredentialExpired(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "onusly-syncer-d8-*")
+	defer os.RemoveAll(tmpDir)
+
+	cacheFile := filepath.Join(tmpDir, "blocklist_cache.json")
+	cacheStore := cache.NewFileBlocklistCache(cacheFile)
+
+	mockJWT := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLWRlc2t0b3AtNDU2IiwiZXhwIjoxOTk5OTk5OTk5fQ.signature"
+	credStore := &mockCredStore{token: mockJWT}
+
+	// 1. Initial healthy sync to seed cache
+	initialServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"v1-seed"`)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"userId":      "user-desktop-456",
+			"version":     "v1-seed",
+			"generatedAt": "2026-11-11T00:00:00Z",
+			"targets": []map[string]any{
+				{
+					"goalId":    "goal-discord",
+					"goalTitle": "No Discord",
+					"status":    "active",
+					"domains":   []string{"discord.com"},
+				},
+			},
+		})
+	}))
+	defer initialServer.Close()
+
+	syncer := sync.NewSyncer(initialServer.URL, credStore, cacheStore, initialServer.Client())
+	seeded, err := syncer.Sync(context.Background())
+	if err != nil || seeded == nil || len(seeded.Targets) != 1 {
+		t.Fatalf("Failed to seed initial blocklist: %v", err)
+	}
+
+	// 2. Test CREDENTIAL_EXPIRED: returns core.ErrCredentialExpired, offline cache retained
+	expiredServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": "CREDENTIAL_EXPIRED",
+			"code":  "credential_expired",
+		})
+	}))
+	defer expiredServer.Close()
+
+	expiredSyncer := sync.NewSyncer(expiredServer.URL, credStore, cacheStore, expiredServer.Client())
+	// Pre-load cached blocklist into memory
+	_, _ = expiredSyncer.GetCachedBlocklist()
+
+	expData, expErr := expiredSyncer.Sync(context.Background())
+	if !errors.Is(expErr, core.ErrCredentialExpired) {
+		t.Fatalf("Expected core.ErrCredentialExpired, got: %v", expErr)
+	}
+	if expData == nil || len(expData.Targets) != 1 {
+		t.Fatalf("CREDENTIAL_EXPIRED must preserve offline cache for user grace period, got: %+v", expData)
+	}
+
+	// 3. Test DEVICE_REVOKED: returns core.ErrDeviceRevoked, cache strictly purged
+	revokedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": "DEVICE_REVOKED",
+			"code":  "device_revoked",
+		})
+	}))
+	defer revokedServer.Close()
+
+	revokedSyncer := sync.NewSyncer(revokedServer.URL, credStore, cacheStore, revokedServer.Client())
+	// Pre-load cached blocklist into memory
+	_, _ = revokedSyncer.GetCachedBlocklist()
+
+	revData, revErr := revokedSyncer.Sync(context.Background())
+	if !errors.Is(revErr, core.ErrDeviceRevoked) {
+		t.Fatalf("Expected core.ErrDeviceRevoked, got: %v", revErr)
+	}
+	if revData != nil {
+		t.Fatalf("DEVICE_REVOKED must return nil blocklist, got: %+v", revData)
+	}
+
+	// Verify memory cache is purged
+	cachedMem, _ := revokedSyncer.GetCachedBlocklist()
+	if cachedMem != nil {
+		t.Fatalf("DEVICE_REVOKED must purge in-memory cache, got: %+v", cachedMem)
+	}
+
+	// Verify disk cache is purged
+	cachedDisk, _ := cacheStore.Get("user-desktop-456")
+	if cachedDisk != nil {
+		t.Fatalf("DEVICE_REVOKED must purge disk cache, got: %+v", cachedDisk)
 	}
 }

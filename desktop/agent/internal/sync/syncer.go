@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -141,8 +142,25 @@ func (s *Syncer) Sync(ctx context.Context) (*core.BlocklistData, error) {
 		return freshData, nil
 	}
 
-	// 401 Unauthorized: token expired or revoked
-	if resp.StatusCode == http.StatusUnauthorized {
+	// 401 Unauthorized or 403 Forbidden: check error response body
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		bodyStr := string(bodyBytes)
+		if strings.Contains(bodyStr, "DEVICE_REVOKED") || strings.Contains(bodyStr, "device_revoked") {
+			// Invariant: Confirmed device revocation MUST NOT continue active enforcement
+			s.cachedBlocklist = nil
+			s.lastKnownETag = ""
+			if s.cache != nil {
+				_ = s.cache.Clear()
+			}
+			return nil, core.ErrDeviceRevoked
+		}
+		if strings.Contains(bodyStr, "CREDENTIAL_EXPIRED") || strings.Contains(bodyStr, "credential_expired") {
+			if s.cachedBlocklist != nil {
+				return s.cachedBlocklist, core.ErrCredentialExpired
+			}
+			return nil, core.ErrCredentialExpired
+		}
 		if s.cachedBlocklist != nil {
 			// Maintain offline cache enforcement even if token expires until explicit disconnect
 			return s.cachedBlocklist, core.ErrUnauthenticated
@@ -174,4 +192,16 @@ func (s *Syncer) GetCachedBlocklist() (*core.BlocklistData, error) {
 	}
 
 	return nil, errors.New("no cached blocklist available")
+}
+
+// ClearCache purges both in-memory and persistent on-disk policy caches.
+func (s *Syncer) ClearCache() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cachedBlocklist = nil
+	s.lastKnownETag = ""
+	if s.cache != nil {
+		return s.cache.Clear()
+	}
+	return nil
 }
