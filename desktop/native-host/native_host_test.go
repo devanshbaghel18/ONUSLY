@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
@@ -95,3 +96,23 @@ func TestNativeHost_UnreachableAgent(t *testing.T) {
 	}
 }
 
+func TestNativeHost_SecurityActionAllowlist(t *testing.T) {
+	// 1. Malformed JSON payload must return structured error
+	respMalformed := handleNativeFrame("dummy", []byte("this is not valid json{}}"))
+	if respMalformed.Success || !strings.Contains(respMalformed.Error, "invalid json payload") {
+		t.Fatalf("expected invalid json payload error, got: %+v", respMalformed)
+	}
+
+	// 2. Disallowed privileged actions must be strictly rejected
+	forbiddenActions := []string{"execute", "shell", "rm", "delete-cache", "sudo", "write-policy"}
+	for _, action := range forbiddenActions {
+		payload, _ := json.Marshal(core.IPCRequest{Action: action})
+		resp := handleNativeFrame("dummy", payload)
+		if resp.Success {
+			t.Fatalf("action %q should have been rejected, got success", action)
+		}
+		if !strings.Contains(resp.Error, "unauthorized native host action") {
+			t.Fatalf("expected unauthorized action error for %q, got: %s", action, resp.Error)
+		}
+	}
+}

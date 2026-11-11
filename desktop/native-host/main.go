@@ -9,6 +9,34 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 )
 
+func handleNativeFrame(ipcPath string, msgBuf []byte) core.IPCResponse {
+	var req core.IPCRequest
+	if err := json.Unmarshal(msgBuf, &req); err != nil {
+		return core.IPCResponse{
+			Success: false,
+			Error:   "invalid json payload: " + err.Error(),
+		}
+	}
+
+	if req.Action == "" {
+		req.Action = "get-blocklist" // Default to fetching blocklist
+	}
+
+	// Strict Action Allowlist: Native messaging host only permits safe, read-only/status queries.
+	// Privileged modifications, pairing changes, or arbitrary commands are strictly rejected.
+	switch req.Action {
+	case "get-blocklist", "sync", "status", "version", "heartbeat":
+		// Permitted actions
+	default:
+		return core.IPCResponse{
+			Success: false,
+			Error:   "unauthorized native host action: " + req.Action,
+		}
+	}
+
+	return queryAgent(ipcPath, req)
+}
+
 func main() {
 	ipcPath := os.Getenv("ONUSLY_IPC_PATH")
 	if ipcPath == "" {
@@ -37,13 +65,7 @@ func main() {
 			return
 		}
 
-		var req core.IPCRequest
-		_ = json.Unmarshal(msgBuf, &req)
-		if req.Action == "" {
-			req.Action = "get-blocklist" // Default to fetching blocklist
-		}
-
-		resp := queryAgent(ipcPath, req)
+		resp := handleNativeFrame(ipcPath, msgBuf)
 		sendNativeResponse(resp)
 	}
 }

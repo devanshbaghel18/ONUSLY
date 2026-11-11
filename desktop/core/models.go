@@ -5,21 +5,44 @@ import (
 	"errors"
 )
 
-var (
-	ErrUnauthenticated = errors.New("agent is not authenticated with an ONUSLY account")
-	ErrInvalidRequest  = errors.New("invalid request payload")
-	ErrUnauthorized    = errors.New("unauthorized IPC request")
-	ErrServiceOffline  = errors.New("backend API is unreachable")
-	ErrUserMismatch    = errors.New("blocklist user ID does not match active authenticated session")
+// Canonical release version metadata.
+const (
+	// ReleaseVersion is the authoritative single source of versioning for the ONUSLY release candidate.
+	ReleaseVersion = "1.0.0-rc1"
+	// SecurityVersion is the monotonically increasing anti-rollback counter.
+	SecurityVersion uint64 = 1
 )
+
+var (
+	// BuildCommit and BuildDate can be stamped via ldflags (-X) during CI release builds.
+	BuildCommit = "2c26d96"
+	BuildDate   = "2026-11-11"
+)
+
+var (
+	ErrUnauthenticated   = errors.New("agent is not authenticated with an ONUSLY account")
+	ErrDeviceRevoked     = errors.New("device authorization has been revoked by the account owner")
+	ErrCredentialExpired = errors.New("device authentication credential has expired")
+	ErrInvalidRequest    = errors.New("invalid request payload")
+	ErrUnauthorized      = errors.New("unauthorized IPC request")
+	ErrServiceOffline    = errors.New("backend API is unreachable")
+	ErrUserMismatch      = errors.New("blocklist user ID does not match active authenticated session")
+)
+
+// ApplicationTarget defines an explicitly typed enforcement target.
+type ApplicationTarget struct {
+	Kind       string `json:"kind"`       // "desktop_app" | "android_package"
+	Identifier string `json:"identifier"` // e.g. "discord", "com.whatsapp"
+}
 
 // TargetItem represents a single goal's active enforcement targets.
 type TargetItem struct {
-	GoalID    string   `json:"goalId"`
-	GoalTitle string   `json:"goalTitle"`
-	Status    string   `json:"status"`
-	Apps      []string `json:"apps"`
-	Domains   []string `json:"domains"`
+	GoalID             string              `json:"goalId"`
+	GoalTitle          string              `json:"goalTitle"`
+	Status             string              `json:"status"`
+	Apps               []string            `json:"apps"`
+	Domains            []string            `json:"domains"`
+	ApplicationTargets []ApplicationTarget `json:"applicationTargets,omitempty"`
 }
 
 // BlocklistData represents the authoritative blocklist payload cached by the agent.
@@ -31,29 +54,68 @@ type BlocklistData struct {
 	Targets     []TargetItem `json:"targets"`
 }
 
+// Authoritative Health States for ONUSLY clients and components.
+const (
+	HealthStateHealthy                = "HEALTHY"
+	HealthStateDegraded               = "DEGRADED"
+	HealthStateOffline                = "OFFLINE"
+	HealthStateAuthenticationRequired = "AUTHENTICATION_REQUIRED"
+	HealthStateDeviceRevoked          = "DEVICE_REVOKED"
+	HealthStatePolicyStale            = "POLICY_STALE"
+	HealthStatePolicyMissing          = "POLICY_MISSING"
+	HealthStateDNSUnavailable         = "DNS_UNAVAILABLE"
+	HealthStateBrowserDegraded        = "BROWSER_INTEGRATION_DEGRADED"
+	HealthStateAppEnforcementDegraded = "APP_ENFORCEMENT_DEGRADED"
+)
+
+// Component Health States
+const (
+	ComponentHealthHealthy      = "HEALTHY"
+	ComponentHealthDegraded     = "DEGRADED"
+	ComponentHealthUnavailable  = "UNAVAILABLE"
+	ComponentHealthStale        = "STALE"
+	ComponentHealthFailing      = "FAILING"
+	ComponentHealthDisconnected = "DISCONNECTED"
+)
+
 // AgentStatus reflects the current runtime health and state of the desktop agent.
 type AgentStatus struct {
-	Connected        bool     `json:"connected"`
-	UserID           string   `json:"userId,omitempty"`
-	DeviceID         string   `json:"deviceId"`
-	Platform         string   `json:"platform"`
-	Version          string   `json:"version"`
-	LastSyncAt       string   `json:"lastSyncAt,omitempty"`
-	BlocklistVersion string   `json:"blocklistVersion,omitempty"`
-	TargetsCount     int      `json:"targetsCount"`
-	Enforcing        bool     `json:"enforcing"`
-	Issues           []string `json:"issues"`
-	PairingState     string   `json:"pairingState,omitempty"`
-	OwnerSID         string   `json:"ownerSid,omitempty"`
-	DNSResolverRunning   bool   `json:"dnsResolverRunning"`
-	DNSResolverListening bool   `json:"dnsResolverListening"`
-	DNSQueriesBlocked    uint64 `json:"dnsQueriesBlocked"`
-	DNSQueriesForwarded  uint64 `json:"dnsQueriesForwarded"`
+	Connected             bool     `json:"connected"`
+	UserID                string   `json:"userId,omitempty"`
+	DeviceID              string   `json:"deviceId"`
+	Platform              string   `json:"platform"`
+	Version               string   `json:"version"`
+	LastSyncAt            string   `json:"lastSyncAt,omitempty"`
+	BlocklistVersion      string   `json:"blocklistVersion,omitempty"`
+	TargetsCount          int      `json:"targetsCount"`
+	Enforcing             bool     `json:"enforcing"`
+	EnforcementStatus     string   `json:"enforcementStatus,omitempty"` // "HEALTHY" | "ENFORCEMENT_DEGRADED" | "POLICY_MISSING" | "UNPAIRED"
+	HealthState           string   `json:"healthState,omitempty"`       // Authoritative aggregate health state
+	DNSHealth             string   `json:"dnsHealth,omitempty"`
+	AppsHealth            string   `json:"appsHealth,omitempty"`
+	BrowserHealth         string   `json:"browserHealth,omitempty"`
+	SyncHealth            string   `json:"syncHealth,omitempty"`
+	LastSyncOutcome       string   `json:"lastSyncOutcome,omitempty"`
+	LastErrorCategory     string   `json:"lastErrorCategory,omitempty"`
+	LKGActive             bool     `json:"lkgActive"`
+	CacheValid            bool     `json:"cacheValid"`
+	Issues                []string `json:"issues"`
+	PairingState          string   `json:"pairingState,omitempty"`
+	OwnerSID              string   `json:"ownerSid,omitempty"`
+	DNSResolverRunning    bool     `json:"dnsResolverRunning"`
+	DNSResolverListening  bool     `json:"dnsResolverListening"`
+	DNSQueriesBlocked     uint64   `json:"dnsQueriesBlocked"`
+	DNSQueriesForwarded   uint64   `json:"dnsQueriesForwarded"`
+	AppsControllerRunning bool     `json:"appsControllerRunning"`
+	AppsMonitoredCount    uint64   `json:"appsMonitoredCount"`
+	AppsRestrictedCount   int      `json:"appsRestrictedCount"`
+	AppsEnforcedCount     uint64   `json:"appsEnforcedCount"`
+	AppsFailedCount       uint64   `json:"appsFailedCount"`
 }
 
 // IPCRequest represents a message from the browser native host or CLI to the agent.
 type IPCRequest struct {
-	Action string `json:"action"` // "get-blocklist" | "get-status" | "ping" | "pair-request" | "pair-poll" | "pair-cancel" | "diagnostics"
+	Action string `json:"action"` // "get-blocklist" | "get-status" | "ping" | "pair-request" | "pair-poll" | "pair-cancel" | "diagnostics" | "apps-inventory" | "apps-status"
 	Code   string `json:"code,omitempty"`
 }
 
@@ -66,6 +128,7 @@ type IPCResponse struct {
 	PairCode    string            `json:"pairCode,omitempty"`
 	ExpiresAt   int64             `json:"expiresAt,omitempty"`
 	Diagnostics map[string]string `json:"diagnostics,omitempty"`
+	Apps        []any             `json:"apps,omitempty"`
 }
 
 // BrowserType identifies a supported desktop web browser.
