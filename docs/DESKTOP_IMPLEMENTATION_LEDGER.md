@@ -668,3 +668,53 @@ A previous execution summary referenced "29 failed tasks out of 32". Investigati
 - Chrome Lifecycle Audit Suite: `scratch/verify_update_lifecycle.js`
 - Fresh-Machine Distribution Test Suite: `scratch/test_fresh_machine_installation.js`
 - Linux Distro Adapters Guide: `desktop/docs/LINUX_DISTROS.md`
+
+---
+
+## 7. Windows Production Milestones (D3.1 – D3.4)
+
+### 7.1 D3.1 Production Service Architecture
+- **Service Name:** `OnuslyDesktopAgent`
+- **SCM Service Identity:** `NT AUTHORITY\LocalService` (`S-1-5-19`)
+- **Service SID Type:** `SERVICE_SID_TYPE_UNRESTRICTED` (`S-1-5-80-3463423020-2351545225-1748562058-3133284821-4013307172`)
+- **Privilege Stripping:** Restricted to `SeChangeNotifyPrivilege` (`se_impersonate_stripped: true`).
+- **WTS Console Session Isolation:** Enforces client session ID matches active console session via `WTSGetActiveConsoleSessionId` with TOCTOU post-check.
+- **Client Impersonation Security:** Named-pipe authentication enforces `TokenImpersonationLevel == SecurityIdentification` (level 1) and compares caller token user SID against paired owner SID.
+- **DACL Authorization:** Explicit SDDL `D:(A;;GA;;;BA)(A;;GA;;;SY)(A;;GA;;;LS)(A;;GRGW;;;IU)` protects the named pipe `\\.\pipe\OnuslyAgentIPC`.
+
+### 7.2 D3.2 Windows Installer, Registry & Browser Policy Lifecycle
+- **Unified Installer (`desktop/installer/windows/install.ps1`):**
+  - Staged PE validation, atomic backup directory creation, rollback on failure.
+  - SCM service registration with `SERVICE_SID_TYPE_UNRESTRICTED` and stripped privileges.
+  - Machine-level Native Messaging registration for Google Chrome and Microsoft Edge.
+  - Managed policy deployment (`ExtensionInstallForcelist` / `ExtensionSettings`) targeting canonical extension ID `jifigaejbinmdhnljobkodcgeaplojmg`.
+- **Uninstaller (`desktop/installer/windows/uninstall.ps1`):**
+  - Clean SCM service unregistration, browser policy restoration, native host removal.
+  - Data retention policies: `-RetainDeviceIdentity` (preserves device identity for re-pairing), `-PurgeAll` (complete machine cleanup).
+
+### 7.3 D3.3 End-to-End Installation & Runtime Acceptance
+- **Regression Suite:** `desktop/installer/windows/test_lifecycle.ps1` (70 of 70 checks passing).
+- **Transactional Rollback:** 11 failure boundaries verified (`BinaryStaging`, `PEValidation`, `BackupCreation`, `FirstBinaryReplacement`, `SecondBinaryReplacement`, `ACLApplication`, `SCMConfiguration`, `NativeMessagingRegistration`, `BrowserPolicyConfiguration`, `ServiceStartup`, `PostStartHealth`).
+- **Component-Level Repair:** Restores missing agent executable, native host executable, or browser manifests with zero alteration on clean systems.
+- **Running-Service Upgrade:** Gracefully stops service, releases file locks, upgrades binaries, preserves `device_id` SHA-256 hash (`8443EE4451BFA152BC88EE820026DD4DB237EACBB0021ECF2608F23508A033EC`), and restarts service.
+
+### 7.4 D3.4 Device Pairing, Credential Lifecycle & Session Resilience
+- **Automated Validation Gate:** `desktop/installer/windows/test_pairing_acceptance.ps1` (**32 of 32 checks passing**).
+- **Authoritative Service Pairing Protocol:**
+  - Standard unprivileged console users cannot access `%ProgramData%\Onusly\secure\token.dat` (protected by NTFS DACL).
+  - CLI `onusly-agent pair` delegates pairing to the running service via IPC actions `pair-request` and `pair-poll`.
+  - Service requests 6-character code from backend (`POST /enforcement/pair/request`).
+  - Interactive user confirms code on dashboard (`POST /enforcement/pair/confirm`).
+  - Service exchanges code for device JWT (`POST /enforcement/pair/exchange`), encrypts using DPAPI machine scope, persists to `secure\token.dat`, pulls blocklist (`GET /enforcement/blocklist`), and locks owner SID.
+  - **Zero Credential Leakage Invariant:** Raw JWT is NEVER returned across the named pipe or printed to CLI output.
+- **DPAPI Hardening:** Enforces 64KB bounded ciphertext/plaintext size and transient memory buffer zeroing.
+- **Pairing State Machine (`auth.PairingStateManager`):**
+  - Transitions: `UNINSTALLED` → `INSTALLED_UNPAIRED` → `PAIRING_PENDING` → `PAIRING_COMMIT_PENDING` → `PAIRED` ↔ `AUTHENTICATION_REQUIRED` / `REPAIR_REQUIRED`.
+  - Interrupted two-phase commit recovery: auto-promotes to `PAIRED` if token is valid on startup; auto-transitions to `REPAIR_REQUIRED` if token is corrupted or missing.
+  - Token expiration detection: auto-transitions to `AUTHENTICATION_REQUIRED` without clearing cached restrictions.
+- **Authoritative Blocklist Syncer & Offline Resilience:**
+  - Implements ETag conditional requests (`If-None-Match`) and handles `304 Not Modified`.
+  - **Critical Invariant:** Network failures (including backend HTTP 521) NEVER wipe valid cached restrictions. Offline cache remains active.
+- **Browser Native Host Integration:**
+  - `onusly-native-host.exe` connects to named pipe with `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`.
+  - Translates 4-byte little-endian stdio messages to named-pipe JSON requests and returns blocklist with zero credential exposure.

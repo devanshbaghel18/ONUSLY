@@ -9,3 +9,6 @@ server.log
 .agents/
 skills-lock.json
 *.exe
+
+build/
+*.exe~
