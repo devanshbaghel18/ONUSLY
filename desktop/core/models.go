@@ -43,19 +43,25 @@ type AgentStatus struct {
 	TargetsCount     int      `json:"targetsCount"`
 	Enforcing        bool     `json:"enforcing"`
 	Issues           []string `json:"issues"`
+	PairingState     string   `json:"pairingState,omitempty"`
+	OwnerSID         string   `json:"ownerSid,omitempty"`
 }
 
-// IPCRequest represents a message from the browser native host to the agent.
+// IPCRequest represents a message from the browser native host or CLI to the agent.
 type IPCRequest struct {
-	Action string `json:"action"` // "get-blocklist" | "get-status" | "ping"
+	Action string `json:"action"` // "get-blocklist" | "get-status" | "ping" | "pair-request" | "pair-poll" | "pair-cancel" | "diagnostics"
+	Code   string `json:"code,omitempty"`
 }
 
-// IPCResponse represents the agent's reply to the browser native host.
+// IPCResponse represents the agent's reply to the browser native host or CLI.
 type IPCResponse struct {
-	Success   bool           `json:"success"`
-	Error     string         `json:"error,omitempty"`
-	Blocklist *BlocklistData `json:"blocklist,omitempty"`
-	Status    *AgentStatus   `json:"status,omitempty"`
+	Success     bool              `json:"success"`
+	Error       string            `json:"error,omitempty"`
+	Blocklist   *BlocklistData    `json:"blocklist,omitempty"`
+	Status      *AgentStatus      `json:"status,omitempty"`
+	PairCode    string            `json:"pairCode,omitempty"`
+	ExpiresAt   int64             `json:"expiresAt,omitempty"`
+	Diagnostics map[string]string `json:"diagnostics,omitempty"`
 }
 
 // BrowserType identifies a supported desktop web browser.
