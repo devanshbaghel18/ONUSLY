@@ -245,6 +245,7 @@ func (m *LinuxPolicyManager) writeChromiumPolicy(browserType core.BrowserType, d
 	existing["ExtensionInstallForcelist"] = forceList
 	existing["IncognitoModeAvailability"] = 1  // Enforced or restricted incognito
 	existing["DeveloperToolsAvailability"] = 1 // Allow DevTools inspection on managed extensions
+	existing["DnsOverHttpsMode"] = "off"        // Prevent browser DoH bypass of local DNS enforcement
 
 	data, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {

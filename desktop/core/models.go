@@ -45,6 +45,10 @@ type AgentStatus struct {
 	Issues           []string `json:"issues"`
 	PairingState     string   `json:"pairingState,omitempty"`
 	OwnerSID         string   `json:"ownerSid,omitempty"`
+	DNSResolverRunning   bool   `json:"dnsResolverRunning"`
+	DNSResolverListening bool   `json:"dnsResolverListening"`
+	DNSQueriesBlocked    uint64 `json:"dnsQueriesBlocked"`
+	DNSQueriesForwarded  uint64 `json:"dnsQueriesForwarded"`
 }
 
 // IPCRequest represents a message from the browser native host or CLI to the agent.

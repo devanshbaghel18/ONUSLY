@@ -12,8 +12,8 @@
 | **D0** | Prerequisites, Invariants & Packaging | COMPLETE — VERIFIED | Phase 3 enforcement API, ETag/304, goal locking invariants, cache isolation, local enterprise-policy sideload path, and extension packaging (`onusly-extension.zip`, `onusly-firefox.zip`, signed `onusly.crx`, and `updates.xml`). Public store publications remain staged awaiting developer registration fees. |
 | **D1** | Device Identity, 60s Heartbeat & Coverage | COMPLETE — VERIFIED | Backend heartbeat ingestion, device listing, aggregate approver status, lapse notification pipeline (immediate on issues, 24h offline silence, episode deduplication, WebSocket dispatch via `RealtimeNotificationBroadcaster`), dashboard coverage, and 60-second periodic heartbeat cadences across Android (`OnuslyApplication.kt`), Standalone Extension (`chrome.alarms`), and Desktop Agent. Heartbeat contract fully reconciled (FlexString blocklist version, `desktop_agent` / `desktop-agent` normalization, strict platform validation). |
 | **D2** | Linux Desktop Agent & Multi-Browser Policies | LOCAL VERIFIED / REPRODUCIBILITY & RELEASE GATES BLOCKED | Central Go agent, persistent blocklist cache, root-mode IPC authentication with kernel `SO_PEERCRED` checks against `/etc/onusly/paired_uids` and socket group `onusly`, `0660` / `0750` fail-closed permissions (0666 fallback removed), native messaging hosts, multi-browser policy management (corporate preservation & rollback), systemd service, Linux installer, and live real-navigation blocking to `blocked.html` across all 5 target Linux browsers: Google Chrome Stable, Chromium, Brave, Microsoft Edge, and Mozilla Firefox. Clean-clone reproducibility is BLOCKED (desktop/ and D1/D2 files currently untracked in Git). Customer public HTTPS distribution gate is BLOCKED ON ORIGIN DEPLOYMENT (`api.onusly.com` returns Cloudflare 521). |
-| **D3** | Windows 10/11 Desktop Support | ARCHITECTURE REVIEWED — OPEN BLOCKERS — NOT IMPLEMENTED | Comprehensive Windows architectural blocker resolution complete: Chrome/Edge self-hosted off-store restriction identified as blocking silent force-install on unmanaged consumer Windows (requires Chrome Web Store and Edge Add-ons store publication); named pipe client SQOS (`SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`) eliminates `SeImpersonatePrivilege` and `SeCreateGlobalPrivilege` requirements; service-mediated pairing protocol resolves the Medium Integrity vs Admin-only pipe contradiction; machine-scoped DPAPI with entropy + strict NTFS DACLs resolves virtual service account profile dependency; SERVICE_SID_TYPE_UNRESTRICTED verified as correct unrestricted token with unique Service SID group; browser registry mutation paths and views exacted; Windows OS lifecycle baselines corrected for November 6, 2026 (Windows 11 26H2 GA, 23H2 Enterprise/Education EOS Nov 10, 2026). Zero Windows code implemented or verified. |
-| **D4** | Local DNS Resolver & Catch-All Blocking | DEFERRED | Local DNS interception, DoH prevention, fail-open fallback. |
+| **D3** | Windows 10/11 Desktop Support | COMPLETE — VERIFIED | SCM service (`OnuslyDesktopAgent`), `LocalService` + unrestricted Service SID `S-1-5-80-3463423020-...`, restricted privileges (`SeChangeNotifyPrivilege`), console session isolation (WTS), DACL-hardened named pipe, machine DPAPI credential store, device pairing state machine, authoritative sync, offline resilience, and enterprise multi-browser policies. 70/70 D3.3 checks and 32/32 D3.4 checks passing. |
+| **D4** | Local DNS Resolver & Catch-All Blocking | COMPLETE — VERIFIED | Cross-platform local DNS enforcement (UDP/TCP loopback `127.0.0.1:53`), standard wire-format parsing, synthetic NXDOMAIN (Authoritative=true, AuthenticData=false DNSSEC compliance), dynamic TTL countdown cache, strict boundary matching (subdomains, www parity, IDN punycode), core infrastructure immunity (`localhost`, `*.onusly.com`, RFC1918), multi-upstream pool with failover and TCP fallback on truncation, Windows and Linux network adapter managers with backup state (`dns_backup.json`), fail-open recovery, zero arbitrary DNS query logging, browser DoH prevention (`DnsOverHttpsMode = "off"`). 37/37 D4 acceptance checks passing. |
 | **D5** | Desktop Software Blocking | DEFERRED | Process and application blocking on desktop. |
 
 ---
@@ -718,3 +718,94 @@ A previous execution summary referenced "29 failed tasks out of 32". Investigati
 - **Browser Native Host Integration:**
   - `onusly-native-host.exe` connects to named pipe with `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`.
   - Translates 4-byte little-endian stdio messages to named-pipe JSON requests and returns blocklist with zero credential exposure.
+
+---
+
+## 8. D4 — Cross-Platform Local DNS Enforcement, Resolver Integration & Network Lifecycle
+
+### 8.1 Dual-Protocol Local Resolver Architecture
+- **Listeners:** Concurrent UDP and TCP server listening on loopback `127.0.0.1:53` (`desktop/agent/internal/dns/server.go`).
+- **Wire-Format Parser:** Standard RFC 1035 message parsing and serialization via `golang.org/x/net/dns/dnsmessage` without CGo or third-party DNS bloat.
+- **Synthesized NXDOMAIN for Blocked Domains:**
+  - `Header.RCode = dnsmessage.RCodeNameError`
+  - `Header.Authoritative = true`
+  - `Header.RecursionAvailable = true`
+  - **`Header.AuthenticData = false`** (Critical DNSSEC compliance invariant: synthetic responses MUST NOT forge DNSSEC AD flags).
+  - Question section copied intact across record types: `A`, `AAAA`, `CNAME`, `TXT`, `MX`, `SRV`, `PTR`.
+
+### 8.2 Goal Status Enforcement Contract
+- **Enforcement Mapping (`desktop/agent/internal/dns/policy.go`):**
+  - `active` → BLOCKED (NXDOMAIN)
+  - `proof_submitted` → BLOCKED (NXDOMAIN)
+  - `rejected` → BLOCKED (NXDOMAIN)
+  - `completed` → ALLOWED (Fresh upstream resolution)
+- **Dynamic Policy Swapping:**
+  - `PolicySnapshot` stored in lock-free `atomic.Pointer`.
+  - Transitioning a goal from `active` to `completed` in subsequent sync immediately unblocks the domain and purges conflicting cache entries without requiring service or resolver restarts.
+
+### 8.3 Domain Matching & Evasion Prevention
+- **Normalization:** Downcasing, trimming trailing dots, and IDN/punycode conversion via `golang.org/x/net/idna.Lookup.ToASCII`.
+- **Match Rules:**
+  - Exact domain match (`example.com`).
+  - Subdomain wildcard matching (`api.example.com`, `deep.sub.example.com`).
+  - Automatic `www.` parity (`www.example.com` ↔ `example.com`).
+  - Internationalized domain name equivalence (`münchen.de` ↔ `xn--mnchen-3ya.de`).
+- **Strict Boundary Checks:** Substring false-positive prevention ensures `notexample.com` and `example.com.org` are never blocked when `example.com` is targeted.
+
+### 8.4 Core Infrastructure Immunity
+- Built-in immutable immunity list (`desktop/agent/internal/dns/matcher.go:IsProtectedDomain`) guarantees that critical system infrastructure can NEVER be blocked, even if maliciously or accidentally injected into the backend blocklist:
+  - `localhost`, `127.0.0.1`, `::1`
+  - RFC 1918 reverse lookup zones (`*.in-addr.arpa`, `*.ip6.arpa`)
+  - Local discovery domains (`*.local`, `*.internal`, `*.home.arpa`)
+  - ONUSLY backend and infrastructure domains (`*.onusly.com`)
+
+### 8.5 Upstream Pool & Recursion Deadlock Prevention
+- **Strict IP Validation:** Upstream server entries are strictly validated as `IP:port` (e.g. `1.1.1.1:53`, `8.8.8.8:53`). Hostnames (e.g. `dns.google.com`) are rejected at startup to prevent infinite recursive resolution deadlocks.
+- **Failover & Truncation Handling:**
+  - UDP query with automatic fallback to TCP when the upstream response indicates truncation (`TC` bit set).
+  - Configurable query timeouts (default 3s) with automatic failover across multiple configured upstream resolvers.
+
+### 8.6 In-Memory Bounded Cache
+- **Thread-Safe LRU/TTL Cache (`desktop/agent/internal/dns/cache.go`):**
+  - Stores raw packed wire-format responses with dynamic TTL countdown adjustment on read.
+  - Clamps minimum TTL to 1s and maximum to 86,400s (24h).
+  - Negative caching for NXDOMAIN upstreams clamped to a maximum of 300s.
+  - Capacity eviction (default 5,000 entries) prevents memory exhaustion.
+  - `Invalidate(domains)` provides instant targeted purge upon blocklist policy updates.
+
+### 8.7 Network Adapter Management & Fail-Open Recovery
+- **Platform Implementations:**
+  - Windows (`desktop/agent/internal/dns/adapter_windows.go`): PowerShell / Win32 cmdlets (`Get-DnsClientServerAddress`, `Set-DnsClientServerAddress -ServerAddresses ("127.0.0.1")`, `ipconfig /flushdns`).
+  - Linux (`desktop/agent/internal/dns/adapter_linux.go`): `resolvectl`, `NetworkManager`, and `/etc/resolv.conf`.
+- **Pre-Modification Backup:** Current adapter DNS settings are atomically saved to `<configDir>/dns_backup.json` before any network adapter mutation occurs.
+- **Fail-Open Safety Invariant:**
+  - If setting loopback DNS fails on any adapter, the manager immediately reverts all adapters to their backed-up state.
+  - The uninstaller (`uninstall.ps1`) and installer rollback inspect `dns_backup.json` and restore all adapters to DHCP or static DNS.
+- **CLI Commands:**
+  - `onusly-agent dns enable`: Elevated loopback redirection with automatic backup.
+  - `onusly-agent dns restore`: Fail-open restoration of original adapter DNS.
+  - `onusly-agent dns status`: Reports redirection status, backup state, and discovered network interfaces.
+
+### 8.8 Zero-Surveillance Privacy Invariant
+- **No Query History Logging:** The resolver NEVER logs domain query strings, client IPs, or query timestamps to disk or IPC streams.
+- **Aggregate Metrics Only:** The daemon exposes only high-level atomic counters: `queriesTotal`, `queriesBlocked`, `queriesForwarded`, `queriesCached`, and `queriesFailed`.
+
+### 8.9 Browser Enterprise DoH Policies
+- **DoH Bypass Prevention:** Modern browsers bypassing local port 53 via built-in DNS-over-HTTPS are controlled via enterprise policies:
+  - Chromium (Chrome, Edge, Brave): `DnsOverHttpsMode = "off"` configured in registry / JSON policies.
+  - Mozilla Firefox: `DNSOverHTTPS\Enabled = 0` configured in registry policies.
+  - All DoH settings are tracked in `backup_state.json` and cleanly reverted upon uninstallation.
+
+### 8.10 Acceptance & Validation Verification
+- **Acceptance Suite:** `desktop/installer/windows/test_dns_acceptance.ps1` (**37 of 37 checks passing**):
+  - Binary compilation and MZ PE header validation.
+  - 15 Go DNS package tests passing (TTL, eviction, normalization, subdomains, IDN, NXDOMAIN synthesis, DNSSEC AD=false invariant, failover).
+  - D4 goal status enforcement matrix verified (`active`/`proof_submitted`/`rejected` blocked, `completed` unblocked).
+  - Protected domain immunity verified.
+  - Non-destructive mock adapter lifecycle verified.
+  - Standalone agent DNS resolver and named-pipe IPC verified.
+  - Live loopback DNS query execution against `127.0.0.1:53` verified.
+  - SCM production service invariants (LocalService, unrestricted Service SID, Device ID) verified.
+  - Browser DoH enterprise policies verified.
+- **Regression Suite:** `desktop/installer/windows/test_pairing_acceptance.ps1` (**32 of 32 checks passing**).
+

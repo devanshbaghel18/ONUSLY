@@ -421,6 +421,7 @@ func (m *WindowsPolicyManager) applyChromiumPolicy(
 		}
 	}
 
+	var errSet error
 	if existingName != "" {
 		// Update existing value
 		priorVal, _ := k.GetStringValue(existingName)
@@ -433,21 +434,54 @@ func (m *WindowsPolicyManager) applyChromiumPolicy(
 			CreatedByUs: false,
 			KeyCreated:  !openedExisting,
 		})
-		return k.SetStringValue(existingName, forceEntry)
+		errSet = k.SetStringValue(existingName, forceEntry)
+	} else {
+		// Add new numeric entry without overwriting other extensions
+		newName := strconv.Itoa(maxIndex + 1)
+		backupState.Entries = append(backupState.Entries, PolicyBackupEntry{
+			Browser:     browserType,
+			KeyPath:     forceKeyPath,
+			ValueName:   newName,
+			PriorType:   "none",
+			CreatedByUs: true,
+			KeyCreated:  !openedExisting,
+		})
+		errSet = k.SetStringValue(newName, forceEntry)
 	}
 
-	// Add new numeric entry without overwriting other extensions
-	newName := strconv.Itoa(maxIndex + 1)
-	backupState.Entries = append(backupState.Entries, PolicyBackupEntry{
-		Browser:     browserType,
-		KeyPath:     forceKeyPath,
-		ValueName:   newName,
-		PriorType:   "none",
-		CreatedByUs: true,
-		KeyCreated:  !openedExisting,
-	})
+	if errSet != nil {
+		return errSet
+	}
 
-	return k.SetStringValue(newName, forceEntry)
+	// 2. Configure DnsOverHttpsMode = "off" to prevent browser DoH bypass of local DNS enforcement
+	rootKey, rootOpenedExisting, errRoot := m.reg.CreateKey(policyKeyPath)
+	if errRoot == nil {
+		defer rootKey.Close()
+		priorDoh, errPrior := rootKey.GetStringValue("DnsOverHttpsMode")
+		if errPrior == nil {
+			backupState.Entries = append(backupState.Entries, PolicyBackupEntry{
+				Browser:     browserType,
+				KeyPath:     policyKeyPath,
+				ValueName:   "DnsOverHttpsMode",
+				PriorType:   "string",
+				PriorValue:  priorDoh,
+				CreatedByUs: false,
+				KeyCreated:  !rootOpenedExisting,
+			})
+		} else {
+			backupState.Entries = append(backupState.Entries, PolicyBackupEntry{
+				Browser:     browserType,
+				KeyPath:     policyKeyPath,
+				ValueName:   "DnsOverHttpsMode",
+				PriorType:   "none",
+				CreatedByUs: true,
+				KeyCreated:  !rootOpenedExisting,
+			})
+		}
+		_ = rootKey.SetStringValue("DnsOverHttpsMode", "off")
+	}
+
+	return nil
 }
 
 func (m *WindowsPolicyManager) applyFirefoxPolicy(
@@ -519,7 +553,34 @@ func (m *WindowsPolicyManager) applyFirefoxPolicy(
 	}
 	backupState.Entries = append(backupState.Entries, entryURL)
 
-	return extK.SetStringValue("install_url", m.updateURL)
+	if errSet := extK.SetStringValue("install_url", m.updateURL); errSet != nil {
+		return errSet
+	}
+
+	// 3. DNSOverHTTPS\Enabled = 0 to prevent DoH bypass of local DNS enforcement
+	dohKeyPath := policyKeyPath + `\DNSOverHTTPS`
+	dohK, dohOpenedExisting, errDoh := m.reg.CreateKey(dohKeyPath)
+	if errDoh == nil {
+		defer dohK.Close()
+		priorDoh, errPriorDoh := dohK.GetDWordValue("Enabled")
+		entryDoh := PolicyBackupEntry{
+			Browser:     core.BrowserFirefox,
+			KeyPath:     dohKeyPath,
+			ValueName:   "Enabled",
+			CreatedByUs: errPriorDoh != nil,
+			KeyCreated:  !dohOpenedExisting,
+		}
+		if errPriorDoh == nil {
+			entryDoh.PriorType = "dword"
+			entryDoh.PriorValue = strconv.FormatUint(uint64(priorDoh), 10)
+		} else {
+			entryDoh.PriorType = "none"
+		}
+		backupState.Entries = append(backupState.Entries, entryDoh)
+		_ = dohK.SetDWordValue("Enabled", 0)
+	}
+
+	return nil
 }
 
 // VerifyPolicies checks registry settings and manifest files for consistency and policy drift.

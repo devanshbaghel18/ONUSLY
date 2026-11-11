@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/auth"
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/dns"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 	win "github.com/devanshbaghel18/ONUSLY/desktop/core/windows"
 )
@@ -49,6 +50,10 @@ func newPlatformCredentialStore(configDir string) core.CredentialStore {
 
 func getPlatformName() string {
 	return "windows"
+}
+
+func newPlatformAdapterManager() dns.AdapterManager {
+	return dns.NewWindowsAdapterManager()
 }
 
 func resolvePairingOwner() (ownerSID string, ownerUID uint32, err error) {

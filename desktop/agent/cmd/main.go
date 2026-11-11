@@ -27,17 +27,23 @@ func main() {
 		ipcPath       = flag.String("socket", getDefaultIPCPath(), "IPC socket or named pipe path")
 		pairedUIDFlag = flag.Uint("paired-uid", 0, "Authorized desktop user UID for system mode IPC (Linux)")
 		pairedSIDFlag = flag.String("paired-sid", "", "Authorized desktop user SID for system mode IPC (Windows)")
+		dnsListenFlag = flag.String("dns-listen", "127.0.0.1:53", "DNS resolver loopback listening address")
 	)
 
 	cmd := "run"
 	var flagArgs []string
 	var serviceSubArgs []string
+	var dnsSubArgs []string
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
-		if !strings.HasPrefix(arg, "-") && (arg == "run" || arg == "pair" || arg == "status" || arg == "diagnostics" || arg == "daemon" || arg == "service") {
+		if !strings.HasPrefix(arg, "-") && (arg == "run" || arg == "pair" || arg == "status" || arg == "diagnostics" || arg == "daemon" || arg == "service" || arg == "dns") {
 			cmd = arg
 			if arg == "service" && i+1 < len(os.Args) {
 				serviceSubArgs = os.Args[i+1:]
+				break
+			}
+			if arg == "dns" && i+1 < len(os.Args) {
+				dnsSubArgs = os.Args[i+1:]
 				break
 			}
 		} else {
@@ -50,6 +56,14 @@ func main() {
 	if cmd == "service" {
 		if err := runServiceCommand(serviceSubArgs); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if cmd == "dns" {
+		if err := runDNSCommand(dnsSubArgs, *configDir); err != nil {
+			fmt.Fprintf(os.Stderr, "DNS Error: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -102,6 +116,7 @@ func main() {
 			pairingMgr,
 			uint32(*pairedUIDFlag),
 			*apiURL,
+			*dnsListenFlag,
 		)
 	default:
 		fmt.Printf("Unknown command: %s. Valid commands: run, pair, status, diagnostics\n", cmd)

@@ -227,6 +227,30 @@ if (-not $SkipRegistry) {
     Write-Host "  Skipping registry policy rollback (-SkipRegistry specified)." -ForegroundColor DarkGray
 }
 
+# 3.5. Fail-Open Network DNS Restoration
+Write-Step "Checking Adapter DNS Redirection (Fail-Open Safety Restoration)..."
+$dnsBackupFile = "$DataRoot\config\dns_backup.json"
+if (Test-Path $dnsBackupFile) {
+    try {
+        $dnsState = Get-Content $dnsBackupFile -Raw | ConvertFrom-Json
+        if ($dnsState.originalDns) {
+            foreach ($adapter in $dnsState.originalDns) {
+                if ($adapter.isDhcp -or (-not $adapter.serverAddresses) -or $adapter.serverAddresses.Count -eq 0) {
+                    Set-DnsClientServerAddress -InterfaceIndex $adapter.interfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue
+                } else {
+                    Set-DnsClientServerAddress -InterfaceIndex $adapter.interfaceIndex -ServerAddresses $adapter.serverAddresses -ErrorAction SilentlyContinue
+                }
+            }
+            Clear-DnsClientCache -ErrorAction SilentlyContinue
+            Write-Success "Restored original DNS configuration across all network interfaces."
+        }
+    } catch {
+        Write-Warn "Error restoring adapter DNS settings from $dnsBackupFile: $_"
+    }
+} else {
+    Write-Host "  No DNS backup file present; network adapters are already using standard configuration." -ForegroundColor DarkGray
+}
+
 # 4. Binary and Program Files Cleanup
 Write-Step "Cleaning up Installed Binaries & Manifests..."
 if (Test-Path $InstallDir) {

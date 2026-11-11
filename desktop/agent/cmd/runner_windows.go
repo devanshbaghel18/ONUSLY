@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/auth"
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/dns"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/heartbeat"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/identity"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/ipc"
@@ -35,7 +36,11 @@ func runPlatformDaemon(
 	pairingMgr *auth.PairingStateManager,
 	explicitUID uint32,
 	apiURL string,
+	dnsListenAddr string,
 ) {
+	if dnsListenAddr == "" {
+		dnsListenAddr = "127.0.0.1:53"
+	}
 	sessionMonitor := win.NewConsoleSessionMonitor()
 
 	// Reconcile and recover any interrupted two-phase pairing transaction
@@ -72,8 +77,37 @@ func runPlatformDaemon(
 			ipcServer.SetSessionValidator(monitor.ValidateClientSession)
 		}
 
+		// Initialize local DNS subsystem
+		dnsCache := dns.NewMemoryDNSCache(5000)
+		dnsPolicy := dns.NewPolicyManager(dnsCache)
+		dnsUpstream, errUp := dns.NewUpstreamPool([]string{"1.1.1.1:53", "1.0.0.1:53", "8.8.8.8:53"}, 3*time.Second)
+		var dnsServer *dns.Server
+		if errUp == nil {
+			var errSrv error
+			dnsServer, errSrv = dns.NewServer(dns.ServerConfig{
+				ListenAddress: dnsListenAddr,
+				MaxCacheSize:  5000,
+				QueryTimeout:  3 * time.Second,
+			}, dnsPolicy, dnsCache, dnsUpstream)
+			if errSrv != nil {
+				log.Printf("[ONUSLY Windows] DNS server init error: %v", errSrv)
+			}
+		}
+
+		if dnsServer != nil {
+			if errDnsStart := dnsServer.Start(workerCtx); errDnsStart != nil {
+				log.Printf("[ONUSLY Windows] Notice: DNS resolver could not bind 127.0.0.1:53: %v", errDnsStart)
+			} else {
+				log.Printf("[ONUSLY Windows] Local DNS resolver active on %s (UDP/TCP)", dnsServer.ListenAddress())
+			}
+			ipcServer.SetDNSServer(dnsServer)
+		}
+
 		if err := ipcServer.Start(workerCtx); err != nil {
 			log.Printf("[ONUSLY Windows] IPC Server Start error: %v", err)
+			if dnsServer != nil {
+				_ = dnsServer.Stop()
+			}
 			return err
 		}
 
@@ -84,6 +118,16 @@ func runPlatformDaemon(
 		} else if initData != nil {
 			log.Printf("[ONUSLY Windows] Initial sync complete: %d target(s) locked (version %s)",
 				len(initData.Targets), initData.Version)
+		}
+
+		// Update DNS policy snapshot from synced data or offline cache
+		if initData != nil {
+			dnsPolicy.UpdateFromBlocklist(initData)
+		} else {
+			cachedBlock, _ := syncer.GetCachedBlocklist()
+			if cachedBlock != nil {
+				dnsPolicy.UpdateFromBlocklist(cachedBlock)
+			}
 		}
 
 		// Initial heartbeat
@@ -98,11 +142,17 @@ func runPlatformDaemon(
 		for {
 			select {
 			case <-cancelChan:
-				log.Println("[ONUSLY Windows] Worker received cancellation. Stopping IPC server...")
+				log.Println("[ONUSLY Windows] Worker received cancellation. Stopping IPC and DNS servers...")
+				if dnsServer != nil {
+					_ = dnsServer.Stop()
+				}
 				_ = ipcServer.Stop()
 				return nil
 
 			case <-workerCtx.Done():
+				if dnsServer != nil {
+					_ = dnsServer.Stop()
+				}
 				_ = ipcServer.Stop()
 				return nil
 
@@ -116,6 +166,7 @@ func runPlatformDaemon(
 				if err != nil {
 					log.Printf("[ONUSLY Windows] Sync notice: %v", err)
 				} else if res != nil {
+					dnsPolicy.UpdateFromBlocklist(res)
 					log.Printf("[ONUSLY Windows] Synchronized blocklist: %d target(s) (version %s)", len(res.Targets), res.Version)
 				}
 
@@ -124,6 +175,8 @@ func runPlatformDaemon(
 				var issues []string
 				if currentSess == nil || !currentSess.IsAttached {
 					issues = []string{} // Detached console reports Enforcing: false, Issues: []
+				} else if dnsServer != nil && !dnsServer.IsRunning() {
+					issues = append(issues, "dns_resolver_offline")
 				}
 				_ = reporter.SendHeartbeat(workerCtx, issues)
 			}

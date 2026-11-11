@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/auth"
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/dns"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 )
 
@@ -34,6 +35,7 @@ type Server struct {
 	mu               sync.RWMutex
 	running          bool
 	stopChan         chan struct{}
+	dnsServer        *dns.Server
 
 	// Windows fields
 	hCancelEvent uintptr
@@ -98,6 +100,13 @@ func (s *Server) SetPeerCredChecker(fn func(conn net.Conn, allowedUIDs []uint32)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.peerCredChecker = fn
+}
+
+// SetDNSServer configures the DNS resolver instance for status and diagnostic reporting.
+func (s *Server) SetDNSServer(ds *dns.Server) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dnsServer = ds
 }
 
 // SetOwnerSID configures the authorized paired Windows user SID.
@@ -376,19 +385,32 @@ func (s *Server) buildStatus() *core.AgentStatus {
 	connected := token != "" && pairingState == string(auth.StatusPaired)
 	enforcing := connected && targetsCount > 0
 
+	var dnsRunning bool
+	var dnsBlocked, dnsForwarded uint64
+	if s.dnsServer != nil {
+		dnsRunning = s.dnsServer.IsRunning()
+		_, blk, fwd, _, _ := s.dnsServer.GetStats()
+		dnsBlocked = blk
+		dnsForwarded = fwd
+	}
+
 	return &core.AgentStatus{
-		Connected:        connected,
-		UserID:           userID,
-		DeviceID:         deviceID,
-		Platform:         "windows",
-		Version:          "1.0.0",
-		LastSyncAt:       lastSync,
-		BlocklistVersion: blocklistVersion,
-		TargetsCount:     targetsCount,
-		Enforcing:        enforcing,
-		Issues:           []string{},
-		PairingState:     pairingState,
-		OwnerSID:         ownerSID,
+		Connected:            connected,
+		UserID:               userID,
+		DeviceID:             deviceID,
+		Platform:             "windows",
+		Version:              "1.0.0",
+		LastSyncAt:           lastSync,
+		BlocklistVersion:     blocklistVersion,
+		TargetsCount:         targetsCount,
+		Enforcing:            enforcing,
+		Issues:               []string{},
+		PairingState:         pairingState,
+		OwnerSID:             ownerSID,
+		DNSResolverRunning:   dnsRunning,
+		DNSResolverListening: dnsRunning,
+		DNSQueriesBlocked:    dnsBlocked,
+		DNSQueriesForwarded:  dnsForwarded,
 	}
 }
 
@@ -417,7 +439,7 @@ func (s *Server) buildDiagnostics() map[string]string {
 		version = blocklist.Version
 	}
 
-	return map[string]string{
+	diag := map[string]string{
 		"platform":          "windows",
 		"device_id":         deviceID,
 		"pairing_state":     pairingState,
@@ -428,4 +450,17 @@ func (s *Server) buildDiagnostics() map[string]string {
 		"targets_count":     fmt.Sprintf("%d", targetsCount),
 		"service_running":   "true",
 	}
+
+	if s.dnsServer != nil {
+		tot, blk, fwd, cch, fld := s.dnsServer.GetStats()
+		diag["dns_resolver_running"] = fmt.Sprintf("%t", s.dnsServer.IsRunning())
+		diag["dns_listen_address"] = s.dnsServer.ListenAddress()
+		diag["dns_queries_total"] = fmt.Sprintf("%d", tot)
+		diag["dns_queries_blocked"] = fmt.Sprintf("%d", blk)
+		diag["dns_queries_forwarded"] = fmt.Sprintf("%d", fwd)
+		diag["dns_queries_cached"] = fmt.Sprintf("%d", cch)
+		diag["dns_queries_failed"] = fmt.Sprintf("%d", fld)
+	}
+
+	return diag
 }

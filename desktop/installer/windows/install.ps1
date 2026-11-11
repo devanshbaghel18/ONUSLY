@@ -831,6 +831,23 @@ try {
                     keyCreated = [bool](-not $forceKeyExisted)
                 }
             }
+
+            # Configure DnsOverHttpsMode = "off" to prevent DoH bypass of local DNS enforcement
+            $policyRootExisted = Test-Path $b.PolicyKey
+            if (-not $policyRootExisted) {
+                New-Item -Path $b.PolicyKey -Force | Out-Null
+            }
+            $priorDoh = (Get-ItemProperty -Path $b.PolicyKey -Name "DnsOverHttpsMode" -ErrorAction SilentlyContinue).DnsOverHttpsMode
+            Set-ItemProperty -Path $b.PolicyKey -Name "DnsOverHttpsMode" -Value "off" -Type String
+            $backupEntries += @{
+                browser = $b.Type
+                keyPath = $b.PolicyKey
+                valueName = "DnsOverHttpsMode"
+                priorType = if ($null -ne $priorDoh) { "string" } else { "none" }
+                priorValue = if ($null -ne $priorDoh) { [string]$priorDoh } else { "" }
+                createdByUs = ($null -eq $priorDoh)
+                keyCreated = [bool](-not $policyRootExisted)
+            }
         }
     }
 

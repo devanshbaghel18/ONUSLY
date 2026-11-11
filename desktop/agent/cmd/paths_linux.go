@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/auth"
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/dns"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 )
 
@@ -41,6 +42,10 @@ func newPlatformCredentialStore(configDir string) core.CredentialStore {
 
 func getPlatformName() string {
 	return "linux"
+}
+
+func newPlatformAdapterManager() dns.AdapterManager {
+	return dns.NewLinuxAdapterManager()
 }
 
 func resolvePairingOwner() (ownerSID string, ownerUID uint32, err error) {

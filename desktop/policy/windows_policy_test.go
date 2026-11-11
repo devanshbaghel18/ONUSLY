@@ -196,6 +196,17 @@ func TestWindowsPolicy_MultiBrowserApplicationAndMerge(t *testing.T) {
 		t.Errorf("expected ONUSLY extension at '2' (%s), got %s", expectedOnuslyEntry, val2)
 	}
 
+	// Verify Chrome DnsOverHttpsMode = "off"
+	kChromeRoot, errCRoot := mockReg.OpenKey(`SOFTWARE\Policies\Google\Chrome`, false)
+	if errCRoot != nil {
+		t.Fatalf("failed to open Chrome root policy key: %v", errCRoot)
+	}
+	dohMode, _ := kChromeRoot.GetStringValue("DnsOverHttpsMode")
+	kChromeRoot.Close()
+	if dohMode != "off" {
+		t.Errorf("expected Chrome DnsOverHttpsMode=off, got %s", dohMode)
+	}
+
 	// 4. Verify Firefox Policy
 	firefoxPolicyKey := `SOFTWARE\Policies\Mozilla\Firefox`
 	kFF, err := mockReg.OpenKey(firefoxPolicyKey, false)
