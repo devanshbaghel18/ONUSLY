@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
+	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 )
 
@@ -283,5 +286,161 @@ func (h *Handler) ExchangePairing(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"token": token,
+	})
+}
+
+func (h *Handler) GetDesktopStatus(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	resp, err := queryLocalAgent(core.IPCRequest{Action: "get-status"}, 1500*time.Millisecond)
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil || resp == nil || !resp.Success {
+		errMsg := "desktop agent service not reachable"
+		if err != nil {
+			errMsg = err.Error()
+		} else if resp != nil && resp.Error != "" {
+			errMsg = resp.Error
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"available": false,
+			"error":     errMsg,
+		})
+		return
+	}
+
+	if resp.Status != nil && !resp.Status.DNSRedirectionActive {
+		// Fallback check: check dns_backup.json if active redirection is on
+		backupPath := `C:\ProgramData\Onusly\config\dns_backup.json`
+		if data, err := os.ReadFile(backupPath); err == nil {
+			var state struct {
+				IsActive bool `json:"isActive"`
+			}
+			if err := json.Unmarshal(data, &state); err == nil && state.IsActive {
+				resp.Status.DNSRedirectionActive = true
+			}
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"available": true,
+		"status":    resp.Status,
+	})
+}
+
+type ToggleDNSInput struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (h *Handler) ToggleDesktopDNS(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var in ToggleDNSInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	action := "dns-restore"
+	if in.Enabled {
+		action = "dns-enable"
+	}
+
+	resp, err := queryLocalAgent(core.IPCRequest{Action: action}, 6*time.Second)
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		http.Error(w, "failed to query desktop agent: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if !resp.Success {
+		if strings.Contains(resp.Error, "unsupported action") {
+			http.Error(w, "Desktop agent service binary needs a one-time update to support remote DNS toggle over IPC. Run: install.ps1 -Upgrade in an elevated PowerShell session.", http.StatusNotImplemented)
+			return
+		}
+		http.Error(w, "agent returned error: "+resp.Error, http.StatusInternalServerError)
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"status":  resp.Status,
+	})
+}
+
+func (h *Handler) SyncDesktop(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	resp, err := queryLocalAgent(core.IPCRequest{Action: "sync"}, 6*time.Second)
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		http.Error(w, "failed to sync desktop agent: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if !resp.Success {
+		http.Error(w, "agent sync error: "+resp.Error, http.StatusInternalServerError)
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success":   true,
+		"blocklist": resp.Blocklist,
+		"status":    resp.Status,
+	})
+}
+
+func (h *Handler) AutoPairDesktop(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userEmail, _ := middleware.GetUserEmail(r.Context())
+	userHandle, _ := middleware.GetUserHandle(r.Context())
+	userName, _ := middleware.GetUserName(r.Context())
+
+	// Step 1: Request pairing code from local service
+	reqResp, err := queryLocalAgent(core.IPCRequest{Action: "pair-request"}, 5*time.Second)
+	if err != nil {
+		http.Error(w, "failed to connect to desktop agent: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if !reqResp.Success || reqResp.PairCode == "" {
+		http.Error(w, "desktop agent rejected pairing request: "+reqResp.Error, http.StatusBadRequest)
+		return
+	}
+
+	// Step 2: Confirm pairing with the authenticated user credentials
+	if err := h.service.ConfirmPairing(r.Context(), reqResp.PairCode, userID, userEmail, userHandle, userName); err != nil {
+		http.Error(w, "failed to confirm pairing session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 3: Complete handshake over IPC
+	pollResp, err := queryLocalAgent(core.IPCRequest{Action: "pair-poll", Code: reqResp.PairCode}, 10*time.Second)
+	if err != nil {
+		http.Error(w, "pairing poll failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if !pollResp.Success {
+		http.Error(w, "desktop agent pairing finalization failed: "+pollResp.Error, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"message": "Desktop agent successfully paired and synchronized!",
+		"status":  pollResp.Status,
 	})
 }

@@ -348,5 +348,25 @@ export async function revokeDevice(deviceId, reason = "user_revoked") {
   });
 }
 
+export async function getDesktopAgentStatus() {
+  return request("/enforcement/desktop/status", { method: "GET" });
+}
+
+export async function toggleDesktopDNS(enabled) {
+  return request("/enforcement/desktop/dns", {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export async function syncDesktopAgent() {
+  return request("/enforcement/desktop/sync", { method: "POST" });
+}
+
+export async function autoPairDesktopAgent() {
+  return request("/enforcement/desktop/pair", { method: "POST" });
+}
+
+
 
 

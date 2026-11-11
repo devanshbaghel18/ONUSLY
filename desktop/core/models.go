@@ -104,6 +104,7 @@ type AgentStatus struct {
 	OwnerSID              string   `json:"ownerSid,omitempty"`
 	DNSResolverRunning    bool     `json:"dnsResolverRunning"`
 	DNSResolverListening  bool     `json:"dnsResolverListening"`
+	DNSRedirectionActive  bool     `json:"dnsRedirectionActive"`
 	DNSQueriesBlocked     uint64   `json:"dnsQueriesBlocked"`
 	DNSQueriesForwarded   uint64   `json:"dnsQueriesForwarded"`
 	AppsControllerRunning bool     `json:"appsControllerRunning"`

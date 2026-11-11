@@ -102,6 +102,10 @@ func runPlatformDaemon(
 	ipcServer.SetAllowedUIDs(allowedUIDs)
 	log.Printf("[ONUSLY Agent] Authorized IPC peer UIDs: %v (daemon UID: %d)", allowedUIDs, os.Geteuid())
 
+	backupFilePath := filepath.Join(configDir, "dns_backup.json")
+	adapterMgr := newPlatformAdapterManager()
+	ipcServer.SetAdapterManager(adapterMgr, backupFilePath)
+
 	if err := ipcServer.Start(ctx); err != nil {
 		if dnsServer != nil {
 			_ = dnsServer.Stop()
@@ -113,8 +117,6 @@ func runPlatformDaemon(
 	}
 	log.Printf("[ONUSLY Agent] Local IPC server listening on %s", socketPath)
 
-	backupFilePath := filepath.Join(configDir, "dns_backup.json")
-	adapterMgr := newPlatformAdapterManager()
 
 	handleLifecycleErr := func(err error) {
 		if err == nil {

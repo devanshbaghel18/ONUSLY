@@ -120,6 +120,10 @@ func runPlatformDaemon(
 		}
 		ipcServer.SetAppsController(appController)
 
+		backupFilePath := filepath.Join(configDir, "dns_backup.json")
+		adapterMgr := newPlatformAdapterManager()
+		ipcServer.SetAdapterManager(adapterMgr, backupFilePath)
+
 		if err := ipcServer.Start(workerCtx); err != nil {
 			log.Printf("[ONUSLY Windows] IPC Server Start error: %v", err)
 			if dnsServer != nil {
@@ -131,8 +135,6 @@ func runPlatformDaemon(
 			return err
 		}
 
-		backupFilePath := filepath.Join(configDir, "dns_backup.json")
-		adapterMgr := newPlatformAdapterManager()
 
 		handleLifecycleErr := func(err error) {
 			if err == nil {

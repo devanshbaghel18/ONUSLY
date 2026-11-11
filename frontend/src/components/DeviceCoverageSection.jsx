@@ -12,8 +12,20 @@ import {
   Trash2,
   X,
   Ban,
+  Shield,
+  Zap,
+  Power,
+  Activity,
 } from "lucide-react";
-import { getDevicesCoverage, confirmDevicePairing, revokeDevice } from "../lib/api";
+import {
+  getDevicesCoverage,
+  confirmDevicePairing,
+  revokeDevice,
+  getDesktopAgentStatus,
+  toggleDesktopDNS,
+  syncDesktopAgent,
+  autoPairDesktopAgent,
+} from "../lib/api";
 
 function formatRelativeTime(dateStr) {
   if (!dateStr) return "Never";
@@ -115,10 +127,30 @@ export default function DeviceCoverageSection() {
   const [revoking, setRevoking] = useState(false);
   const [revokeError, setRevokeError] = useState("");
 
+  // Machine Desktop Agent state
+  const [desktopAgent, setDesktopAgent] = useState({ available: false, loading: true, status: null, error: "" });
+  const [dnsActionLoading, setDnsActionLoading] = useState(false);
+  const [syncActionLoading, setSyncActionLoading] = useState(false);
+  const [autoPairLoading, setAutoPairLoading] = useState(false);
+  const [desktopActionMsg, setDesktopActionMsg] = useState({ text: "", type: "" });
+
+  const loadDesktopAgent = useCallback(async () => {
+    try {
+      const res = await getDesktopAgentStatus();
+      if (res && res.available) {
+        setDesktopAgent({ available: true, loading: false, status: res.status, error: "" });
+      } else {
+        setDesktopAgent({ available: false, loading: false, status: null, error: res?.error || "Agent unreachable" });
+      }
+    } catch (err) {
+      setDesktopAgent({ available: false, loading: false, status: null, error: err.message });
+    }
+  }, []);
+
   const loadCoverage = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     try {
-      const res = await getDevicesCoverage();
+      const [res] = await Promise.all([getDevicesCoverage(), loadDesktopAgent()]);
       setData(res);
     } catch (err) {
       console.error("[DeviceCoverage] Failed to load devices:", err);
@@ -126,15 +158,18 @@ export default function DeviceCoverageSection() {
       setLoading(false);
       if (isRefresh) setRefreshing(false);
     }
-  }, []);
+  }, [loadDesktopAgent]);
 
   useEffect(() => {
     let isMounted = true;
     const fetchInitial = async () => {
       try {
-        const res = await getDevicesCoverage();
+        const [res] = await Promise.all([getDevicesCoverage(), getDesktopAgentStatus().catch(() => null)]);
         if (isMounted) {
           setData(res);
+          if (res && res.available) {
+            setDesktopAgent({ available: true, loading: false, status: res.status, error: "" });
+          }
           setLoading(false);
         }
       } catch (err) {
@@ -145,14 +180,79 @@ export default function DeviceCoverageSection() {
       }
     };
     fetchInitial();
+    loadDesktopAgent();
     const interval = setInterval(() => {
       fetchInitial();
-    }, 30000);
+      loadDesktopAgent();
+    }, 20000);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [loadDesktopAgent]);
+
+  const handleToggleDNS = async (currentActive) => {
+    setDnsActionLoading(true);
+    setDesktopActionMsg({ text: "", type: "" });
+    try {
+      const nextState = !currentActive;
+      const res = await toggleDesktopDNS(nextState);
+      if (res && res.success) {
+        setDesktopAgent((prev) => ({ ...prev, status: res.status }));
+        setDesktopActionMsg({
+          text: nextState
+            ? "Machine-wide DNS Shield activated (127.0.0.1)! Distraction domains are now blocked across all browsers."
+            : "DNS Shield restored to standard upstream. Distraction domains unblocked machine-wide.",
+          type: "success",
+        });
+        await loadCoverage(true);
+      }
+    } catch (err) {
+      setDesktopActionMsg({ text: err.message || "Failed to toggle DNS shield", type: "error" });
+    } finally {
+      setDnsActionLoading(false);
+    }
+  };
+
+  const handleSyncDesktop = async () => {
+    setSyncActionLoading(true);
+    setDesktopActionMsg({ text: "", type: "" });
+    try {
+      const res = await syncDesktopAgent();
+      if (res && res.success) {
+        setDesktopAgent((prev) => ({ ...prev, status: res.status }));
+        setDesktopActionMsg({
+          text: `Machine policy updated successfully! ${res.status?.targetsCount || 0} active target(s) locked.`,
+          type: "success",
+        });
+        await loadCoverage(true);
+      }
+    } catch (err) {
+      setDesktopActionMsg({ text: err.message || "Failed to sync desktop policy", type: "error" });
+    } finally {
+      setSyncActionLoading(false);
+    }
+  };
+
+  const handleAutoPairDesktop = async () => {
+    setAutoPairLoading(true);
+    setDesktopActionMsg({ text: "", type: "" });
+    try {
+      const res = await autoPairDesktopAgent();
+      if (res && res.success) {
+        setDesktopAgent((prev) => ({ ...prev, status: res.status }));
+        setDesktopActionMsg({
+          text: "Desktop agent automatically paired and synchronized with this account!",
+          type: "success",
+        });
+        await loadCoverage(true);
+      }
+    } catch (err) {
+      setDesktopActionMsg({ text: err.message || "Auto-pairing failed", type: "error" });
+    } finally {
+      setAutoPairLoading(false);
+    }
+  };
 
   const handleConfirmPair = async (e) => {
     e.preventDefault();
@@ -250,6 +350,141 @@ export default function DeviceCoverageSection() {
           <span>Refresh</span>
         </button>
       </div>
+
+      {/* Desktop Agent Live Machine Control Panel */}
+      {desktopAgent.available && desktopAgent.status && (
+        <div className="rounded-2xl border border-white/15 bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-5 shadow-2xl space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.08] pb-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 border border-white/20 text-white shadow-inner">
+                <Laptop size={20} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-white tracking-tight">Desktop Enforcement Shield (This PC)</h4>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+                    desktopAgent.status.enforcing
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                      : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                  }`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${desktopAgent.status.enforcing ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+                    {desktopAgent.status.enforcing ? "Active & Enforcing" : "Degraded / Fail-Open"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#A1A1AA] mt-0.5">
+                  Platform: <span className="text-white font-medium capitalize">{desktopAgent.status.platform}</span> • Device ID: <span className="font-mono text-neutral-300">{desktopAgent.status.deviceId?.slice(0, 8)}...</span> • Version: <span className="text-white">{desktopAgent.status.version || "1.0.0"}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSyncDesktop}
+                disabled={syncActionLoading}
+                className="btn-premium inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:text-white hover:bg-white/10 transition disabled:opacity-50"
+                title="Force desktop agent to reload authoritative blocklist immediately"
+              >
+                <RefreshCw size={12} className={syncActionLoading ? "animate-spin" : ""} />
+                <span>{syncActionLoading ? "Syncing..." : "Sync Policy"}</span>
+              </button>
+
+              {!desktopAgent.status.connected && (
+                <button
+                  type="button"
+                  onClick={handleAutoPairDesktop}
+                  disabled={autoPairLoading}
+                  className="btn-premium inline-flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-1.5 text-xs font-bold text-black hover:bg-neutral-200 transition disabled:opacity-50"
+                >
+                  <KeyRound size={12} />
+                  <span>{autoPairLoading ? "Pairing..." : "1-Click Link Agent"}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Machine Controls Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Machine-Wide DNS Shield Toggle */}
+            <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 flex items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5">
+                  <Shield size={14} className={desktopAgent.status.dnsRedirectionActive ? "text-emerald-400" : "text-neutral-400"} />
+                  <span className="text-xs font-bold text-white">Machine-Wide DNS Shield</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border ${
+                    desktopAgent.status.dnsRedirectionActive
+                      ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300 font-bold"
+                      : "border-neutral-700 bg-neutral-800 text-neutral-400"
+                  }`}>
+                    {desktopAgent.status.dnsRedirectionActive ? "127.0.0.1 ACTIVE" : "UPSTREAM"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-400">
+                  {desktopAgent.status.dnsRedirectionActive
+                    ? "Blocking distraction domains across Chrome, Edge, Brave, Firefox & apps."
+                    : "DNS redirection inactive. Click activate to enforce across all browsers."}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleToggleDNS(desktopAgent.status.dnsRedirectionActive)}
+                disabled={dnsActionLoading}
+                className={`btn-premium shrink-0 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
+                  desktopAgent.status.dnsRedirectionActive
+                    ? "border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                    : "bg-white text-black hover:bg-neutral-200"
+                }`}
+              >
+                <Power size={12} />
+                <span>
+                  {dnsActionLoading
+                    ? "Applying..."
+                    : desktopAgent.status.dnsRedirectionActive
+                    ? "Deactivate Shield"
+                    : "Activate Shield"}
+                </span>
+              </button>
+            </div>
+
+            {/* Live Filter Telemetry Card */}
+            <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 flex items-center justify-around gap-2 text-center">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">Active Targets</p>
+                <p className="text-base font-bold text-white mt-0.5">{desktopAgent.status.targetsCount || 0}</p>
+              </div>
+              <div className="h-7 w-[1px] bg-white/10" />
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">DNS Blocked</p>
+                <p className="text-base font-bold text-emerald-400 mt-0.5">{desktopAgent.status.dnsQueriesBlocked || 0}</p>
+              </div>
+              <div className="h-7 w-[1px] bg-white/10" />
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">DNS Forwarded</p>
+                <p className="text-base font-bold text-neutral-300 mt-0.5">{desktopAgent.status.dnsQueriesForwarded || 0}</p>
+              </div>
+              <div className="h-7 w-[1px] bg-white/10" />
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">Process Monitor</p>
+                <p className="text-base font-bold text-white mt-0.5">{desktopAgent.status.appsMonitoredCount || 0}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Action notification */}
+          {desktopActionMsg.text && (
+            <div className={`p-2.5 rounded-lg text-xs font-medium flex items-center gap-2 border ${
+              desktopActionMsg.type === "success"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                : "border-red-500/30 bg-red-500/10 text-red-200"
+            }`}>
+              {desktopActionMsg.type === "success" ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+              <span>{desktopActionMsg.text}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Quick Pair Desktop Agent Input */}
       <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">

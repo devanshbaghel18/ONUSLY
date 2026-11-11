@@ -446,6 +446,22 @@ func main() {
 		"POST /enforcement/pair/confirm",
 		enforcementHandler.ConfirmPairing,
 	)
+	goalRoutes.HandleFunc(
+		"GET /enforcement/desktop/status",
+		enforcementHandler.GetDesktopStatus,
+	)
+	goalRoutes.HandleFunc(
+		"POST /enforcement/desktop/dns",
+		enforcementHandler.ToggleDesktopDNS,
+	)
+	goalRoutes.HandleFunc(
+		"POST /enforcement/desktop/sync",
+		enforcementHandler.SyncDesktop,
+	)
+	goalRoutes.HandleFunc(
+		"POST /enforcement/desktop/pair",
+		enforcementHandler.AutoPairDesktop,
+	)
 
 	// Idempotency store for mutation endpoints
 	idempotencyStore := middleware.NewMemoryIdempotencyStore(24 * time.Hour)

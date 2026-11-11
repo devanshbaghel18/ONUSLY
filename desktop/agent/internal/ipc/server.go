@@ -39,6 +39,8 @@ type Server struct {
 	stopChan         chan struct{}
 	dnsServer        *dns.Server
 	appsCtrl         *apps.AppEnforcementController
+	adapterMgr       dns.AdapterManager
+	backupFilePath   string
 
 	// Windows fields
 	hCancelEvent uintptr
@@ -173,6 +175,14 @@ func (s *Server) GetAPIBaseURL() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.apiBaseURL
+}
+
+// SetAdapterManager configures the platform network adapter manager for DNS redirection control.
+func (s *Server) SetAdapterManager(mgr dns.AdapterManager, backupFilePath string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.adapterMgr = mgr
+	s.backupFilePath = backupFilePath
 }
 
 func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID string) core.IPCResponse {
@@ -382,6 +392,67 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 			Diagnostics: s.buildDiagnostics(),
 		}
 
+	case "dns-enable":
+		s.mu.RLock()
+		mgr := s.adapterMgr
+		bPath := s.backupFilePath
+		s.mu.RUnlock()
+		if mgr == nil {
+			return core.IPCResponse{
+				Success: false,
+				Error:   "adapter manager not configured on service",
+			}
+		}
+		if err := mgr.ApplyLoopbackDNS("127.0.0.1", "::1", bPath); err != nil {
+			return core.IPCResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to enable loopback DNS: %v", err),
+			}
+		}
+		return core.IPCResponse{
+			Success: true,
+			Status:  s.buildStatus(),
+		}
+
+	case "dns-restore":
+		s.mu.RLock()
+		mgr := s.adapterMgr
+		bPath := s.backupFilePath
+		s.mu.RUnlock()
+		if mgr == nil {
+			return core.IPCResponse{
+				Success: false,
+				Error:   "adapter manager not configured on service",
+			}
+		}
+		if err := mgr.RestoreDNS(bPath); err != nil {
+			return core.IPCResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to restore original DNS: %v", err),
+			}
+		}
+		return core.IPCResponse{
+			Success: true,
+			Status:  s.buildStatus(),
+		}
+
+	case "dns-status":
+		s.mu.RLock()
+		mgr := s.adapterMgr
+		bPath := s.backupFilePath
+		s.mu.RUnlock()
+		active := false
+		if mgr != nil && bPath != "" {
+			active, _ = mgr.IsRedirectionActive(bPath)
+		}
+		return core.IPCResponse{
+			Success: true,
+			Status:  s.buildStatus(),
+			Diagnostics: map[string]string{
+				"dns_redirection_active": fmt.Sprintf("%t", active),
+			},
+		}
+
 	default:
 		return core.IPCResponse{
 			Success: false,
@@ -508,6 +579,15 @@ func (s *Server) buildStatus() *core.AgentStatus {
 		healthState = core.HealthStateDegraded
 	}
 
+	var dnsRedirectionActive bool
+	s.mu.RLock()
+	mgr := s.adapterMgr
+	bPath := s.backupFilePath
+	s.mu.RUnlock()
+	if mgr != nil && bPath != "" {
+		dnsRedirectionActive, _ = mgr.IsRedirectionActive(bPath)
+	}
+
 	return &core.AgentStatus{
 		Connected:             connected,
 		UserID:                userID,
@@ -533,6 +613,7 @@ func (s *Server) buildStatus() *core.AgentStatus {
 		OwnerSID:              ownerSID,
 		DNSResolverRunning:    dnsRunning,
 		DNSResolverListening:  dnsRunning,
+		DNSRedirectionActive:  dnsRedirectionActive,
 		DNSQueriesBlocked:     dnsBlocked,
 		DNSQueriesForwarded:   dnsForwarded,
 		AppsControllerRunning: appsRunning,
