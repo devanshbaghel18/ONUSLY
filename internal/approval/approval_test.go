@@ -987,3 +987,40 @@ func TestApproval_PublisherEventEmission(t *testing.T) {
 		t.Errorf("expected event count to remain 1 after duplicate failure, got %d", len(mockPub.events))
 	}
 }
+
+func TestRejectionRequiresComment(t *testing.T) {
+	approvalService := approval.NewService(nil, nil, nil)
+
+	approverID := "user-approver-comment-check"
+	ownerID := "user-owner-comment-check"
+	goalID := "goal-123"
+	proofID := "proof-456"
+
+	// 1. Rejection with empty comment should fail with ErrCommentRequired
+	_, err := approvalService.Decide(
+		context.Background(),
+		approverID,
+		ownerID,
+		goalID,
+		proofID,
+		"rejected",
+		"",
+	)
+	if !errors.Is(err, approval.ErrCommentRequired) {
+		t.Fatalf("expected ErrCommentRequired for empty rejection comment, got: %v", err)
+	}
+
+	// 2. Rejection with whitespace only should also fail with ErrCommentRequired
+	_, err = approvalService.Decide(
+		context.Background(),
+		approverID,
+		ownerID,
+		goalID,
+		proofID,
+		"rejected",
+		"   \t\n   ",
+	)
+	if !errors.Is(err, approval.ErrCommentRequired) {
+		t.Fatalf("expected ErrCommentRequired for whitespace rejection comment, got: %v", err)
+	}
+}

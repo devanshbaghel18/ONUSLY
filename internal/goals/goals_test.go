@@ -252,3 +252,42 @@ func TestGoal_NonexistentGoal404(t *testing.T) {
 		t.Errorf("expected 404 for missing goal PATCH, got %d", recPatch.Code)
 	}
 }
+
+// TestGoal_ListApproverRole tests querying goals with role=approver
+func TestGoal_ListApproverRole(t *testing.T) {
+	repo := goals.NewRepository(nil, "mock-table")
+	service := goals.NewService(repo, nil)
+	handler := goals.NewHandler(service)
+
+	approverID := "user-approver-list-test"
+	approverEmail := "approver@example.com"
+	ownerID := "user-owner-list-test"
+
+	// Create goal where approver is assigned
+	_ = repo.Create(context.Background(), goals.Goal{
+		ID:            "goal-approver-query-1",
+		OwnerID:       ownerID,
+		ApproverID:    approverID,
+		ApproverEmail: approverEmail,
+		Title:         "Assigned Goal",
+		Status:        "proof_submitted",
+	})
+
+	// 1. GET /goals?role=approver with approver user context
+	req := httptest.NewRequest("GET", "/goals?role=approver", nil)
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, approverID)
+	ctx = context.WithValue(ctx, middleware.UserEmailKey, approverEmail)
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	handler.List(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "goal-approver-query-1") {
+		t.Errorf("expected approver query response to contain assigned goal, got: %s", body)
+	}
+}

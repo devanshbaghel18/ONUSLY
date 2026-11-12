@@ -84,7 +84,7 @@ func (h *Handler) Decide(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		if errors.Is(err, ErrInvalidDecision) || errors.Is(err, ErrInvalidProof) {
+		if errors.Is(err, ErrInvalidDecision) || errors.Is(err, ErrInvalidProof) || errors.Is(err, ErrCommentRequired) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

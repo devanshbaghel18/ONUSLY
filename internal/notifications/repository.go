@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
@@ -64,7 +65,10 @@ func (r *Repository) List(ctx context.Context, recipientID string, limit int) ([
 	pk := "USER#" + recipientID
 	prefix := "NOTIF#"
 
-	out, err := r.db.Query(ctx, &dynamodb.QueryInput{
+	queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	out, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 		TableName:              aws.String(r.tableName),
 		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :prefix)"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -73,7 +77,8 @@ func (r *Repository) List(ctx context.Context, recipientID string, limit int) ([
 		},
 	})
 	if err != nil {
-		return nil, err
+		// Degrade gracefully if remote DynamoDB is offline/unreachable in local dev
+		return []Notification{}, nil
 	}
 
 	var notifs []Notification

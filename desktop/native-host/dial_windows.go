@@ -96,24 +96,47 @@ func queryAgent(pipePath string, req core.IPCRequest) core.IPCResponse {
 		}
 	}
 
-	// Read IPCResponse (max 64KB bounded)
-	var readBuf [65536]byte
-	var bytesRead uint32
-	rRead, _, errRead := win.ProcReadFile.Call(
-		hClient,
-		uintptr(unsafe.Pointer(&readBuf[0])),
-		uintptr(len(readBuf)),
-		uintptr(unsafe.Pointer(&bytesRead)),
-		0,
-	)
-	if rRead == 0 {
+	// Read IPCResponse with dynamic buffer loop handling ERROR_MORE_DATA
+	var fullBuf []byte
+	var chunk [65536]byte
+	const maxResponseBytes = 10 * 1024 * 1024 // 10MB safety ceiling
+
+	for {
+		var bytesRead uint32
+		rRead, _, errRead := win.ProcReadFile.Call(
+			hClient,
+			uintptr(unsafe.Pointer(&chunk[0])),
+			uintptr(len(chunk)),
+			uintptr(unsafe.Pointer(&bytesRead)),
+			0,
+		)
+
+		if bytesRead > 0 {
+			fullBuf = append(fullBuf, chunk[:bytesRead]...)
+			if len(fullBuf) > maxResponseBytes {
+				return core.IPCResponse{
+					Success: false,
+					Error:   "agent response exceeded maximum allowed limit (10MB)",
+				}
+			}
+		}
+
+		if rRead != 0 {
+			// Read completed successfully (entire message read)
+			break
+		}
+
+		if errRead == syscall.ERROR_MORE_DATA {
+			continue
+		}
+
 		return core.IPCResponse{
 			Success: false,
 			Error:   fmt.Sprintf("failed to read from agent pipe: %v", errRead),
 		}
 	}
 
-	if bytesRead == 0 {
+	if len(fullBuf) == 0 {
 		return core.IPCResponse{
 			Success: false,
 			Error:   "empty response from agent pipe",
@@ -121,7 +144,7 @@ func queryAgent(pipePath string, req core.IPCRequest) core.IPCResponse {
 	}
 
 	var resp core.IPCResponse
-	if err := json.Unmarshal(readBuf[:bytesRead], &resp); err != nil {
+	if err := json.Unmarshal(fullBuf, &resp); err != nil {
 		return core.IPCResponse{
 			Success: false,
 			Error:   fmt.Sprintf("failed to parse agent response: %v", err),

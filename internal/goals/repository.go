@@ -67,6 +67,14 @@ func (r *Repository) Create(ctx context.Context, goal Goal) error {
 	goal.GSI1PK = "GOAL#" + goal.ID
 	goal.GSI1SK = "USER#" + goal.OwnerID
 
+	if goal.ApproverID != "" {
+		goal.GSI2PK = "APPROVER#" + goal.ApproverID
+		goal.GSI2SK = "GOAL#" + goal.ID
+	} else if goal.ApproverEmail != "" {
+		goal.GSI2PK = "APPROVER#" + strings.ToLower(strings.TrimSpace(goal.ApproverEmail))
+		goal.GSI2SK = "GOAL#" + goal.ID
+	}
+
 	r.mu.Lock()
 	if r.memGoals == nil {
 		r.memGoals = make(map[string]Goal)
@@ -78,6 +86,10 @@ func (r *Repository) Create(ctx context.Context, goal Goal) error {
 	item, err := attributevalue.MarshalMap(goal)
 	if err != nil {
 		return err
+	}
+
+	if r.db == nil {
+		return nil
 	}
 
 	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
@@ -248,6 +260,90 @@ func (r *Repository) List(ctx context.Context, ownerID string) ([]Goal, error) {
 				goals = append(goals, g)
 			}
 		}
+	}
+
+	return goals, nil
+}
+
+func (r *Repository) ListForApprover(ctx context.Context, approverID, approverEmail string) ([]Goal, error) {
+	approverID = strings.TrimSpace(approverID)
+	approverEmail = strings.ToLower(strings.TrimSpace(approverEmail))
+
+	var goals []Goal
+
+	queryApprover := func(pkValue string) []Goal {
+		if r.db == nil {
+			return nil
+		}
+		listCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		defer cancel()
+
+		result, err := r.db.Query(listCtx, &dynamodb.QueryInput{
+			TableName:              aws.String(r.tableName),
+			IndexName:              aws.String("GSI2"),
+			KeyConditionExpression: aws.String("GSI2PK = :pk AND begins_with(GSI2SK, :sk)"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":pk": &types.AttributeValueMemberS{
+					Value: pkValue,
+				},
+				":sk": &types.AttributeValueMemberS{
+					Value: "GOAL#",
+				},
+			},
+		})
+		if err != nil {
+			return nil
+		}
+		var matched []Goal
+		_ = attributevalue.UnmarshalListOfMaps(result.Items, &matched)
+		return matched
+	}
+
+	if approverID != "" {
+		goals = append(goals, queryApprover("APPROVER#"+approverID)...)
+	}
+	if approverEmail != "" {
+		for _, g := range queryApprover("APPROVER#" + approverEmail) {
+			found := false
+			for _, existing := range goals {
+				if existing.ID == g.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				goals = append(goals, g)
+			}
+		}
+	}
+
+	// Merge/fallback with local memory cache
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, g := range r.memGoals {
+		matches := false
+		if approverID != "" && g.ApproverID == approverID {
+			matches = true
+		}
+		if approverEmail != "" && strings.EqualFold(strings.TrimSpace(g.ApproverEmail), approverEmail) {
+			matches = true
+		}
+		if matches {
+			found := false
+			for _, existing := range goals {
+				if existing.ID == g.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				goals = append(goals, g)
+			}
+		}
+	}
+
+	if goals == nil {
+		goals = []Goal{}
 	}
 
 	return goals, nil

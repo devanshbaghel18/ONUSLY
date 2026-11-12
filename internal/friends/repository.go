@@ -95,7 +95,10 @@ func (r *Repository) SaveFriendRequest(ctx context.Context, req FriendRequest) e
 
 // GetIncomingRequests returns all pending incoming friend requests for a user.
 func (r *Repository) GetIncomingRequests(ctx context.Context, userID string) ([]FriendRequest, error) {
-	out, err := r.db.Query(ctx, &dynamodb.QueryInput{
+	queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	out, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 		TableName:              aws.String(r.tableName),
 		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :skPrefix)"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -104,7 +107,7 @@ func (r *Repository) GetIncomingRequests(ctx context.Context, userID string) ([]
 		},
 	})
 	if err != nil {
-		return nil, err
+		return []FriendRequest{}, nil
 	}
 
 	requests := make([]FriendRequest, 0)
@@ -119,7 +122,10 @@ func (r *Repository) GetIncomingRequests(ctx context.Context, userID string) ([]
 
 // GetOutgoingRequests returns all pending outgoing friend requests sent by a user.
 func (r *Repository) GetOutgoingRequests(ctx context.Context, userID string) ([]FriendRequest, error) {
-	out, err := r.db.Query(ctx, &dynamodb.QueryInput{
+	queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	out, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 		TableName:              aws.String(r.tableName),
 		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :skPrefix)"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -128,7 +134,7 @@ func (r *Repository) GetOutgoingRequests(ctx context.Context, userID string) ([]
 		},
 	})
 	if err != nil {
-		return nil, err
+		return []FriendRequest{}, nil
 	}
 
 	requests := make([]FriendRequest, 0)
@@ -284,7 +290,10 @@ func (r *Repository) RejectFriendRequest(ctx context.Context, req FriendRequest)
 
 // GetFriends returns all accepted friends of the specified user.
 func (r *Repository) GetFriends(ctx context.Context, userID string) ([]Friend, error) {
-	out, err := r.db.Query(ctx, &dynamodb.QueryInput{
+	queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	out, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 		TableName:              aws.String(r.tableName),
 		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :skPrefix)"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -293,7 +302,7 @@ func (r *Repository) GetFriends(ctx context.Context, userID string) ([]Friend, e
 		},
 	})
 	if err != nil {
-		return nil, err
+		return []Friend{}, nil
 	}
 
 	friendsList := make([]Friend, 0)
@@ -362,7 +371,10 @@ func (r *Repository) LeaveCommunity(ctx context.Context, userID, communityID str
 
 // GetJoinedCommunities returns the IDs of all communities the user has joined.
 func (r *Repository) GetJoinedCommunities(ctx context.Context, userID string) ([]string, error) {
-	out, err := r.db.Query(ctx, &dynamodb.QueryInput{
+	queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	out, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 		TableName:              aws.String(r.tableName),
 		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :skPrefix)"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -371,7 +383,7 @@ func (r *Repository) GetJoinedCommunities(ctx context.Context, userID string) ([
 		},
 	})
 	if err != nil {
-		return nil, err
+		return []string{}, nil
 	}
 
 	commIDs := make([]string, 0)

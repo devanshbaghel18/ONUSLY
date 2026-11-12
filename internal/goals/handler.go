@@ -78,7 +78,17 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goals, err := h.service.List(r.Context(), userID)
+	role := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("role")))
+	var goals []Goal
+	var err error
+
+	if role == "approver" {
+		callerEmail, _ := middleware.GetUserEmail(r.Context())
+		goals, err = h.service.ListForApprover(r.Context(), userID, callerEmail)
+	} else {
+		goals, err = h.service.List(r.Context(), userID)
+	}
+
 	if err != nil {
 		log.Printf("[Goals] Database query notice for user %s: %v (returning empty list)", userID, err)
 		goals = []Goal{}

@@ -72,6 +72,18 @@ func (r *d11MockGoalRepoForApproval) List(ctx context.Context, ownerID string) (
 	return list, nil
 }
 
+func (r *d11MockGoalRepoForApproval) ListForApprover(ctx context.Context, approverID, approverEmail string) ([]goals.Goal, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var list []goals.Goal
+	for _, g := range r.goals {
+		if (approverID != "" && g.ApproverID == approverID) || (approverEmail != "" && g.ApproverEmail == approverEmail) {
+			list = append(list, g)
+		}
+	}
+	return list, nil
+}
+
 func (r *d11MockGoalRepoForApproval) Delete(ctx context.Context, ownerID, goalID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

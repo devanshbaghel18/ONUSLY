@@ -23,6 +23,7 @@ var (
 	ErrInvalidProof     = errors.New("invalid proof")
 	ErrAlreadyDecided   = errors.New("proof has already been decided")
 	ErrApprovalNotFound = errors.New("approval not found")
+	ErrCommentRequired  = errors.New("rejection requires a comment or reason")
 )
 
 type ApprovalRepository interface {
@@ -90,6 +91,10 @@ func (s *Service) Decide(
 
 	if status != "approved" && status != "rejected" {
 		return nil, ErrInvalidDecision
+	}
+
+	if status == "rejected" && comment == "" {
+		return nil, ErrCommentRequired
 	}
 
 	if len(comment) > 2000 {

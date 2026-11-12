@@ -16,6 +16,10 @@ type Goal struct {
 	GSI1PK string `dynamodbav:"GSI1PK,omitempty" json:"-"`
 	GSI1SK string `dynamodbav:"GSI1SK,omitempty" json:"-"`
 
+	// GSI2 for efficient approver inbox indexed lookup
+	GSI2PK string `dynamodbav:"GSI2PK,omitempty" json:"-"`
+	GSI2SK string `dynamodbav:"GSI2SK,omitempty" json:"-"`
+
 	ID                 string              `dynamodbav:"ID" json:"id"`
 	OwnerID            string              `dynamodbav:"OwnerID" json:"ownerId"`
 	ApproverID         string              `dynamodbav:"ApproverID" json:"approverId"`
