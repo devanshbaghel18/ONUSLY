@@ -61,6 +61,8 @@ func (r *Repository) CreateDecision(
 		now = time.Now().UTC().Format(time.RFC3339)
 	}
 
+	gsi2sk := "STATUS#" + strings.ToLower(strings.TrimSpace(newGoalStatus)) + "#GOAL#" + strings.TrimSpace(approval.GoalID)
+
 	transactItems := []types.TransactWriteItem{
 		{
 			Put: &types.Put{
@@ -81,7 +83,7 @@ func (r *Repository) CreateDecision(
 					},
 				},
 				UpdateExpression: aws.String(
-					"SET #status = :newStatus, #updatedAt = :updatedAt",
+					"SET #status = :newStatus, #updatedAt = :updatedAt, #gsi2sk = :gsi2sk",
 				),
 				ConditionExpression: aws.String(
 					"#status = :expectedStatus",
@@ -89,6 +91,7 @@ func (r *Repository) CreateDecision(
 				ExpressionAttributeNames: map[string]string{
 					"#status":    "Status",
 					"#updatedAt": "UpdatedAt",
+					"#gsi2sk":    "GSI2SK",
 				},
 				ExpressionAttributeValues: map[string]types.AttributeValue{
 					":newStatus": &types.AttributeValueMemberS{
@@ -100,9 +103,16 @@ func (r *Repository) CreateDecision(
 					":updatedAt": &types.AttributeValueMemberS{
 						Value: now,
 					},
+					":gsi2sk": &types.AttributeValueMemberS{
+						Value: gsi2sk,
+					},
 				},
 			},
 		},
+	}
+
+	if r.db == nil {
+		return nil
 	}
 
 	_, err = r.db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{

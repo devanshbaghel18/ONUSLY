@@ -1023,4 +1023,18 @@ func TestRejectionRequiresComment(t *testing.T) {
 	if !errors.Is(err, approval.ErrCommentRequired) {
 		t.Fatalf("expected ErrCommentRequired for whitespace rejection comment, got: %v", err)
 	}
+
+	// 3. Rejection with less than 5 characters should fail with ErrCommentRequired
+	_, err = approvalService.Decide(
+		context.Background(),
+		approverID,
+		ownerID,
+		goalID,
+		proofID,
+		"rejected",
+		"no",
+	)
+	if !errors.Is(err, approval.ErrCommentRequired) {
+		t.Fatalf("expected ErrCommentRequired for too short rejection comment (< 5 chars), got: %v", err)
+	}
 }

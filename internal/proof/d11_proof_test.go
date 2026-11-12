@@ -74,6 +74,10 @@ func (r *d11MockGoalRepo) ListForApprover(ctx context.Context, approverID, appro
 	return list, nil
 }
 
+func (r *d11MockGoalRepo) ListByApprover(ctx context.Context, approverID, approverEmail, approverHandle, statusFilter string) ([]goals.Goal, error) {
+	return r.ListForApprover(ctx, approverID, approverEmail)
+}
+
 func (r *d11MockGoalRepo) Delete(ctx context.Context, ownerID, goalID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

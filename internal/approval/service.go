@@ -93,7 +93,7 @@ func (s *Service) Decide(
 		return nil, ErrInvalidDecision
 	}
 
-	if status == "rejected" && comment == "" {
+	if status == "rejected" && (comment == "" || len(strings.TrimSpace(comment)) < 5) {
 		return nil, ErrCommentRequired
 	}
 
