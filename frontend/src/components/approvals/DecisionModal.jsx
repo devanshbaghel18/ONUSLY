@@ -99,11 +99,10 @@ export default function DecisionModal({
         {/* Modal Header */}
         <div className="flex items-start gap-4">
           <div
-            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${
-              isApprove
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${isApprove
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                 : "border-rose-500/30 bg-rose-500/10 text-rose-400"
-            }`}
+              }`}
           >
             {isApprove ? <CheckCircle2 size={24} /> : <AlertTriangle size={24} />}
           </div>
@@ -171,9 +170,8 @@ export default function DecisionModal({
 
               {!isApprove && (
                 <span
-                  className={`font-mono text-[11px] font-semibold ${
-                    currentLength >= minLength ? "text-emerald-400" : "text-amber-400"
-                  }`}
+                  className={`font-mono text-[11px] font-semibold ${currentLength >= minLength ? "text-emerald-400" : "text-amber-400"
+                    }`}
                 >
                   {currentLength >= minLength ? (
                     `✓ ${currentLength} characters`
@@ -220,11 +218,10 @@ export default function DecisionModal({
             <button
               type="submit"
               disabled={!isCommentValid || submitting}
-              className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98] ${
-                isApprove
+              className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98] ${isApprove
                   ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-950/40"
                   : "bg-rose-600 hover:bg-rose-500 shadow-rose-950/40"
-              }`}
+                }`}
             >
               {submitting ? (
                 <>

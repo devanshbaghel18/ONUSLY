@@ -204,6 +204,13 @@ export async function getApproverInbox(status = "pending") {
   return data || { items: [], total: 0 };
 }
 
+export async function getApprovals(goalId) {
+  const data = await request(`/goals/${encodeURIComponent(goalId)}/approvals`, {
+    method: "GET",
+  });
+  return Array.isArray(data) ? data : [];
+}
+
 export async function getChatHistory(peerEmail) {
   if (!peerEmail) return [];
   const data = await request(`/chat/messages?peer=${encodeURIComponent(peerEmail.trim())}`, {

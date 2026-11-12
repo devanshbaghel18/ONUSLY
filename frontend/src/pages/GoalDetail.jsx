@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -29,7 +29,8 @@ import {
   Smartphone,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
-import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal, getGoalEnforcementStatus } from "../lib/api";
+import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal, getGoalEnforcementStatus, getApprovals } from "../lib/api";
+import SubmitProofModal from "../components/approvals/SubmitProofModal";
 import { getStoredFriends, sendChatMessage } from "../lib/friendsChat";
 import { getStoredCommunities, sendCommunityMessage } from "../lib/communities";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -336,6 +337,13 @@ export default function GoalDetail() {
   const [goalFormError, setGoalFormError] = useState("");
 
   const [copiedReviewLink, setCopiedReviewLink] = useState(false);
+  const [approvals, setApprovals] = useState([]);
+
+  const latestRejection = useMemo(() => {
+    if (goal?.status !== "rejected") return null;
+    const rej = approvals.filter((a) => a.status === "rejected");
+    return rej.length > 0 ? rej[rej.length - 1] : null;
+  }, [goal?.status, approvals]);
 
   // Load Goal & Proofs
   useEffect(() => {
@@ -368,6 +376,14 @@ export default function GoalDetail() {
       })
       .finally(() => {
         if (!ignore) setLoadingProofs(false);
+      });
+
+    getApprovals(id)
+      .then((data) => {
+        if (!ignore && Array.isArray(data)) setApprovals(data);
+      })
+      .catch((err) => {
+        console.warn("Could not load approvals:", err.message);
       });
 
     getGoalEnforcementStatus(id)
@@ -757,21 +773,27 @@ export default function GoalDetail() {
 
                 {/* Rejection Alert Banner (Owner & Approver) */}
                 {goal.status === "rejected" && (
-                  <div className="mt-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="mt-5 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-xs text-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="flex items-start gap-3">
-                      <AlertCircle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+                      <AlertCircle size={20} className="text-rose-400 shrink-0 mt-0.5" />
                       <div>
-                        <div className="font-bold text-sm text-amber-300">Proof Rejected by Accountability Partner</div>
+                        <div className="font-bold text-sm text-rose-300">Proof Rejected by Accountability Partner</div>
                         <p className="mt-1 text-neutral-300 leading-relaxed">
-                          Restrictions on your desktop and mobile devices remain strictly enforced. Review feedback below, address the requirements, and submit revised proof to request unlocking.
+                          Restrictions on your devices remain strictly enforced. Address your partner's feedback below and submit revised proof to request unlocking.
                         </p>
+                        {latestRejection?.comment && (
+                          <div className="mt-3 rounded-xl border border-rose-500/30 bg-black/50 p-3 text-xs text-rose-100">
+                            <span className="font-bold text-rose-400 block mb-0.5">Reason for Rejection:</span>
+                            "{latestRejection.comment}"
+                          </div>
+                        )}
                       </div>
                     </div>
                     {isOwner && (
                       <button
                         type="button"
                         onClick={openShareModal}
-                        className="btn-premium shrink-0 rounded-xl bg-amber-400 hover:bg-amber-300 text-black px-4 py-2 font-bold transition shadow-sm"
+                        className="shrink-0 rounded-xl bg-white hover:bg-neutral-200 text-black px-4 py-2.5 font-bold transition shadow-sm"
                       >
                         Resubmit Proof
                       </button>
@@ -1033,51 +1055,14 @@ export default function GoalDetail() {
                     </div>
                   </div>
 
-                  {enforcementTelemetry && (
-                    <div className="w-full mt-4 rounded-xl border border-white/10 bg-[#292929] p-3.5 flex items-center justify-between gap-3 text-xs">
-                      <div className="flex items-center gap-2.5">
-                        <ShieldCheck size={18} className={enforcementTelemetry.aggregateStatus === "enforcing" ? "text-white" : "text-amber-400"} />
-                        <div>
-                          <div className="font-semibold text-white flex items-center gap-2">
-                            <span>Enforcement Telemetry:</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              enforcementTelemetry.aggregateStatus === "enforcing"
-                                ? "bg-white/10 text-white border border-white/20"
-                                : "bg-amber-500/10 text-amber-300 border border-amber-500/30"
-                            }`}>
-                              {enforcementTelemetry.aggregateStatus === "enforcing" ? "Protected & Enforcing" : enforcementTelemetry.aggregateStatus === "no_devices" ? "No Devices" : "Enforcement Lapsed"}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-[#A3A3A3] mt-0.5">
-                            {enforcementTelemetry.devicesCount} client device(s) connected • {enforcementTelemetry.enforcingCount} enforcing restrictions • Approver receives aggregate status only
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {isOwner && goal?.approverEmail && (
+                  {(goal.status === "active" || goal.status === "rejected") && isOwner && (
                     <button
                       type="button"
-                      onClick={() => {
-                        const link = `${window.location.origin}/goals/${id}${goal?.ownerId ? `?ownerId=${goal.ownerId}` : ""}`;
-                        navigator.clipboard.writeText(link);
-                        setCopiedReviewLink(true);
-                        setTimeout(() => setCopiedReviewLink(false), 2500);
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#777777] bg-[#292929] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#3A3A3A] transition shadow-sm"
+                      onClick={openShareModal}
+                      className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-sm active:scale-95"
                     >
-                      {copiedReviewLink ? (
-                        <>
-                          <Check size={14} className="text-white" />
-                          <span className="text-white">Review Link Copied!</span>
-                        </>
-                      ) : (
-                        <>
-                          <ExternalLink size={14} />
-                          <span>Share Review Link</span>
-                        </>
-                      )}
+                      <Send size={13} />
+                      <span>Share Proof in Community / Friend Chat</span>
                     </button>
                   )}
                 </div>
@@ -1116,15 +1101,21 @@ export default function GoalDetail() {
                           : "Honor System"}
                       </strong>.
                     </p>
-                    {goal.status === "active" && isOwner && (
+                    {(goal.status === "active" || goal.status === "rejected") && isOwner && (
                       <button
                         type="button"
                         onClick={openShareModal}
-                        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-[#292929] hover:bg-[#B5B5B5] transition"
+                        className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-md active:scale-95"
                       >
-                        <Send size={13} />
-                        Share Proof in Community / Friend Chat
+                        <Send size={14} />
+                        <span>Share Proof in Community / Friend Chat</span>
                       </button>
+                    )}
+                    {goal.status === "proof_submitted" && isOwner && (
+                      <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs font-semibold text-amber-300">
+                        <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+                        <span>Proof Submitted — Awaiting Partner Verification</span>
+                      </div>
                     )}
                   </div>
                 ) : (
@@ -1182,9 +1173,24 @@ export default function GoalDetail() {
                           )}
 
                           {p.photoUrl && (
-                            <div className="flex items-center gap-2 text-xs text-[#A3A3A3]">
-                              <FileText size={14} className="text-neutral-400 shrink-0" />
-                              <span>Attached: <strong className="text-white">{p.photoUrl}</strong></span>
+                            <div className="mt-2">
+                              {p.photoUrl.startsWith("data:image/") || p.photoUrl.startsWith("http") ? (
+                                <div className="space-y-1">
+                                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#A3A3A3] block">
+                                    Photo Evidence:
+                                  </span>
+                                  <img
+                                    src={p.photoUrl}
+                                    alt="Submitted Evidence"
+                                    className="max-h-56 max-w-sm rounded-xl object-cover border border-white/10 shadow-lg"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 text-xs text-[#A3A3A3]">
+                                  <FileText size={14} className="text-neutral-400 shrink-0" />
+                                  <span>Attached: <strong className="text-white">{p.photoUrl}</strong></span>
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -1276,209 +1282,20 @@ export default function GoalDetail() {
           )}
 
         {/* ============================================================
-            SHARE FOR VERIFICATION MODAL
+            SUBMIT PROOF FOR VERIFICATION MODAL
         ============================================================ */}
-        {showShareModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md"
-            onClick={() => setShowShareModal(false)}
-          >
-            <div
-              className="w-full max-w-md rounded-2xl border border-[#333333] bg-[#181818] p-6 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 border border-white/20 text-white">
-                    <Share2 size={18} />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-white">
-                      Share for Verification
-                    </h3>
-                    <p className="text-[11px] text-[#A3A3A3]">
-                      Send "{goal?.title}" to be verified in chat
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowShareModal(false)}
-                  className="rounded-lg p-1.5 text-[#737373] hover:text-white hover:bg-[#252525] transition"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {shareError && (
-                <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
-                  {shareError}
-                </div>
-              )}
-
-              <div className="mt-5 space-y-4">
-                {/* Target Type Selector: Friend vs Community */}
-                <div>
-                  <label className="block text-xs font-bold text-white mb-2">
-                    Share with
-                  </label>
-                  <div className="flex rounded-xl border border-[#333333] bg-[#121212] p-1 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setShareTarget("friend")}
-                      className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 transition-all ${
-                        shareTarget === "friend"
-                          ? "bg-white text-black font-bold shadow-sm"
-                          : "text-[#A3A3A3] hover:text-white"
-                      }`}
-                    >
-                      <MessageSquare size={14} />
-                      Friend
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShareTarget("community")}
-                      className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 transition-all ${
-                        shareTarget === "community"
-                          ? "bg-white text-black font-bold shadow-sm"
-                          : "text-[#A3A3A3] hover:text-white"
-                      }`}
-                    >
-                      <Users size={14} />
-                      Community
-                    </button>
-                  </div>
-                </div>
-
-                {/* Friend / Community selector */}
-                {shareTarget === "friend" ? (
-                  <div>
-                    <label className="block text-xs font-bold text-white mb-1.5">
-                      Choose Friend
-                    </label>
-                    {friends.length === 0 ? (
-                      <div className="rounded-xl border border-[#333333] bg-[#141414] p-3 text-xs text-[#A3A3A3]">
-                        No friends added yet.{" "}
-                        <Link to="/community-friends" className="text-white underline font-semibold">
-                          Add a friend first
-                        </Link>
-                      </div>
-                    ) : (
-                      <div className="max-h-48 overflow-y-auto rounded-xl border border-[#333333] bg-[#141414] p-1.5 space-y-0.5">
-                        {friends.map((f) => {
-                          const isSelected = f.id === selectedFriendId;
-                          return (
-                            <button
-                              key={f.id}
-                              type="button"
-                              onClick={() => setSelectedFriendId(f.id)}
-                              className={`flex w-full items-center gap-3 rounded-lg p-2.5 text-left transition ${
-                                isSelected ? "bg-[#252525] border border-white/20" : "hover:bg-[#1E1E1E]"
-                              }`}
-                            >
-                              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-[10px] font-bold text-white overflow-hidden">
-                                {f.picture ? (
-                                  <img src={f.picture} alt={f.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                                ) : (
-                                  f.name[0]?.toUpperCase() || "F"
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold text-white truncate">{f.name}</p>
-                                {f.handle && (
-                                  <p className="font-mono text-[10px] text-[#737373]">@{f.handle.replace(/^@/, "")}</p>
-                                )}
-                              </div>
-                              {isSelected && (
-                                <CheckCircle2 size={16} className="text-white flex-shrink-0" />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-xs font-bold text-white mb-1.5">
-                      Choose Community
-                    </label>
-                    {communities.length === 0 ? (
-                      <div className="rounded-xl border border-[#333333] bg-[#141414] p-3 text-xs text-[#A3A3A3]">
-                        No communities joined yet.{" "}
-                        <Link to="/community-friends" className="text-white underline font-semibold">
-                          Create or join one
-                        </Link>
-                      </div>
-                    ) : (
-                      <div className="max-h-48 overflow-y-auto rounded-xl border border-[#333333] bg-[#141414] p-1.5 space-y-0.5">
-                        {communities.map((c) => {
-                          const isSelected = c.id === selectedCommunityId;
-                          return (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => setSelectedCommunityId(c.id)}
-                              className={`flex w-full items-center gap-3 rounded-lg p-2.5 text-left transition ${
-                                isSelected ? "bg-[#252525] border border-white/20" : "hover:bg-[#1E1E1E]"
-                              }`}
-                            >
-                              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-white">
-                                <Users size={14} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold text-white truncate">{c.name}</p>
-                                <p className="text-[10px] text-[#737373]">{c.membersCount} Members</p>
-                              </div>
-                              {isSelected && (
-                                <CheckCircle2 size={16} className="text-white flex-shrink-0" />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Action buttons */}
-                <div className="pt-2 flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowShareModal(false)}
-                    disabled={sharingProof}
-                    className="flex-1 rounded-xl border border-[#3A3A3A] bg-[#222222] py-3 text-xs font-semibold text-white hover:border-white transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleShareVerification}
-                    disabled={
-                      sharingProof ||
-                      (shareTarget === "friend" && (!selectedFriendId || friends.length === 0)) ||
-                      (shareTarget === "community" && (!selectedCommunityId || communities.length === 0))
-                    }
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
-                  >
-                    {sharingProof ? (
-                      <>
-                        <Loader2 size={15} className="animate-spin" />
-                        <span>Sending...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send size={14} />
-                        <span>Share in Chat</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <SubmitProofModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          goal={goal}
+          send={send}
+          onSuccess={(newProof) => {
+            setGoal((prev) => ({ ...prev, status: "proof_submitted" }));
+            if (newProof) setProofs((prev) => [newProof, ...prev]);
+            setSuccessNotice("Proof submitted successfully! Awaiting your partner's verification.");
+            setTimeout(() => setSuccessNotice(""), 4500);
+          }}
+        />
       </div>
     </AppLayout>
   );

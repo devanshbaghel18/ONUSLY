@@ -27,6 +27,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import { getStoredFriends } from "../lib/friendsChat";
 import { getStoredCommunities } from "../lib/communities";
 import CreateGoalModal from "../components/CreateGoalModal";
+import SubmitProofModal from "../components/approvals/SubmitProofModal";
 import { getGoalBlockedApps, getUniqueDisplayTargets } from "../lib/blockedApps";
 import { getUser } from "../lib/auth";
 import { sendChatMessage } from "../lib/friendsChat";
@@ -578,209 +579,23 @@ export default function Goals() {
         />
 
         {/* ============================================================
-            SHARE FOR VERIFICATION MODAL
+            SUBMIT PROOF FOR VERIFICATION MODAL
         ============================================================ */}
-        {shareGoal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4"
-            onClick={() => setShareGoal(null)}
-          >
-            <div
-              className="w-full max-w-md rounded-2xl border border-white/10 bg-[#181818] p-6 shadow-2xl animate-scale-in"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 border border-white/20 text-white">
-                    <Share2 size={18} />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-white">
-                      Share for Verification
-                    </h3>
-                    <p className="text-[11px] text-[#A3A3A3]">
-                      Send "{shareGoal.title}" to be verified
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShareGoal(null)}
-                  className="rounded-lg p-1.5 text-[#737373] hover:text-white hover:bg-[#252525] transition"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {shareError && (
-                <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
-                  {shareError}
-                </div>
-              )}
-
-              <div className="mt-5 space-y-5">
-                {/* Target selector */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-white mb-2">
-                    Send To
-                  </label>
-                  <div className="flex items-center rounded-xl border border-[#333333] bg-[#1A1A1A] p-1 text-xs font-semibold">
-                    <button
-                      type="button"
-                      onClick={() => setShareTarget("friend")}
-                      className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 transition-all ${
-                        shareTarget === "friend"
-                          ? "bg-white text-black font-bold shadow-sm"
-                          : "text-[#A3A3A3] hover:text-white"
-                      }`}
-                    >
-                      <MessageSquare size={14} />
-                      Friend
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShareTarget("community")}
-                      className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 transition-all ${
-                        shareTarget === "community"
-                          ? "bg-white text-black font-bold shadow-sm"
-                          : "text-[#A3A3A3] hover:text-white"
-                      }`}
-                    >
-                      <Users size={14} />
-                      Community
-                    </button>
-                  </div>
-                </div>
-
-                {/* Friend / Community selector */}
-                {shareTarget === "friend" ? (
-                  <div>
-                    <label className="block text-xs font-bold text-white mb-1.5">
-                      Choose Friend
-                    </label>
-                    {friends.length === 0 ? (
-                      <div className="rounded-xl border border-[#333333] bg-[#141414] p-3 text-xs text-[#A3A3A3]">
-                        No friends added yet.{" "}
-                        <Link to="/community-friends" className="text-white underline font-semibold">
-                          Add a friend first
-                        </Link>
-                      </div>
-                    ) : (
-                      <div className="max-h-48 overflow-y-auto rounded-xl border border-[#333333] bg-[#141414] p-1.5 space-y-0.5">
-                        {friends.map((f) => {
-                          const isSelected = f.id === selectedFriendId;
-                          return (
-                            <button
-                              key={f.id}
-                              type="button"
-                              onClick={() => setSelectedFriendId(f.id)}
-                              className={`flex w-full items-center gap-3 rounded-lg p-2.5 text-left transition ${
-                                isSelected ? "bg-[#252525] border border-white/20" : "hover:bg-[#1E1E1E]"
-                              }`}
-                            >
-                              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-[10px] font-bold text-white overflow-hidden">
-                                {f.picture ? (
-                                  <img src={f.picture} alt={f.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                                ) : (
-                                  f.name[0]?.toUpperCase() || "F"
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold text-white truncate">{f.name}</p>
-                                {f.handle && (
-                                  <p className="font-mono text-[10px] text-[#737373]">@{f.handle.replace(/^@/, "")}</p>
-                                )}
-                              </div>
-                              {isSelected && (
-                                <CheckCircle2 size={16} className="text-white flex-shrink-0" />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-xs font-bold text-white mb-1.5">
-                      Choose Community
-                    </label>
-                    {communities.length === 0 ? (
-                      <div className="rounded-xl border border-[#333333] bg-[#141414] p-3 text-xs text-[#A3A3A3]">
-                        No communities joined yet.{" "}
-                        <Link to="/community-friends" className="text-white underline font-semibold">
-                          Create or join one
-                        </Link>
-                      </div>
-                    ) : (
-                      <div className="max-h-48 overflow-y-auto rounded-xl border border-[#333333] bg-[#141414] p-1.5 space-y-0.5">
-                        {communities.map((c) => {
-                          const isSelected = c.id === selectedCommunityId;
-                          return (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => setSelectedCommunityId(c.id)}
-                              className={`flex w-full items-center gap-3 rounded-lg p-2.5 text-left transition ${
-                                isSelected ? "bg-[#252525] border border-white/20" : "hover:bg-[#1E1E1E]"
-                              }`}
-                            >
-                              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-white">
-                                <Users size={14} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold text-white truncate">{c.name}</p>
-                                <p className="text-[10px] text-[#737373]">{c.membersCount} Members</p>
-                              </div>
-                              {isSelected && (
-                                <CheckCircle2 size={16} className="text-white flex-shrink-0" />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Action buttons */}
-                <div className="pt-2 flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShareGoal(null)}
-                    disabled={sharingProof}
-                    className="btn-premium flex-1 rounded-xl border border-[#3A3A3A] bg-[#222222] py-3 text-xs font-semibold text-white hover:border-white transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleShareVerification}
-                    disabled={
-                      sharingProof ||
-                      (shareTarget === "friend" && (!selectedFriendId || friends.length === 0)) ||
-                      (shareTarget === "community" && (!selectedCommunityId || communities.length === 0))
-                    }
-                    className="btn-premium flex-1 flex items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold text-black transition-all hover:bg-neutral-100 disabled:opacity-40"
-                  >
-                    {sharingProof ? (
-                      <>
-                        <Loader2 size={15} className="animate-spin" />
-                        <span>Sending...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send size={14} />
-                        <span>Share in Chat</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <SubmitProofModal
+          isOpen={Boolean(shareGoal)}
+          onClose={() => setShareGoal(null)}
+          goal={shareGoal}
+          send={send}
+          onSuccess={() => {
+            setGoals((prev) =>
+              prev.map((g) =>
+                g.id === shareGoal.id ? { ...g, status: "proof_submitted" } : g
+              )
+            );
+            setSuccessNotice("Proof submitted successfully! Awaiting your partner's verification.");
+            setTimeout(() => setSuccessNotice(""), 4500);
+          }}
+        />
       </div>
     </AppLayout>
   );
