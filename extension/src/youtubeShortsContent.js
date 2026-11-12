@@ -343,6 +343,7 @@ export function createShortsObserver(doc = globalThis.document) {
 
 let isObserverActive = false;
 let currentObserver = null;
+let isRedirecting = false;
 
 /**
  * Checks with the extension background worker whether YouTube or Shorts are restricted,
@@ -351,6 +352,8 @@ let currentObserver = null;
  * @param {Document} [doc]
  */
 export function checkAndApplyShortsBlocking(doc = globalThis.document) {
+  if (isRedirecting) return;
+
   const rt =
     typeof chrome !== "undefined" && chrome.runtime?.sendMessage
       ? chrome.runtime
@@ -364,9 +367,23 @@ export function checkAndApplyShortsBlocking(doc = globalThis.document) {
     rt.sendMessage(
       { type: "EVALUATE_URL", url: window.location.href },
       (res) => {
-        if (rt.lastError) return;
+        if (rt.lastError || isRedirecting) return;
 
         if (res?.isBlocked) {
+          isRedirecting = true;
+          // Immediately stop any video from buffering/playing and mute audio
+          try {
+            window.stop?.();
+            doc.querySelectorAll?.("video, audio").forEach((m) => {
+              try {
+                m.pause();
+                m.muted = true;
+                m.src = "";
+                m.load();
+              } catch {}
+            });
+          } catch {}
+
           const blockedPageUrl =
             rt.getURL("blocked.html") +
             `?domain=${encodeURIComponent(res.hostname || "")}` +

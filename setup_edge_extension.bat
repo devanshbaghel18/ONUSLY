@@ -22,3 +22,4 @@ echo   4. Go to http://localhost:5173/dashboard in Edge and click "Connect Exten
 echo =========================================================================
 echo.
 pause
+

@@ -14,17 +14,45 @@
 
   if (!rt) return;
 
+  // Never block the blocked page itself
+  if (window.location.href.includes("blocked.html")) return;
+
+  let hasRedirected = false;
+
+  const performBlock = (res) => {
+    if (hasRedirected) return;
+    hasRedirected = true;
+
+    // Immediately stop execution and freeze any active media to prevent buffering glitches
+    try {
+      window.stop();
+    } catch {}
+
+    try {
+      document.querySelectorAll("video, audio").forEach((media) => {
+        try {
+          media.pause();
+          media.muted = true;
+          media.src = "";
+          media.load();
+        } catch {}
+      });
+    } catch {}
+
+    const blockedPageUrl =
+      rt.getURL("blocked.html") +
+      `?domain=${encodeURIComponent(res.hostname || "")}` +
+      `&url=${encodeURIComponent(window.location.href)}`;
+
+    window.location.replace(blockedPageUrl);
+  };
+
   try {
     rt.sendMessage(
       { type: "EVALUATE_URL", url: window.location.href },
       (res) => {
         if (res?.isBlocked) {
-          const blockedPageUrl =
-            rt.getURL("blocked.html") +
-            `?domain=${encodeURIComponent(res.hostname || "")}` +
-            `&url=${encodeURIComponent(window.location.href)}`;
-
-          window.location.replace(blockedPageUrl);
+          performBlock(res);
         }
       }
     );

@@ -49,22 +49,16 @@ async function renderBlockState() {
     const testUrl = originalUrl || `https://${targetDomain}/`;
     const evaluation = evaluateUrl(testUrl, cache);
 
-    // If no longer blocked (e.g. goal approved or unblocked), navigate back to original URL
+    // If no longer blocked (e.g. goal approved or unblocked), display unlocked state with navigation option
     if (!evaluation.isBlocked) {
-      let destination = dashboardUrl;
-      if (
-        originalUrl &&
-        !originalUrl.startsWith("chrome-extension://")
-      ) {
-        destination = originalUrl;
-      } else if (
-        targetDomain &&
-        !targetDomain.includes(" ") &&
-        targetDomain !== "Restricted Website"
-      ) {
-        destination = `https://${targetDomain}/`;
-      }
-      window.location.replace(destination);
+      statusCard.className = "status-card";
+      statusCard.style.borderColor = "#10B981";
+      statusCard.style.background = "rgba(16, 185, 129, 0.1)";
+      statusHeader.style.color = "#34D399";
+      statusHeader.textContent = "RESTRICTIONS LIFTED";
+      instructionText.textContent = "All accountability locks for this site have been released!";
+      goalList.innerHTML = "<li style='color: #A7F3D0;'>All goals completed and verified.</li>";
+      btnCheckText.textContent = "Continue to Website →";
       return;
     }
 
@@ -152,7 +146,28 @@ async function renderBlockState() {
 async function handleCheckAgain() {
   setCheckingState(true);
   try {
-    await chrome.runtime.sendMessage({ type: "SYNC_NOW" });
+    const syncRes = await chrome.runtime.sendMessage({ type: "SYNC_NOW" });
+    const { cache } = syncRes || {};
+    const testUrl = originalUrl || `https://${targetDomain}/`;
+    const evaluation = evaluateUrl(testUrl, cache);
+    if (!evaluation.isBlocked) {
+      let destination = dashboardUrl;
+      if (
+        originalUrl &&
+        !originalUrl.startsWith("chrome-extension://") &&
+        !originalUrl.startsWith("moz-extension://")
+      ) {
+        destination = originalUrl;
+      } else if (
+        targetDomain &&
+        !targetDomain.includes(" ") &&
+        targetDomain !== "Restricted Website"
+      ) {
+        destination = `https://${targetDomain}/`;
+      }
+      window.location.replace(destination);
+      return;
+    }
     await renderBlockState();
   } catch (err) {
     console.error("Sync failed:", err);

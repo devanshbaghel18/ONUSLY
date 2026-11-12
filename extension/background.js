@@ -53,6 +53,9 @@ export function parseJwtPayload(token) {
 // Navigation & Open Tab Interception (Browser-Enforced Website Blocking)
 // --------------------------------------------------------------------------
 
+// Tracks in-flight redirects per tab to prevent rapid-fire loop storms
+const pendingBlockedTabs = new Map(); // tabId -> targetUrl
+
 /**
  * Evaluates a tab's URL against active restrictions and redirects to blocked.html if blocked.
  * @param {number} tabId
@@ -61,11 +64,30 @@ export function parseJwtPayload(token) {
  */
 export async function checkAndBlockTab(tabId, url, providedCache = null) {
   if (!tabId || !url) return;
+
+  // Never evaluate or block the extension's own blocked page or internal browser URLs
+  if (
+    url.includes("blocked.html") ||
+    url.startsWith("chrome-extension://") ||
+    url.startsWith("moz-extension://") ||
+    url.startsWith("edge://") ||
+    url.startsWith("about:")
+  ) {
+    pendingBlockedTabs.delete(tabId);
+    return;
+  }
+
+  // Prevent duplicate concurrent redirects for the same tab to the same URL
+  if (pendingBlockedTabs.has(tabId) && pendingBlockedTabs.get(tabId) === url) {
+    return;
+  }
+
   try {
     let cache = providedCache;
     if (!cache) {
       const session = await storage.getSession();
-      cache = await storage.getBlocklistCache(session?.userId || null);
+      const isManaged = await storage.getManagedMode();
+      cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
     }
 
     const evaluation = evaluateUrl(url, cache);
@@ -75,9 +97,18 @@ export async function checkAndBlockTab(tabId, url, providedCache = null) {
         `?domain=${encodeURIComponent(evaluation.hostname || "")}` +
         `&url=${encodeURIComponent(url)}`;
 
-      chrome.tabs.update(tabId, { url: blockedPageUrl });
+      pendingBlockedTabs.set(tabId, url);
+      chrome.tabs.update(tabId, { url: blockedPageUrl }, () => {
+        // Fallback cleanup if callback fires
+        if (chrome.runtime.lastError) {
+          pendingBlockedTabs.delete(tabId);
+        }
+      });
+    } else {
+      pendingBlockedTabs.delete(tabId);
     }
   } catch (err) {
+    pendingBlockedTabs.delete(tabId);
     console.error("[ONUSLY] Error evaluating tab navigation:", err);
   }
 }
@@ -91,7 +122,8 @@ export async function enforceOnOpenTabs() {
 
   try {
     const session = await storage.getSession();
-    const cache = await storage.getBlocklistCache(session?.userId || null);
+    const isManaged = await storage.getManagedMode();
+    const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
     if (!cache || !cache.targets || cache.targets.length === 0) return;
 
     const tabs = await chrome.tabs.query({});
@@ -121,17 +153,34 @@ if (globalThis.chrome?.webNavigation?.onHistoryStateUpdated) {
   });
 }
 
-// 3. Tab URL change interception (catches dynamic client updates)
+// 3. Tab URL change interception (catches explicit URL navigations only)
 if (globalThis.chrome?.tabs?.onUpdated) {
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    const url = changeInfo.url || tab?.url;
-    if (url) {
-      checkAndBlockTab(tabId, url);
+    const currentUrl = changeInfo.url || tab?.url;
+    if (currentUrl && currentUrl.includes("blocked.html")) {
+      pendingBlockedTabs.delete(tabId);
+      return;
+    }
+    if (changeInfo.status === "complete") {
+      pendingBlockedTabs.delete(tabId);
+    }
+
+    // CRITICAL: Only evaluate when changeInfo explicitly contains a new URL.
+    // Falling back to tab.url on status/favicon updates causes infinite navigation loop storms.
+    if (changeInfo.url) {
+      checkAndBlockTab(tabId, changeInfo.url);
     }
   });
 }
 
-// 4. Tab activation interception (when user switches to an already-open tab)
+// 4. Tab cleanup on close
+if (globalThis.chrome?.tabs?.onRemoved) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    pendingBlockedTabs.delete(tabId);
+  });
+}
+
+// 5. Tab activation interception (when user switches to an already-open tab)
 if (globalThis.chrome?.tabs?.onActivated) {
   chrome.tabs.onActivated.addListener(async (activeInfo) => {
     try {
