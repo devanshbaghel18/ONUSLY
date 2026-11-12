@@ -94,12 +94,19 @@ func (s *Service) generateUniqueHandle(ctx context.Context, name, email string) 
 	if err == nil && user == nil {
 		return candidate, nil
 	}
+	if err != nil {
+		// If database lookup errored or timed out, avoid repeated database queries
+		return fmt.Sprintf("%s_%d", base, time.Now().Unix()%10000), nil
+	}
 
-	for i := 1; i <= 30; i++ {
+	for i := 1; i <= 5; i++ {
 		candidate = fmt.Sprintf("%s_%d", base, i)
 		user, err := s.repo.GetUserByHandle(ctx, candidate)
 		if err == nil && user == nil {
 			return candidate, nil
+		}
+		if err != nil {
+			break
 		}
 	}
 

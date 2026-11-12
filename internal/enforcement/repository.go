@@ -137,7 +137,7 @@ func (r *DynamoRepository) ListDevices(ctx context.Context, userID string) ([]De
 	if err != nil {
 		r.mu.RLock()
 		defer r.mu.RUnlock()
-		var list []Device
+		list := []Device{}
 		for _, d := range r.memDevices {
 			if d.UserID == userID {
 				list = append(list, d)
@@ -146,7 +146,7 @@ func (r *DynamoRepository) ListDevices(ctx context.Context, userID string) ([]De
 		return list, nil
 	}
 
-	var devices []Device
+	devices := []Device{}
 	if err := attributevalue.UnmarshalListOfMaps(result.Items, &devices); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal devices: %w", err)
 	}
@@ -158,6 +158,9 @@ func (r *DynamoRepository) ListDevices(ctx context.Context, userID string) ([]De
 				devices = append(devices, d)
 			}
 		}
+	}
+	if devices == nil {
+		devices = []Device{}
 	}
 	return devices, nil
 }

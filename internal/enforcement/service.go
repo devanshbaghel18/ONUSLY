@@ -394,6 +394,9 @@ func (s *Service) GetDevices(ctx context.Context, userID string) (*DeviceCoverag
 	if err != nil {
 		return nil, err
 	}
+	if devices == nil {
+		devices = []Device{}
+	}
 
 	allEnforcing := len(devices) > 0
 	for _, d := range devices {
