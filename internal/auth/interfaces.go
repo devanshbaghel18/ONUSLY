@@ -8,4 +8,6 @@ type Repository interface {
 	GetUserByHandle(ctx context.Context, handle string) (*User, error)
 	CreateUser(ctx context.Context, user *User) error
 	UpdateUserHandle(ctx context.Context, userID, oldHandle, newHandle string) error
+	IncrementTokenVersion(ctx context.Context, userID string) (int, error)
+	GetTokenVersion(ctx context.Context, userID string) (int, error)
 }

@@ -17,9 +17,14 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/internal/config"
 )
 
+type SessionDisconnecter interface {
+	DisconnectUser(userID string)
+}
+
 type Service struct {
-	repo Repository
-	cfg  config.Config
+	repo         Repository
+	cfg          config.Config
+	disconnecter SessionDisconnecter
 }
 
 func NewService(repo Repository, cfg config.Config) *Service {
@@ -27,6 +32,10 @@ func NewService(repo Repository, cfg config.Config) *Service {
 		repo: repo,
 		cfg:  cfg,
 	}
+}
+
+func (s *Service) SetSessionDisconnecter(d SessionDisconnecter) {
+	s.disconnecter = d
 }
 
 func (s *Service) HandleCallback(ctx context.Context, code string) (string, error) {
@@ -185,13 +194,19 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 		}
 	}
 
+	version := user.TokenVersion
+	if version <= 0 {
+		version = 1
+	}
+
 	claims := jwt.MapClaims{
-		"sub":        user.ID,
-		"email":      user.Email,
-		"handle":     user.Handle,
-		"name":       user.Name,
-		"token_type": "user",
-		"exp":        time.Now().Add(7 * 24 * time.Hour).Unix(),
+		"sub":           user.ID,
+		"email":         user.Email,
+		"handle":        user.Handle,
+		"name":          user.Name,
+		"token_type":    "user",
+		"token_version": version,
+		"exp":           time.Now().Add(7 * 24 * time.Hour).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -294,16 +309,35 @@ func (s *Service) GetUserByID(ctx context.Context, userID string) (*User, error)
 
 // GenerateToken creates an authenticated JWT for a user.
 func (s *Service) GenerateToken(userID, email, handle, name string) (string, error) {
+	version, _ := s.repo.GetTokenVersion(context.Background(), userID)
+	if version <= 0 {
+		version = 1
+	}
 	claims := jwt.MapClaims{
-		"sub":        userID,
-		"email":      email,
-		"handle":     handle,
-		"name":       name,
-		"token_type": "user",
-		"exp":        time.Now().Add(7 * 24 * time.Hour).Unix(),
+		"sub":           userID,
+		"email":         email,
+		"handle":        handle,
+		"name":          name,
+		"token_type":    "user",
+		"token_version": version,
+		"exp":           time.Now().Add(7 * 24 * time.Hour).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.cfg.JWTSecret))
+}
+
+// RevokeAllSessions increments the user's token version in the repository and
+// disconnects any active realtime WebSocket connections, immediately invalidating
+// all active session cookies and Bearer tokens for this user.
+func (s *Service) RevokeAllSessions(ctx context.Context, userID string) (int, error) {
+	newVer, err := s.repo.IncrementTokenVersion(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	if s.disconnecter != nil {
+		s.disconnecter.DisconnectUser(userID)
+	}
+	return newVer, nil
 }
 
 // GenerateDeviceToken creates an authenticated JWT for a specific paired device.

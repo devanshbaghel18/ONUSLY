@@ -12,11 +12,36 @@ import (
 type contextKey string
 
 const (
-	UserIDKey    contextKey = "userID"
-	TokenTypeKey contextKey = "token_type"
+	UserIDKey       contextKey = "userID"
+	TokenTypeKey    contextKey = "token_type"
+	TokenVersionKey contextKey = "token_version"
 )
 
-func Auth(jwtSecret string) func(http.Handler) http.Handler {
+// SessionVersionValidator defines an interface to fetch the current active session version for a user.
+type SessionVersionValidator interface {
+	GetTokenVersion(ctx context.Context, userID string) (int, error)
+}
+
+// AuthOption configures optional behavior for the Auth middleware.
+type AuthOption func(*authConfig)
+
+type authConfig struct {
+	validator SessionVersionValidator
+}
+
+// WithSessionValidator enables server-side session version checking.
+func WithSessionValidator(v SessionVersionValidator) AuthOption {
+	return func(c *authConfig) {
+		c.validator = v
+	}
+}
+
+func Auth(jwtSecret string, opts ...AuthOption) func(http.Handler) http.Handler {
+	cfg := &authConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -98,8 +123,23 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 				}
 			}
 
+			// Session version revocation check for user tokens
+			var tokenVer int = 1
+			if rawVer, ok := claims["token_version"].(float64); ok && rawVer > 0 {
+				tokenVer = int(rawVer)
+			}
+
+			if cfg.validator != nil && tokenType == "user" {
+				expectedVer, err := cfg.validator.GetTokenVersion(r.Context(), userID)
+				if err == nil && expectedVer > 0 && tokenVer < expectedVer {
+					http.Error(w, "session revoked: please sign in again", http.StatusUnauthorized)
+					return
+				}
+			}
+
 			ctx := context.WithValue(r.Context(), UserIDKey, userID)
 			ctx = context.WithValue(ctx, TokenTypeKey, tokenType)
+			ctx = context.WithValue(ctx, TokenVersionKey, tokenVer)
 
 			if email, ok := claims["email"].(string); ok && email != "" {
 				ctx = context.WithValue(ctx, UserEmailKey, strings.ToLower(strings.TrimSpace(email)))
@@ -183,4 +223,9 @@ func GetUserHandle(ctx context.Context) (string, bool) {
 func GetUserName(ctx context.Context) (string, bool) {
 	name, ok := ctx.Value(UserNameKey).(string)
 	return name, ok
+}
+
+func GetTokenVersion(ctx context.Context) (int, bool) {
+	ver, ok := ctx.Value(TokenVersionKey).(int)
+	return ver, ok
 }

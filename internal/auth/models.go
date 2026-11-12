@@ -6,12 +6,13 @@ type User struct {
 	GSI1PK string `dynamodbav:"GSI1PK" json:"-"`
 	GSI1SK string `dynamodbav:"GSI1SK" json:"-"`
 
-	ID        string `dynamodbav:"ID" json:"id"`
-	Email     string `dynamodbav:"Email" json:"email"`
-	Handle    string `dynamodbav:"Handle" json:"handle"`
-	Name      string `dynamodbav:"Name" json:"name"`
-	Picture   string `dynamodbav:"Picture" json:"picture"`
-	CreatedAt string `dynamodbav:"CreatedAt" json:"createdAt"`
+	ID           string `dynamodbav:"ID" json:"id"`
+	Email        string `dynamodbav:"Email" json:"email"`
+	Handle       string `dynamodbav:"Handle" json:"handle"`
+	Name         string `dynamodbav:"Name" json:"name"`
+	Picture      string `dynamodbav:"Picture" json:"picture"`
+	TokenVersion int    `dynamodbav:"TokenVersion" json:"tokenVersion"`
+	CreatedAt    string `dynamodbav:"CreatedAt" json:"createdAt"`
 }
 
 type PublicProfile struct {
