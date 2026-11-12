@@ -291,3 +291,139 @@ func TestGoal_ListApproverRole(t *testing.T) {
 		t.Errorf("expected approver query response to contain assigned goal, got: %s", body)
 	}
 }
+
+// TestGoal_GSI2_FormattingAndStatusTransitions verifies GSI2 key generation and transition syncing
+func TestGoal_GSI2_FormattingAndStatusTransitions(t *testing.T) {
+	repo := goals.NewRepository(nil, "mock-table")
+
+	approverID := "usr_approver_99"
+	goalID := "goal_gsi2_test_1"
+	ownerID := "usr_owner_88"
+
+	// 1. Create active goal
+	g := goals.Goal{
+		ID:         goalID,
+		OwnerID:    ownerID,
+		ApproverID: approverID,
+		Title:      "GSI2 Test Goal",
+		Status:     "active",
+	}
+
+	err := repo.Create(context.Background(), g)
+	if err != nil {
+		t.Fatalf("failed to create goal: %v", err)
+	}
+
+	created, err := repo.GetByID(context.Background(), ownerID, goalID)
+	if err != nil {
+		t.Fatalf("failed to get created goal: %v", err)
+	}
+
+	if created.GSI2PK != "APPROVER#usr_approver_99" {
+		t.Errorf("expected GSI2PK APPROVER#usr_approver_99, got: %s", created.GSI2PK)
+	}
+	if created.GSI2SK != "STATUS#active#GOAL#goal_gsi2_test_1" {
+		t.Errorf("expected GSI2SK STATUS#active#GOAL#goal_gsi2_test_1, got: %s", created.GSI2SK)
+	}
+
+	// 2. Transition status to proof_submitted
+	updated, err := repo.UpdateStatus(context.Background(), ownerID, goalID, "proof_submitted")
+	if err != nil {
+		t.Fatalf("failed to update status: %v", err)
+	}
+
+	if updated.GSI2SK != "STATUS#proof_submitted#GOAL#goal_gsi2_test_1" {
+		t.Errorf("expected GSI2SK STATUS#proof_submitted#GOAL#goal_gsi2_test_1, got: %s", updated.GSI2SK)
+	}
+
+	// 3. Transition status to completed
+	completed, err := repo.UpdateStatus(context.Background(), ownerID, goalID, "completed")
+	if err != nil {
+		t.Fatalf("failed to update status to completed: %v", err)
+	}
+
+	if completed.GSI2SK != "STATUS#completed#GOAL#goal_gsi2_test_1" {
+		t.Errorf("expected GSI2SK STATUS#completed#GOAL#goal_gsi2_test_1, got: %s", completed.GSI2SK)
+	}
+}
+
+// TestGoal_ListByApprover_StatusFiltering verifies approver inbox filtering by pending, approved, and all
+func TestGoal_ListByApprover_StatusFiltering(t *testing.T) {
+	repo := goals.NewRepository(nil, "mock-table")
+
+	approverID := "usr_approver_filter"
+	ownerID := "usr_owner_filter"
+
+	// Create 1 pending, 1 completed, 1 active goal
+	_ = repo.Create(context.Background(), goals.Goal{
+		ID:         "goal_pending",
+		OwnerID:    ownerID,
+		ApproverID: approverID,
+		Title:      "Pending Goal",
+		Status:     "proof_submitted",
+	})
+	_ = repo.Create(context.Background(), goals.Goal{
+		ID:         "goal_completed",
+		OwnerID:    ownerID,
+		ApproverID: approverID,
+		Title:      "Completed Goal",
+		Status:     "completed",
+	})
+	_ = repo.Create(context.Background(), goals.Goal{
+		ID:         "goal_active",
+		OwnerID:    ownerID,
+		ApproverID: approverID,
+		Title:      "Active Goal",
+		Status:     "active",
+	})
+
+	// Query pending only
+	pendingGoals, err := repo.ListByApprover(context.Background(), approverID, "", "", "pending")
+	if err != nil {
+		t.Fatalf("failed to list pending: %v", err)
+	}
+	if len(pendingGoals) != 1 || pendingGoals[0].ID != "goal_pending" {
+		t.Errorf("expected 1 pending goal with ID goal_pending, got: %+v", pendingGoals)
+	}
+
+	// Query approved only
+	approvedGoals, err := repo.ListByApprover(context.Background(), approverID, "", "", "approved")
+	if err != nil {
+		t.Fatalf("failed to list approved: %v", err)
+	}
+	if len(approvedGoals) != 1 || approvedGoals[0].ID != "goal_completed" {
+		t.Errorf("expected 1 completed goal with ID goal_completed, got: %+v", approvedGoals)
+	}
+
+	// Query all
+	allGoals, err := repo.ListByApprover(context.Background(), approverID, "", "", "all")
+	if err != nil {
+		t.Fatalf("failed to list all: %v", err)
+	}
+	if len(allGoals) != 3 {
+		t.Errorf("expected 3 total goals, got: %d", len(allGoals))
+	}
+}
+
+// TestGoal_ListByApprover_OwnerExcluded verifies goal owner is never listed as approver of their own goal
+func TestGoal_ListByApprover_OwnerExcluded(t *testing.T) {
+	repo := goals.NewRepository(nil, "mock-table")
+
+	userID := "usr_self_approver"
+
+	_ = repo.Create(context.Background(), goals.Goal{
+		ID:         "goal_self",
+		OwnerID:    userID,
+		ApproverID: userID,
+		Title:      "Self Goal",
+		Status:     "proof_submitted",
+	})
+
+	inbox, err := repo.ListByApprover(context.Background(), userID, "", "", "pending")
+	if err != nil {
+		t.Fatalf("failed to query approver inbox: %v", err)
+	}
+	if len(inbox) != 0 {
+		t.Errorf("expected 0 goals due to self-approval exclusion, got %d", len(inbox))
+	}
+}

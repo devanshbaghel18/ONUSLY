@@ -84,7 +84,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	if role == "approver" {
 		callerEmail, _ := middleware.GetUserEmail(r.Context())
-		goals, err = h.service.ListForApprover(r.Context(), userID, callerEmail)
+		callerHandle, _ := middleware.GetUserHandle(r.Context())
+		statusFilter := r.URL.Query().Get("status")
+		goals, err = h.service.ListForApproverWithStatus(r.Context(), userID, callerEmail, callerHandle, statusFilter)
 	} else {
 		goals, err = h.service.List(r.Context(), userID)
 	}

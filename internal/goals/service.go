@@ -16,6 +16,7 @@ type GoalRepository interface {
 	FindByID(ctx context.Context, goalID string) (*Goal, error)
 	List(ctx context.Context, ownerID string) ([]Goal, error)
 	ListForApprover(ctx context.Context, approverID, approverEmail string) ([]Goal, error)
+	ListByApprover(ctx context.Context, approverID, approverEmail, approverHandle, statusFilter string) ([]Goal, error)
 	Delete(ctx context.Context, ownerID, goalID string) error
 	Update(ctx context.Context, ownerID, goalID string, input UpdateGoalInput) (*Goal, error)
 	UpdateStatus(ctx context.Context, ownerID, goalID string, status string) (*Goal, error)
@@ -327,14 +328,25 @@ func (s *Service) ListForApprover(
 	approverID string,
 	approverEmail string,
 ) ([]Goal, error) {
+	return s.ListForApproverWithStatus(ctx, approverID, approverEmail, "", "")
+}
+
+func (s *Service) ListForApproverWithStatus(
+	ctx context.Context,
+	approverID string,
+	approverEmail string,
+	approverHandle string,
+	statusFilter string,
+) ([]Goal, error) {
 	approverID = strings.TrimSpace(approverID)
 	approverEmail = strings.TrimSpace(approverEmail)
+	approverHandle = strings.TrimSpace(approverHandle)
 
-	if approverID == "" && approverEmail == "" {
+	if approverID == "" && approverEmail == "" && approverHandle == "" {
 		return nil, errors.New("approver ID or email is required")
 	}
 
-	return s.repo.ListForApprover(ctx, approverID, approverEmail)
+	return s.repo.ListByApprover(ctx, approverID, approverEmail, approverHandle, statusFilter)
 }
 
 func (s *Service) Delete(
