@@ -196,6 +196,14 @@ export async function decideApproval(goalId, proofId, { ownerId, status, comment
   });
 }
 
+export async function getApproverInbox(status = "pending") {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const data = await request(`/approvals/inbox${query}`, {
+    method: "GET",
+  });
+  return data || { items: [], total: 0 };
+}
+
 export async function getChatHistory(peerEmail) {
   if (!peerEmail) return [];
   const data = await request(`/chat/messages?peer=${encodeURIComponent(peerEmail.trim())}`, {

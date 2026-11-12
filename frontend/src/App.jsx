@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Goals from './pages/Goals';
 import GoalDetail from './pages/GoalDetail';
 import Communities from './pages/Communities';
+import ApprovalCenter from './pages/ApprovalCenter';
 import ProtectedRoute from './components/ProtectedRoute';
 import GlobalChatNotifier from './components/GlobalChatNotifier';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -69,6 +70,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Communities />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/approvals"
+            element={
+              <ProtectedRoute>
+                <ApprovalCenter />
               </ProtectedRoute>
             }
           />
