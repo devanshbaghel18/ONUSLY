@@ -493,6 +493,14 @@ export default function DeviceCoverageSection() {
                 <p className="text-base font-bold text-white mt-0.5">{desktopAgent.status.appsMonitoredCount || 0}</p>
               </div>
             </div>
+
+            <div className="rounded-lg border border-neutral-800/80 bg-neutral-900/40 px-3 py-2 text-[11px] text-neutral-400 flex items-start gap-2">
+              <span className="text-amber-400 font-bold shrink-0">💡 Note:</span>
+              <span>
+                <strong>Machine-Wide DNS</strong> blocks full distraction domains (Instagram, Twitter, etc.) on Chrome, Edge & apps automatically. 
+                Sub-path targets like <strong>YouTube Shorts</strong> require the ONUSLY extension loaded in that browser so regular YouTube videos remain accessible.
+              </span>
+            </div>
           </div>
 
           {/* Action notification */}

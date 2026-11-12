@@ -680,8 +680,8 @@ export default function ConnectExtension() {
                   <div className="space-y-0.5">
                     <p className="font-semibold text-neutral-200">Chrome / Edge / Brave / Opera / Vivaldi:</p>
                     <p>• In your URL bar, open <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">chrome://extensions</code> (or <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">edge://extensions</code>, <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">brave://extensions</code>).</p>
-                    <p>• Turn ON <strong>Developer mode</strong> (toggle in top-right).</p>
-                    <p>• Click <strong>"Load unpacked"</strong> and select the extracted folder.</p>
+                    <p>• Turn ON <strong>Developer mode</strong> (top-right in Chrome, left sidebar in Edge).</p>
+                    <p>• Click <strong>"Load unpacked"</strong> and select <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">C:\onusly\ONUSLY\extension</code>.</p>
                   </div>
                   <div className="pt-2 border-t border-neutral-800/80 space-y-0.5">
                     <p className="font-semibold text-neutral-200">Mozilla Firefox (Linux & Windows):</p>

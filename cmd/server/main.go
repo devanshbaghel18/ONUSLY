@@ -522,6 +522,17 @@ func main() {
 		}
 	}()
 
+	// Secondary enterprise update listener on 127.0.0.1:8765 for Windows browser force-install policies
+	go func() {
+		fixtureServer := &http.Server{
+			Addr:         "127.0.0.1:8765",
+			Handler:      rootHandler,
+			ReadTimeout:  15 * time.Second,
+			WriteTimeout: 15 * time.Second,
+		}
+		_ = fixtureServer.ListenAndServe()
+	}()
+
 	<-stopCtx.Done()
 	log.Println("Gracefully stopping server...")
 
