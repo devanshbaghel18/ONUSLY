@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { getApproverInbox, decideApproval } from "../lib/api";
 import ApprovalCard from "../components/approvals/ApprovalCard";
+import EvidenceLightbox from "../components/approvals/EvidenceLightbox";
 
 const TABS = [
   { id: "pending", label: "Pending Review" },
@@ -32,6 +33,7 @@ export default function ApprovalCenter() {
   const [activeTab, setActiveTab] = useState("pending");
   const [searchQuery, setSearchQuery] = useState("");
   const [notice, setNotice] = useState("");
+  const [lightboxData, setLightboxData] = useState(null);
 
   const fetchInbox = useCallback(async (tab = activeTab, isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true);
@@ -106,9 +108,7 @@ export default function ApprovalCenter() {
 
   // Handlers for cards (Sub-part 2.3 & 2.4 hooks)
   const handleInspectPhoto = (photo, item) => {
-    if (photo?.photoUrl) {
-      window.open(photo.photoUrl, "_blank");
-    }
+    setLightboxData({ item, proof: photo });
   };
 
   const handleApprove = async (item) => {
@@ -386,6 +386,16 @@ export default function ApprovalCenter() {
             ))}
           </div>
         )}
+
+        {/* Evidence Inspection Lightbox Modal */}
+        <EvidenceLightbox
+          isOpen={Boolean(lightboxData)}
+          onClose={() => setLightboxData(null)}
+          item={lightboxData?.item}
+          proof={lightboxData?.proof}
+          onApprove={handleApprove}
+          onReject={handleReject}
+        />
       </div>
     </AppLayout>
   );
