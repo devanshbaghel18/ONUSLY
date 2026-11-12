@@ -16,6 +16,7 @@ import {
   Zap,
   Power,
   Activity,
+  Download,
 } from "lucide-react";
 import {
   getDevicesCoverage,
@@ -208,7 +209,15 @@ export default function DeviceCoverageSection() {
         await loadCoverage(true);
       }
     } catch (err) {
-      setDesktopActionMsg({ text: err.message || "Failed to toggle DNS shield", type: "error" });
+      const isPermission = err.message && (err.message.includes("PermissionDenied") || err.message.includes("Access to a CIM resource") || err.message.includes("unsupported action") || err.message.includes("needs a one-time update"));
+      if (isPermission) {
+        setDesktopActionMsg({
+          text: "Windows requires administrator confirmation to change network DNS. Double-click 'ONUSLY_Shield_Toggle.bat' on your Desktop (or click '1-Click Switcher' to download) and click 'Allow' in the Windows prompt.",
+          type: "warning",
+        });
+      } else {
+        setDesktopActionMsg({ text: err.message || "Failed to toggle DNS shield", type: "error" });
+      }
     } finally {
       setDnsActionLoading(false);
     }
@@ -407,7 +416,7 @@ export default function DeviceCoverageSection() {
           {/* Machine Controls Row */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Machine-Wide DNS Shield Toggle */}
-            <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 flex items-center justify-between gap-3">
+            <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-1.5">
                   <Shield size={14} className={desktopAgent.status.dnsRedirectionActive ? "text-emerald-400" : "text-neutral-400"} />
@@ -423,29 +432,41 @@ export default function DeviceCoverageSection() {
                 <p className="text-[11px] text-neutral-400">
                   {desktopAgent.status.dnsRedirectionActive
                     ? "Blocking distraction domains across Chrome, Edge, Brave, Firefox & apps."
-                    : "DNS redirection inactive. Click activate to enforce across all browsers."}
+                    : "DNS redirection inactive. Use the 1-click switcher to enforce across all browsers."}
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => handleToggleDNS(desktopAgent.status.dnsRedirectionActive)}
-                disabled={dnsActionLoading}
-                className={`btn-premium shrink-0 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
-                  desktopAgent.status.dnsRedirectionActive
-                    ? "border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                    : "bg-white text-black hover:bg-neutral-200"
-                }`}
-              >
-                <Power size={12} />
-                <span>
-                  {dnsActionLoading
-                    ? "Applying..."
-                    : desktopAgent.status.dnsRedirectionActive
-                    ? "Deactivate Shield"
-                    : "Activate Shield"}
-                </span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href="/downloads/onusly-shield-toggle.bat"
+                  download="ONUSLY_Shield_Toggle.bat"
+                  className="btn-premium inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition"
+                  title="Download the 1-click Windows switcher (requires 1 click on 'Allow' to configure adapters)"
+                >
+                  <Download size={12} />
+                  <span>1-Click Switcher</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleDNS(desktopAgent.status.dnsRedirectionActive)}
+                  disabled={dnsActionLoading}
+                  className={`btn-premium inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
+                    desktopAgent.status.dnsRedirectionActive
+                      ? "border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                      : "bg-white text-black hover:bg-neutral-200"
+                  }`}
+                >
+                  <Power size={12} />
+                  <span>
+                    {dnsActionLoading
+                      ? "Applying..."
+                      : desktopAgent.status.dnsRedirectionActive
+                      ? "Deactivate Shield"
+                      : "Activate Shield"}
+                  </span>
+                </button>
+              </div>
             </div>
 
             {/* Live Filter Telemetry Card */}
@@ -477,6 +498,8 @@ export default function DeviceCoverageSection() {
             <div className={`p-2.5 rounded-lg text-xs font-medium flex items-center gap-2 border ${
               desktopActionMsg.type === "success"
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                : desktopActionMsg.type === "warning"
+                ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
                 : "border-red-500/30 bg-red-500/10 text-red-200"
             }`}>
               {desktopActionMsg.type === "success" ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}

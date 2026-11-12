@@ -41,3 +41,4 @@ func queryLocalAgent(req core.IPCRequest, timeout time.Duration) (*core.IPCRespo
 
 	return &resp, nil
 }
+
