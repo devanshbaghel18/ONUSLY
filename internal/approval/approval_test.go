@@ -1273,3 +1273,117 @@ func TestApproverInbox_SelfApprovalExcluded(t *testing.T) {
 	}
 }
 
+// 5. Handler Test: GET /approvals/inbox returns 200 with populated inbox
+func TestApprovalHandler_GetInbox_Success(t *testing.T) {
+	_, proofService, approvalService, goalRepo, _ := setupInboxTestServices(t)
+	handler := approval.NewHandler(approvalService)
+
+	aliceID := "user-alice-handler-" + t.Name()
+	bobID := "user-bob-handler-" + t.Name()
+	bobEmail := "bob-handler-" + t.Name() + "@example.com"
+	goalID := "goal-handler-inbox-" + t.Name()
+
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:            goalID,
+		OwnerID:       aliceID,
+		ApproverID:    bobID,
+		ApproverEmail: bobEmail,
+		Title:         "Handler Test Goal",
+		Status:        "active",
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+	})
+
+	_, _ = proofService.Submit(
+		context.Background(),
+		aliceID,
+		goalID,
+		"text",
+		"Completed work evidence",
+		"",
+		"",
+	)
+
+	req := httptest.NewRequest("GET", "/approvals/inbox?status=pending", nil)
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, bobID)
+	ctx = context.WithValue(ctx, middleware.UserEmailKey, bobEmail)
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	handler.GetInbox(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, goalID) {
+		t.Errorf("expected response to contain goal ID %s, got: %s", goalID, body)
+	}
+	if !strings.Contains(body, "Handler Test Goal") {
+		t.Errorf("expected response to contain goal title, got: %s", body)
+	}
+}
+
+// 6. Handler Test: GET /approvals/inbox without JWT returns 401 Unauthorized
+func TestApprovalHandler_GetInbox_Unauthorized(t *testing.T) {
+	_, _, approvalService, _, _ := setupInboxTestServices(t)
+	handler := approval.NewHandler(approvalService)
+
+	req := httptest.NewRequest("GET", "/approvals/inbox", nil)
+	rec := httptest.NewRecorder()
+
+	handler.GetInbox(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %d", rec.Code)
+	}
+}
+
+// 7. Handler Test: GET /approvals/inbox respects ?status= query filter
+func TestApprovalHandler_GetInbox_StatusFiltering(t *testing.T) {
+	_, _, approvalService, goalRepo, _ := setupInboxTestServices(t)
+	handler := approval.NewHandler(approvalService)
+
+	aliceID := "user-alice-filter-" + t.Name()
+	bobID := "user-bob-filter-" + t.Name()
+
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:         "goal-pending-h-" + t.Name(),
+		OwnerID:    aliceID,
+		ApproverID: bobID,
+		Title:      "Pending Handler Goal",
+		Status:     "proof_submitted",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:         "goal-completed-h-" + t.Name(),
+		OwnerID:    aliceID,
+		ApproverID: bobID,
+		Title:      "Completed Handler Goal",
+		Status:     "completed",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Query ?status=approved
+	reqApproved := httptest.NewRequest("GET", "/approvals/inbox?status=approved", nil)
+	ctx := context.WithValue(reqApproved.Context(), middleware.UserIDKey, bobID)
+	reqApproved = reqApproved.WithContext(ctx)
+
+	recApproved := httptest.NewRecorder()
+	handler.GetInbox(recApproved, reqApproved)
+
+	if recApproved.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", recApproved.Code)
+	}
+
+	bodyApproved := recApproved.Body.String()
+	if !strings.Contains(bodyApproved, "Completed Handler Goal") {
+		t.Errorf("expected response to contain completed goal, got: %s", bodyApproved)
+	}
+	if strings.Contains(bodyApproved, "Pending Handler Goal") {
+		t.Errorf("expected response NOT to contain pending goal, got: %s", bodyApproved)
+	}
+}
+
+

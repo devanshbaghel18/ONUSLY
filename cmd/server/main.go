@@ -409,6 +409,11 @@ func main() {
 		approvalHandler.GetByID,
 	)
 
+	goalRoutes.HandleFunc(
+		"GET /approvals/inbox",
+		approvalHandler.GetInbox,
+	)
+
 	// Users & Public Profiles
 	goalRoutes.HandleFunc(
 		"GET /users/search",
@@ -488,6 +493,8 @@ func main() {
 
 	mux.Handle("/goals", protectedRoutes)
 	mux.Handle("/goals/", protectedRoutes)
+	mux.Handle("/approvals", protectedRoutes)
+	mux.Handle("/approvals/", protectedRoutes)
 	mux.Handle("/chat", protectedRoutes)
 	mux.Handle("/chat/", protectedRoutes)
 	mux.Handle("/users", protectedRoutes)
