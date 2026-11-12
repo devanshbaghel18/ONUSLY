@@ -126,6 +126,9 @@ func (r *DynamoRepository) GetUserByEmail(ctx context.Context, email string) (*U
 	if err := attributevalue.UnmarshalMap(out.Items[0], &user); err != nil {
 		return nil, err
 	}
+	if user.TokenVersion <= 0 {
+		user.TokenVersion = 1
+	}
 
 	r.mu.Lock()
 	r.memUsers[user.ID] = user
@@ -172,6 +175,9 @@ func (r *DynamoRepository) GetUserByID(ctx context.Context, userID string) (*Use
 	var user User
 	if err := attributevalue.UnmarshalMap(out.Item, &user); err != nil {
 		return nil, err
+	}
+	if user.TokenVersion <= 0 {
+		user.TokenVersion = 1
 	}
 
 	r.mu.Lock()
@@ -241,6 +247,9 @@ func (r *DynamoRepository) CreateUser(ctx context.Context, user *User) error {
 	user.SK = "PROFILE"
 	user.GSI1PK = "EMAIL#" + strings.ToLower(strings.TrimSpace(user.Email))
 	user.GSI1SK = "PROFILE"
+	if user.TokenVersion <= 0 {
+		user.TokenVersion = 1
+	}
 
 	// Always cache in memory immediately
 	r.mu.Lock()
@@ -402,4 +411,72 @@ func (r *DynamoRepository) UpdateUserHandle(ctx context.Context, userID, oldHand
 	}
 
 	return nil
+}
+
+// IncrementTokenVersion increments the user's token version in memory and DynamoDB,
+// invalidating all prior active sessions and cookies across all devices.
+func (r *DynamoRepository) IncrementTokenVersion(ctx context.Context, userID string) (int, error) {
+	if userID == "" {
+		return 0, errors.New("userID is required")
+	}
+
+	r.mu.Lock()
+	newVer := 1
+	if u, exists := r.memUsers[userID]; exists {
+		if u.TokenVersion <= 0 {
+			u.TokenVersion = 1
+		}
+		u.TokenVersion++
+		newVer = u.TokenVersion
+		r.memUsers[userID] = u
+	} else {
+		newVer = 2
+		r.memUsers[userID] = User{ID: userID, TokenVersion: newVer}
+	}
+	r.mu.Unlock()
+
+	txCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	_, err := r.client.UpdateItem(txCtx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(r.tableName),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: "USER#" + userID},
+			"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
+		},
+		UpdateExpression: aws.String("ADD TokenVersion :inc"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":inc": &types.AttributeValueMemberN{Value: "1"},
+		},
+	})
+	if err != nil {
+		log.Printf("[AuthRepo] Remote IncrementTokenVersion notice: %v (cached in local memory)", err)
+	}
+
+	return newVer, nil
+}
+
+// GetTokenVersion retrieves the current session version for a user (fast in-memory path with DynamoDB fallback).
+func (r *DynamoRepository) GetTokenVersion(ctx context.Context, userID string) (int, error) {
+	if userID == "" {
+		return 1, nil
+	}
+
+	r.mu.RLock()
+	if u, exists := r.memUsers[userID]; exists && u.TokenVersion > 0 {
+		v := u.TokenVersion
+		r.mu.RUnlock()
+		return v, nil
+	}
+	r.mu.RUnlock()
+
+	user, err := r.GetUserByID(ctx, userID)
+	if err != nil || user == nil {
+		return 1, nil
+	}
+
+	if user.TokenVersion <= 0 {
+		return 1, nil
+	}
+	return user.TokenVersion, nil
 }

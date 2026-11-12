@@ -125,6 +125,29 @@ func (m *mockAuthRepository) UpdateUserHandle(ctx context.Context, userID, oldHa
 	return nil
 }
 
+func (m *mockAuthRepository) IncrementTokenVersion(ctx context.Context, userID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if u, exists := m.users[userID]; exists {
+		if u.TokenVersion <= 0 {
+			u.TokenVersion = 1
+		}
+		u.TokenVersion++
+		return u.TokenVersion, nil
+	}
+	m.users[userID] = &User{ID: userID, TokenVersion: 2}
+	return 2, nil
+}
+
+func (m *mockAuthRepository) GetTokenVersion(ctx context.Context, userID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if u, exists := m.users[userID]; exists && u.TokenVersion > 0 {
+		return u.TokenVersion, nil
+	}
+	return 1, nil
+}
+
 func TestUpdateUserHandle_Success(t *testing.T) {
 	repo := newMockAuthRepo()
 	_ = repo.CreateUser(context.Background(), &User{
@@ -389,5 +412,61 @@ func TestLogout_ClearsCookies(t *testing.T) {
 	}
 	if !altCookieCleared {
 		t.Fatalf("expected 'onusly_token' cookie to be cleared with MaxAge=-1 and HttpOnly=true")
+	}
+}
+
+type mockDisconnecter struct {
+	disconnectedUser string
+}
+
+func (m *mockDisconnecter) DisconnectUser(userID string) {
+	m.disconnectedUser = userID
+}
+
+func TestRevokeAllSessions_IncrementsVersionAndClearsCookies(t *testing.T) {
+	repo := newMockAuthRepo()
+	_ = repo.CreateUser(context.Background(), &User{
+		ID:           "user-revoker",
+		Email:        "revoker@test.com",
+		TokenVersion: 1,
+	})
+
+	svc := NewService(repo, config.Config{JWTSecret: "test"})
+	disc := &mockDisconnecter{}
+	svc.SetSessionDisconnecter(disc)
+
+	handler := NewHandler(svc)
+
+	req := httptest.NewRequest("POST", "/auth/revoke-all", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, "user-revoker"))
+	rec := httptest.NewRecorder()
+
+	handler.RevokeAllSessions(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	// Verify TokenVersion was incremented to 2
+	ver, err := repo.GetTokenVersion(context.Background(), "user-revoker")
+	if err != nil || ver != 2 {
+		t.Fatalf("expected version 2 after revocation, got %d (err: %v)", ver, err)
+	}
+
+	// Verify WebSocket disconnect was triggered
+	if disc.disconnectedUser != "user-revoker" {
+		t.Fatalf("expected disconnecter to be called for user-revoker, got: %s", disc.disconnectedUser)
+	}
+
+	// Verify cookies are cleared
+	cookies := rec.Result().Cookies()
+	var tokenCleared bool
+	for _, c := range cookies {
+		if c.Name == "token" && c.MaxAge == -1 && c.HttpOnly {
+			tokenCleared = true
+		}
+	}
+	if !tokenCleared {
+		t.Fatalf("expected 'token' cookie to be cleared on revoke-all")
 	}
 }

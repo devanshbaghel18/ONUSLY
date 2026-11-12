@@ -188,6 +188,7 @@ func main() {
 
 	// Real-time WebSocket Hub
 	wsHub := realtime.NewHub()
+	authService.SetSessionDisconnecter(wsHub)
 	mux.HandleFunc("GET /ws", realtime.ServeWS(wsHub, cfg.JWTSecret))
 	mux.HandleFunc("GET /ws/", realtime.ServeWS(wsHub, cfg.JWTSecret))
 
@@ -422,6 +423,14 @@ func main() {
 		"GET /users/me",
 		authHandler.GetMe,
 	)
+	goalRoutes.HandleFunc(
+		"POST /auth/revoke-all",
+		authHandler.RevokeAllSessions,
+	)
+	goalRoutes.HandleFunc(
+		"POST /auth/logout-all",
+		authHandler.RevokeAllSessions,
+	)
 
 	// Enforcement Blocklist & Device Heartbeats
 	goalRoutes.HandleFunc(
@@ -473,8 +482,8 @@ func main() {
 	mux.Handle("POST /enforcement/pair/request", pairingLimiter.Limit(middleware.Idempotency(idempotencyStore)(http.HandlerFunc(enforcementHandler.RequestPairing))))
 	mux.Handle("POST /enforcement/pair/exchange", pairingLimiter.Limit(middleware.Idempotency(idempotencyStore)(http.HandlerFunc(enforcementHandler.ExchangePairing))))
 
-	// JWT authentication and per-user sliding window rate limiting (180 req/min) for all protected routes
-	protectedRoutes := middleware.Auth(cfg.JWTSecret)(apiLimiter.Limit(idempotentProtected))
+	// JWT authentication, session version verification, and per-user sliding window rate limiting (180 req/min) for all protected routes
+	protectedRoutes := middleware.Auth(cfg.JWTSecret, middleware.WithSessionValidator(authRepo))(apiLimiter.Limit(idempotentProtected))
 
 	mux.Handle("/goals", protectedRoutes)
 	mux.Handle("/goals/", protectedRoutes)
@@ -490,6 +499,8 @@ func main() {
 	mux.Handle("/communities/", protectedRoutes)
 	mux.Handle("/enforcement", protectedRoutes)
 	mux.Handle("/enforcement/", protectedRoutes)
+	mux.Handle("POST /auth/revoke-all", protectedRoutes)
+	mux.Handle("POST /auth/logout-all", protectedRoutes)
 
 	addr, err := validateAndResolveBindAddress(os.Getenv("HOST"), os.Getenv("PORT"))
 	if err != nil {

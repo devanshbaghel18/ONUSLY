@@ -82,6 +82,18 @@ export async function logout() {
   clearAuth();
 }
 
+export async function revokeAllSessions() {
+  try {
+    await fetch(`${API_BASE_URL}/auth/revoke-all`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (err) {
+    // Ignore network failure on revoke-all
+  }
+  clearAuth();
+}
+
 export async function getGoals() {
   const data = await request("/goals", { method: "GET" });
   return Array.isArray(data) ? data : [];

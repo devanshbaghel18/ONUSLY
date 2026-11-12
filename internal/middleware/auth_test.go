@@ -1,8 +1,10 @@
 package middleware_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,5 +128,97 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 	if rec.Body.String() != "ok:legitimate-user-789" {
 		t.Errorf("expected body 'ok:legitimate-user-789', got %s", rec.Body.String())
+	}
+}
+
+type mockSessionValidator struct {
+	versions map[string]int
+}
+
+func (m *mockSessionValidator) GetTokenVersion(ctx context.Context, userID string) (int, error) {
+	if v, ok := m.versions[userID]; ok {
+		return v, nil
+	}
+	return 1, nil
+}
+
+func TestAuthMiddleware_SessionVersionRevocation(t *testing.T) {
+	jwtSecret := "test-secret-version-12345"
+	validator := &mockSessionValidator{
+		versions: map[string]int{
+			"user-alice": 1,
+			"user-bob":   2, // user-bob revoked prior sessions!
+		},
+	}
+
+	authMiddleware := middleware.Auth(jwtSecret, middleware.WithSessionValidator(validator))
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uid, _ := middleware.GetUserID(r.Context())
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok:" + uid))
+	})
+	protected := authMiddleware(nextHandler)
+
+	makeToken := func(userID string, ver int) string {
+		claims := jwt.MapClaims{
+			"sub":           userID,
+			"token_type":    "user",
+			"token_version": ver,
+			"exp":           time.Now().Add(time.Hour).Unix(),
+		}
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		s, _ := tok.SignedString([]byte(jwtSecret))
+		return s
+	}
+
+	// 1. User Alice with version 1 -> matches expected version 1 -> 200 OK
+	aliceTokenV1 := makeToken("user-alice", 1)
+	req := httptest.NewRequest("GET", "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+aliceTokenV1)
+	rec := httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for matching session version, got %d", rec.Code)
+	}
+
+	// 2. User Bob presenting older token with version 1 (stolen or prior session) -> expected is 2 -> 401 Unauthorized
+	bobTokenV1 := makeToken("user-bob", 1)
+	req = httptest.NewRequest("GET", "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+bobTokenV1)
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for revoked session version, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "session revoked") {
+		t.Fatalf("expected 'session revoked' message, got: %s", rec.Body.String())
+	}
+
+	// 3. User Bob with newly issued token version 2 -> matches expected 2 -> 200 OK
+	bobTokenV2 := makeToken("user-bob", 2)
+	req = httptest.NewRequest("GET", "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+bobTokenV2)
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for updated session version, got %d", rec.Code)
+	}
+
+	// 4. Also works via Cookie
+	req = httptest.NewRequest("GET", "/protected", nil)
+	req.AddCookie(&http.Cookie{Name: "token", Value: bobTokenV2})
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for cookie with updated session version, got %d", rec.Code)
+	}
+
+	// 5. Stolen cookie with old version 1 -> 401 Unauthorized
+	req = httptest.NewRequest("GET", "/protected", nil)
+	req.AddCookie(&http.Cookie{Name: "token", Value: bobTokenV1})
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for stolen cookie with old session version, got %d", rec.Code)
 	}
 }

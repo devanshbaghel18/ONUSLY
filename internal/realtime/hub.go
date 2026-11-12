@@ -238,6 +238,32 @@ func (h *Hub) Unregister(c *Client) {
 	close(c.send)
 }
 
+// DisconnectUser forcibly closes all active connections for a given user (e.g. upon session revocation).
+func (h *Hub) DisconnectUser(userID string) {
+	cleanID := strings.TrimSpace(userID)
+	if cleanID == "" {
+		return
+	}
+
+	h.mu.Lock()
+	userConns, exists := h.users[cleanID]
+	if !exists {
+		h.mu.Unlock()
+		return
+	}
+	clientsToClose := make([]*Client, 0, len(userConns))
+	for c := range userConns {
+		clientsToClose = append(clientsToClose, c)
+	}
+	h.mu.Unlock()
+
+	for _, c := range clientsToClose {
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
+	}
+}
+
 // JoinCommunity registers a client connection to a specific community room.
 func (h *Hub) JoinCommunity(communityID string, c *Client) {
 	cleanID := strings.TrimSpace(communityID)
