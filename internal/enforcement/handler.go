@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -313,14 +314,21 @@ func (h *Handler) GetDesktopStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp.Status != nil && !resp.Status.DNSRedirectionActive {
-		// Fallback check: check dns_backup.json if active redirection is on
-		backupPath := `C:\ProgramData\Onusly\config\dns_backup.json`
-		if data, err := os.ReadFile(backupPath); err == nil {
-			var state struct {
-				IsActive bool `json:"isActive"`
-			}
-			if err := json.Unmarshal(data, &state); err == nil && state.IsActive {
+		// Fallback check: check live adapter DNS settings via netsh
+		if out, errCmd := exec.Command("netsh", "interface", "ipv4", "show", "dns").CombinedOutput(); errCmd == nil {
+			if strings.Contains(string(out), "127.0.0.1") {
 				resp.Status.DNSRedirectionActive = true
+			}
+		}
+		if !resp.Status.DNSRedirectionActive {
+			backupPath := `C:\ProgramData\Onusly\config\dns_backup.json`
+			if data, err := os.ReadFile(backupPath); err == nil {
+				var state struct {
+					IsActive bool `json:"isActive"`
+				}
+				if err := json.Unmarshal(data, &state); err == nil && state.IsActive {
+					resp.Status.DNSRedirectionActive = true
+				}
 			}
 		}
 	}

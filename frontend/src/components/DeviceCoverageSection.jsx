@@ -212,7 +212,9 @@ export default function DeviceCoverageSection() {
       const isPermission = err.message && (err.message.includes("PermissionDenied") || err.message.includes("Access to a CIM resource") || err.message.includes("unsupported action") || err.message.includes("needs a one-time update"));
       if (isPermission) {
         setDesktopActionMsg({
-          text: "Windows requires Administrator confirmation to change network DNS. Double-click 'ONUSLY_Shield_Toggle.exe' on your Desktop (or click '1-Click Switcher' to download) and click 'Allow' in the Windows prompt.",
+          text: currentActive
+            ? "To deactivate the shield, double-click 'ONUSLY_Shield_Toggle.exe' on your Desktop (or click '1-Click Switcher') and click 'Allow' in the Windows prompt."
+            : "To activate the shield, double-click 'ONUSLY_Shield_Toggle.exe' on your Desktop (or click '1-Click Switcher') and click 'Allow' in the Windows prompt.",
           type: "warning",
         });
       } else {
