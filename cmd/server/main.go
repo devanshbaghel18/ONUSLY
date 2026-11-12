@@ -216,6 +216,7 @@ func main() {
 		goalService,
 		proofService,
 	)
+	approvalService.SetAuthRepo(authRepo)
 
 	// Queue configuration
 	proofQueueURL := os.Getenv("PROOF_EVENTS_QUEUE_URL")

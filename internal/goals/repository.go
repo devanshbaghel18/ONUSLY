@@ -160,6 +160,18 @@ func (r *Repository) GetByID(ctx context.Context, ownerID, goalID string) (*Goal
 }
 
 func (r *Repository) FindByID(ctx context.Context, goalID string) (*Goal, error) {
+	if r.db == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		for _, g := range r.memGoals {
+			if g.ID == goalID {
+				cp := g
+				return &cp, nil
+			}
+		}
+		return nil, fmt.Errorf("goal not found")
+	}
+
 	// 1. Try GSI1 indexed lookup first (O(1) query)
 	out, err := r.db.Query(ctx, &dynamodb.QueryInput{
 		TableName:              aws.String(r.tableName),
