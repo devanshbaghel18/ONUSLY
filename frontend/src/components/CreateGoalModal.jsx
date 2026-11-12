@@ -7,7 +7,7 @@ import { notifyExtensionSync } from "../lib/extensionSync";
 export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
   const [taskDescription, setTaskDescription] = useState("");
   const [taskDetails, setTaskDetails] = useState("");
-  const [selectedCatalogIds, setSelectedCatalogIds] = useState(["youtube", "instagram", "twitter"]);
+  const [selectedCatalogIds, setSelectedCatalogIds] = useState(["instagram", "twitter"]);
   const [customTargets, setCustomTargets] = useState([]);
   const [customInput, setCustomInput] = useState("");
   const [customType, setCustomType] = useState("desktop"); // "desktop", "domain", "app"
@@ -25,7 +25,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
       const timer = setTimeout(() => {
         setTaskDescription("");
         setTaskDetails("");
-        setSelectedCatalogIds(["youtube", "instagram", "twitter"]);
+        setSelectedCatalogIds(["instagram", "twitter"]);
         setCustomTargets([]);
         setCustomInput("");
         setShowCustomInput(false);
@@ -51,11 +51,21 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
   if (!isOpen) return null;
 
   const toggleCatalogApp = (appId) => {
-    setSelectedCatalogIds((prev) =>
-      prev.includes(appId)
-        ? prev.filter((id) => id !== appId)
-        : [...prev, appId]
-    );
+    setSelectedCatalogIds((prev) => {
+      if (prev.includes(appId)) {
+        return prev.filter((id) => id !== appId);
+      } else {
+        // Enforce strict isolation between full YouTube and YouTube Shorts:
+        // Selecting "YouTube Shorts" automatically deselects full "YouTube".
+        // Selecting full "YouTube" automatically deselects "YouTube Shorts".
+        if (appId === "youtube_shorts") {
+          return [...prev.filter((id) => id !== "youtube"), appId];
+        } else if (appId === "youtube") {
+          return [...prev.filter((id) => id !== "youtube_shorts"), appId];
+        }
+        return [...prev, appId];
+      }
+    });
   };
 
   const handleSelectAllCatalog = () => {
@@ -103,6 +113,13 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
 
     if (customType === "domain") {
       const lower = trimmed.toLowerCase();
+      // Auto-detect YouTube Shorts URLs/domains and route to granular Shorts target
+      if (lower.includes("youtube.com/shorts") || lower.includes("youtu.be/shorts") || lower.includes("shorts.youtube.com")) {
+        setSelectedCatalogIds((prev) => [...prev.filter((id) => id !== "youtube"), "youtube_shorts"]);
+        setCustomInput("");
+        return;
+      }
+
       const cleanDomain = lower
         .replace(/^(?:https?:\/\/)?(?:www\.)?/i, "")
         .split("/")[0]
@@ -110,6 +127,10 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
       if (!cleanDomain.includes(".")) {
         setCustomTargetError("Invalid domain format (e.g. youtube.com, reddit.com).");
         return;
+      }
+      if (cleanDomain === "youtube.com" || cleanDomain === "youtu.be") {
+        // If explicitly adding full youtube domain, ensure youtube_shorts is unselected
+        setSelectedCatalogIds((prev) => prev.filter((id) => id !== "youtube_shorts"));
       }
       if (customTargets.some((t) => t.value.toLowerCase() === cleanDomain)) {
         setCustomTargetError(`"${cleanDomain}" is already in your custom targets.`);

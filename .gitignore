@@ -6,6 +6,7 @@ server.log
 .idea/
 *items*.json
 *backup*.json
+*fallback*.json
 .agents/
 skills-lock.json
 *.exe

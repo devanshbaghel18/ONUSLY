@@ -295,6 +295,16 @@ func cleanAndValidateSingleDomain(raw string) (string, error) {
 		d = strings.TrimPrefix(d, "//")
 	}
 
+	// CRITICAL: Check for YouTube Shorts path rule before stripping path.
+	// If a user or client specifies youtube.com/shorts or m.youtube.com/shorts,
+	// normalize directly to canonical "shorts.youtube.com" to strictly isolate Shorts from full YouTube.
+	cleanShortsCandidate := strings.TrimPrefix(d, "www.")
+	if cleanShortsCandidate == "youtube.com/shorts" || strings.HasPrefix(cleanShortsCandidate, "youtube.com/shorts/") ||
+		cleanShortsCandidate == "m.youtube.com/shorts" || strings.HasPrefix(cleanShortsCandidate, "m.youtube.com/shorts/") ||
+		cleanShortsCandidate == "youtu.be/shorts" || strings.HasPrefix(cleanShortsCandidate, "youtu.be/shorts/") {
+		return "shorts.youtube.com", nil
+	}
+
 	// Strip path, query, fragment
 	for _, sep := range []string{"/", "?", "#"} {
 		if idx := strings.Index(d, sep); idx != -1 {
