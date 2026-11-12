@@ -47,6 +47,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var pendingImageCallback: ((android.net.Uri) -> Unit)? = null
+
+    private val imagePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            pendingImageCallback?.invoke(uri)
+        }
+        pendingImageCallback = null
+    }
+
+    fun pickProofImage(callback: (android.net.Uri) -> Unit) {
+        pendingImageCallback = callback
+        imagePickerLauncher.launch("image/*")
+    }
+
     private val googleSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->

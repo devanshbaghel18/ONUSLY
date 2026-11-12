@@ -281,7 +281,7 @@ class ReviewsFragment : Fragment() {
 
         pbLoadingReviews.visibility = View.VISIBLE
         viewLifecycleOwner.lifecycleScope.launch {
-            val goalsResult = withContext(Dispatchers.IO) { app.goalsRepository.fetchGoals() }
+            val goalsResult = withContext(Dispatchers.IO) { app.goalsRepository.fetchReviews() }
             if (goalsResult.isFailure) {
                 pbLoadingReviews.visibility = View.GONE
                 return@launch

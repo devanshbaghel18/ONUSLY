@@ -85,6 +85,13 @@ class GoalsRepository(
         return result
     }
 
+    suspend fun fetchReviews(): Result<List<Goal>> {
+        val (baseUrl, token) = getAuth()
+            ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
+
+        return apiClient.getGoals(baseUrl, token, role = "approver")
+    }
+
     suspend fun fetchGoal(goalId: String, ownerId: String? = null): Result<Goal> {
         val (baseUrl, token) = getAuth()
             ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))

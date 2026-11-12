@@ -136,8 +136,9 @@ class OnuslyApiClient(
 
     // --- Goals API ---
 
-    suspend fun getGoals(baseUrl: String, jwtToken: String): Result<List<Goal>> {
-        val url = "${baseUrl.trimEnd('/')}/goals"
+    suspend fun getGoals(baseUrl: String, jwtToken: String, role: String? = null): Result<List<Goal>> {
+        val query = if (!role.isNullOrBlank()) "?role=${URLEncoder.encode(role, "UTF-8")}" else ""
+        val url = "${baseUrl.trimEnd('/')}/goals$query"
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $jwtToken")

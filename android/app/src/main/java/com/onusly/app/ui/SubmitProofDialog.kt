@@ -43,6 +43,7 @@ class SubmitProofDialog(
     private lateinit var etProofLink: EditText
     private lateinit var layoutProofPhoto: View
     private lateinit var etProofPhotoUrl: EditText
+    private lateinit var btnPickPhotoGallery: TextView
     private lateinit var tvExplanationLabel: TextView
     private lateinit var etProofExplanation: EditText
     private lateinit var pbSubmitProof: ProgressBar
@@ -77,6 +78,7 @@ class SubmitProofDialog(
         etProofLink = view.findViewById(R.id.etProofLink)
         layoutProofPhoto = view.findViewById(R.id.layoutProofPhoto)
         etProofPhotoUrl = view.findViewById(R.id.etProofPhotoUrl)
+        btnPickPhotoGallery = view.findViewById(R.id.btnPickPhotoGallery)
         tvExplanationLabel = view.findViewById(R.id.tvExplanationLabel)
         etProofExplanation = view.findViewById(R.id.etProofExplanation)
         pbSubmitProof = view.findViewById(R.id.pbSubmitProof)
@@ -95,6 +97,12 @@ class SubmitProofDialog(
                 R.id.rbProofText -> updateFieldVisibility("text")
                 R.id.rbProofLink -> updateFieldVisibility("link")
                 R.id.rbProofPhoto -> updateFieldVisibility("photo")
+            }
+        }
+
+        btnPickPhotoGallery.setOnClickListener {
+            (context as? MainActivity)?.pickProofImage { uri ->
+                etProofPhotoUrl.setText(uri.toString())
             }
         }
 
@@ -228,6 +236,9 @@ class SubmitProofDialog(
     companion object {
         fun isValidUrl(url: String): Boolean {
             val trimmed = url.trim()
+            if (trimmed.startsWith("content://", ignoreCase = true) || trimmed.startsWith("file://", ignoreCase = true)) {
+                return true
+            }
             if (!trimmed.startsWith("http://", ignoreCase = true) && !trimmed.startsWith("https://", ignoreCase = true)) {
                 return false
             }
