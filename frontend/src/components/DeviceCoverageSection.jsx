@@ -212,7 +212,7 @@ export default function DeviceCoverageSection() {
       const isPermission = err.message && (err.message.includes("PermissionDenied") || err.message.includes("Access to a CIM resource") || err.message.includes("unsupported action") || err.message.includes("needs a one-time update"));
       if (isPermission) {
         setDesktopActionMsg({
-          text: "Windows requires administrator confirmation to change network DNS. Double-click 'ONUSLY_Shield_Toggle.bat' on your Desktop (or click '1-Click Switcher' to download) and click 'Allow' in the Windows prompt.",
+          text: "Windows requires Administrator confirmation to change network DNS. Double-click 'ONUSLY_Shield_Toggle.exe' on your Desktop (or click '1-Click Switcher' to download) and click 'Allow' in the Windows prompt.",
           type: "warning",
         });
       } else {
@@ -438,13 +438,13 @@ export default function DeviceCoverageSection() {
 
               <div className="flex items-center gap-2 shrink-0">
                 <a
-                  href="/downloads/onusly-shield-toggle.bat"
-                  download="ONUSLY_Shield_Toggle.bat"
+                  href="/downloads/ONUSLY_Shield_Toggle.exe"
+                  download="ONUSLY_Shield_Toggle.exe"
                   className="btn-premium inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition"
-                  title="Download the 1-click Windows switcher (requires 1 click on 'Allow' to configure adapters)"
+                  title="Download the 1-click Windows switcher executable (click 'Yes/Allow' in Windows prompt)"
                 >
                   <Download size={12} />
-                  <span>1-Click Switcher</span>
+                  <span>1-Click Switcher (.exe)</span>
                 </a>
 
                 <button
