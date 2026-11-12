@@ -54,7 +54,6 @@ describe('D11 Frontend Accountability Workflow & State Presentation', () => {
   });
 
   it('2. Owner can submit proof when active or resubmit when rejected', () => {
-    const alice = { id: 'user-alice', handle: 'alice' };
     const goal = { id: 'goal-1', ownerId: 'alice', approverId: 'bob', status: 'active' };
 
     // Active -> can submit

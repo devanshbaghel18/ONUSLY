@@ -132,6 +132,22 @@ func TestExtractAndValidateToken(t *testing.T) {
 		t.Fatalf("expected user-abc via header, got %s (err: %v)", userID, err)
 	}
 
+	// Valid token in HttpOnly "token" cookie
+	reqCookie, _ := http.NewRequest("GET", "/ws", nil)
+	reqCookie.AddCookie(&http.Cookie{Name: "token", Value: validToken})
+	userID, err = ExtractAndValidateToken(reqCookie, testSecret)
+	if err != nil || userID != "user-abc" {
+		t.Fatalf("expected user-abc via token cookie, got %s (err: %v)", userID, err)
+	}
+
+	// Valid token in HttpOnly "onusly_token" cookie
+	reqAltCookie, _ := http.NewRequest("GET", "/ws", nil)
+	reqAltCookie.AddCookie(&http.Cookie{Name: "onusly_token", Value: validToken})
+	userID, err = ExtractAndValidateToken(reqAltCookie, testSecret)
+	if err != nil || userID != "user-abc" {
+		t.Fatalf("expected user-abc via onusly_token cookie, got %s (err: %v)", userID, err)
+	}
+
 	// Query param token is rejected for security
 	req, _ = http.NewRequest("GET", "/ws?token="+validToken, nil)
 	_, err = ExtractAndValidateToken(req, testSecret)

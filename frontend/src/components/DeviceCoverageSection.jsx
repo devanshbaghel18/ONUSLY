@@ -13,9 +13,7 @@ import {
   X,
   Ban,
   Shield,
-  Zap,
   Power,
-  Activity,
   Download,
 } from "lucide-react";
 import {
@@ -152,7 +150,12 @@ export default function DeviceCoverageSection() {
     if (isRefresh) setRefreshing(true);
     try {
       const [res] = await Promise.all([getDevicesCoverage(), loadDesktopAgent()]);
-      setData(res);
+      if (res) {
+        setData({
+          ...res,
+          devices: Array.isArray(res.devices) ? res.devices : [],
+        });
+      }
     } catch (err) {
       console.error("[DeviceCoverage] Failed to load devices:", err);
     } finally {
@@ -165,27 +168,26 @@ export default function DeviceCoverageSection() {
     let isMounted = true;
     const fetchInitial = async () => {
       try {
-        const [res] = await Promise.all([getDevicesCoverage(), getDesktopAgentStatus().catch(() => null)]);
-        if (isMounted) {
-          setData(res);
-          if (res && res.available) {
-            setDesktopAgent({ available: true, loading: false, status: res.status, error: "" });
-          }
-          setLoading(false);
+        const [res] = await Promise.all([
+          getDevicesCoverage(),
+          loadDesktopAgent(),
+        ]);
+        if (isMounted && res) {
+          setData({
+            ...res,
+            devices: Array.isArray(res.devices) ? res.devices : [],
+          });
         }
       } catch (err) {
         console.error("[DeviceCoverage] Failed to load devices:", err);
+      } finally {
         if (isMounted) {
           setLoading(false);
         }
       }
     };
     fetchInitial();
-    loadDesktopAgent();
-    const interval = setInterval(() => {
-      fetchInitial();
-      loadDesktopAgent();
-    }, 20000);
+    const interval = setInterval(fetchInitial, 20000);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -305,7 +307,8 @@ export default function DeviceCoverageSection() {
   };
 
   // Exclude revoked devices from active fleet enforcement calculation
-  const activeDevices = (data.devices || []).filter(
+  const devicesList = Array.isArray(data?.devices) ? data.devices : [];
+  const activeDevices = devicesList.filter(
     (d) => (d.status || "").toUpperCase() !== "REVOKED"
   );
   const allEnforcing =
@@ -323,7 +326,7 @@ export default function DeviceCoverageSection() {
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-white tracking-tight">Active Device & Browser Coverage</h3>
-              {data.devices.length > 0 && (
+              {devicesList.length > 0 && (
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
                     allEnforcing
@@ -570,7 +573,7 @@ export default function DeviceCoverageSection() {
           <RefreshCw size={18} className="animate-spin mx-auto mb-2 opacity-50" />
           Loading connected devices...
         </div>
-      ) : data.devices.length === 0 ? (
+      ) : devicesList.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-xs text-neutral-400">
           <p className="font-semibold text-neutral-300">No active devices registered yet</p>
           <p className="mt-1 text-[11px] text-neutral-500">
@@ -593,7 +596,7 @@ export default function DeviceCoverageSection() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
-              {data.devices.map((d) => {
+              {devicesList.map((d) => {
                 const isRevoked = (d.status || "").toUpperCase() === "REVOKED";
                 return (
                   <tr key={d.deviceId} className="hover:bg-white/[0.02] transition">

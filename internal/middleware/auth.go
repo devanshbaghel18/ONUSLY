@@ -20,21 +20,28 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-			authHeader := r.Header.Get("Authorization")
+			var tokenString string
 
-			if authHeader == "" {
-				http.Error(w, "missing authorization header", http.StatusUnauthorized)
-				return
+			// 1. Try HttpOnly Cookie "token" or "onusly_token"
+			if cookie, err := r.Cookie("token"); err == nil && strings.TrimSpace(cookie.Value) != "" {
+				tokenString = strings.TrimSpace(cookie.Value)
+			} else if cookie, err := r.Cookie("onusly_token"); err == nil && strings.TrimSpace(cookie.Value) != "" {
+				tokenString = strings.TrimSpace(cookie.Value)
+			} else {
+				// 2. Fall back to Authorization: Bearer <token>
+				authHeader := r.Header.Get("Authorization")
+				if authHeader == "" {
+					http.Error(w, "missing authorization header", http.StatusUnauthorized)
+					return
+				}
+
+				parts := strings.SplitN(authHeader, " ", 2)
+				if len(parts) != 2 || parts[0] != "Bearer" {
+					http.Error(w, "invalid authorization header", http.StatusUnauthorized)
+					return
+				}
+				tokenString = parts[1]
 			}
-
-			parts := strings.SplitN(authHeader, " ", 2)
-
-			if len(parts) != 2 || parts[0] != "Bearer" {
-				http.Error(w, "invalid authorization header", http.StatusUnauthorized)
-				return
-			}
-
-			tokenString := parts[1]
 
 			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 				// Strict algorithm allowlist: strictly require HS256 to prevent algorithm confusion attacks

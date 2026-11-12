@@ -358,3 +358,36 @@ func TestGetUserByHandle_ReservationOnlyAndFailsClosed(t *testing.T) {
 		t.Fatalf("expected nil for unknown handle without reservation, got %+v", unknown)
 	}
 }
+
+func TestLogout_ClearsCookies(t *testing.T) {
+	repo := newMockAuthRepo()
+	svc := NewService(repo, config.Config{JWTSecret: "test"})
+	handler := NewHandler(svc)
+
+	req := httptest.NewRequest("POST", "/auth/logout", nil)
+	rec := httptest.NewRecorder()
+
+	handler.Logout(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK, got %d", rec.Code)
+	}
+
+	cookies := rec.Result().Cookies()
+	var tokenCookieCleared, altCookieCleared bool
+	for _, c := range cookies {
+		if c.Name == "token" && c.MaxAge == -1 && c.Value == "" && c.HttpOnly {
+			tokenCookieCleared = true
+		}
+		if c.Name == "onusly_token" && c.MaxAge == -1 && c.Value == "" && c.HttpOnly {
+			altCookieCleared = true
+		}
+	}
+
+	if !tokenCookieCleared {
+		t.Fatalf("expected 'token' cookie to be cleared with MaxAge=-1 and HttpOnly=true")
+	}
+	if !altCookieCleared {
+		t.Fatalf("expected 'onusly_token' cookie to be cleared with MaxAge=-1 and HttpOnly=true")
+	}
+}

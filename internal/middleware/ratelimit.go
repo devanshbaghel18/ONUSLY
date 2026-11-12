@@ -13,13 +13,14 @@ type clientRecord struct {
 	timestamps []time.Time
 }
 
-// RateLimiter implements an in-memory sliding-window rate limiter per client IP.
+// RateLimiter implements an in-memory sliding-window rate limiter per client key (IP or user ID).
 type RateLimiter struct {
 	mu          sync.Mutex
 	limit       int
 	window      time.Duration
 	records     map[string]*clientRecord
 	lastCleanup time.Time
+	keyFunc     func(r *http.Request) string
 }
 
 // NewRateLimiter creates a new RateLimiter with the specified maximum requests per window.
@@ -30,6 +31,24 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 		records:     make(map[string]*clientRecord),
 		lastCleanup: time.Now(),
 	}
+}
+
+// NewUserRateLimiter creates a RateLimiter keyed by authenticated user ID (from context),
+// falling back to client IP for unauthenticated callers or when user ID is unavailable.
+func NewUserRateLimiter(limit int, window time.Duration) *RateLimiter {
+	rl := &RateLimiter{
+		limit:       limit,
+		window:      window,
+		records:     make(map[string]*clientRecord),
+		lastCleanup: time.Now(),
+	}
+	rl.keyFunc = func(r *http.Request) string {
+		if uid, ok := GetUserID(r.Context()); ok && strings.TrimSpace(uid) != "" {
+			return "user:" + strings.TrimSpace(uid)
+		}
+		return "ip:" + rl.getClientIP(r)
+	}
+	return rl
 }
 
 func (rl *RateLimiter) getClientIP(r *http.Request) string {
@@ -55,7 +74,12 @@ func (rl *RateLimiter) getClientIP(r *http.Request) string {
 // Limit returns a middleware handler that enforces the rate limit.
 func (rl *RateLimiter) Limit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := rl.getClientIP(r)
+		var key string
+		if rl.keyFunc != nil {
+			key = rl.keyFunc(r)
+		} else {
+			key = rl.getClientIP(r)
+		}
 		now := time.Now()
 
 		rl.mu.Lock()
@@ -79,10 +103,10 @@ func (rl *RateLimiter) Limit(next http.Handler) http.Handler {
 			rl.lastCleanup = now
 		}
 
-		rec, exists := rl.records[ip]
+		rec, exists := rl.records[key]
 		if !exists {
 			rec = &clientRecord{}
-			rl.records[ip] = rec
+			rl.records[key] = rec
 		}
 
 		// Prune entries outside current window

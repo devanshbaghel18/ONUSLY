@@ -20,6 +20,7 @@ async function request(endpoint, options = {}) {
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
+    credentials: "include",
     headers,
   });
 
@@ -29,6 +30,11 @@ async function request(endpoint, options = {}) {
       window.location.href = "/";
     }
     throw new Error("Session expired or unauthorized. Please sign in again.");
+  }
+
+  if (response.status === 429) {
+    const retryAfter = response.headers.get("retry-after") || "60";
+    throw new Error(`Rate limit exceeded. Please wait ${retryAfter} seconds before trying again.`);
   }
 
   if (response.status === 204) {
@@ -62,6 +68,18 @@ export async function loginWithGoogle(credential) {
       idToken: credential,
     }),
   });
+}
+
+export async function logout() {
+  try {
+    await fetch(`${API_BASE_URL}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (err) {
+    // Ignore network failure on logout
+  }
+  clearAuth();
 }
 
 export async function getGoals() {
@@ -317,8 +335,17 @@ export async function leaveCommunityApi(communityId) {
 }
 
 export async function getDevicesCoverage() {
-  const data = await request("/enforcement/devices", { method: "GET" });
-  return data || { userId: "", totalCount: 0, enforcing: false, devices: [] };
+  try {
+    const data = await request("/enforcement/devices", { method: "GET" });
+    if (!data) return { userId: "", totalCount: 0, enforcing: false, devices: [] };
+    return {
+      ...data,
+      devices: Array.isArray(data.devices) ? data.devices : [],
+    };
+  } catch (err) {
+    console.warn("[API] getDevicesCoverage failed:", err);
+    return { userId: "", totalCount: 0, enforcing: false, devices: [] };
+  }
 }
 
 export async function getGoalEnforcementStatus(goalId) {
@@ -349,7 +376,11 @@ export async function revokeDevice(deviceId, reason = "user_revoked") {
 }
 
 export async function getDesktopAgentStatus() {
-  return request("/enforcement/desktop/status", { method: "GET" });
+  try {
+    return await request("/enforcement/desktop/status", { method: "GET" });
+  } catch (err) {
+    return { available: false, error: err.message };
+  }
 }
 
 export async function toggleDesktopDNS(enabled) {

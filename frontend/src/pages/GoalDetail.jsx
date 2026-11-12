@@ -77,7 +77,7 @@ export default function GoalDetail() {
   const [proofs, setProofs] = useState([]);
   const [loadingProofs, setLoadingProofs] = useState(true);
   const [decidingProofId, setDecidingProofId] = useState(null);
-  const [decisionComment, setDecisionComment] = useState("");
+  const [decisionComments, setDecisionComments] = useState({});
   const [decisionError, setDecisionError] = useState("");
   const [decisionSuccess, setDecisionSuccess] = useState("");
   const [pinnedIds, setPinnedIds] = useState(() => getPinnedGoalIds());
@@ -392,6 +392,11 @@ export default function GoalDetail() {
         return;
       }
     } else {
+      const commentForProof = (decisionComments[proofId] || "").trim();
+      if (!commentForProof) {
+        setDecisionError("A feedback reason is required when rejecting a proof.");
+        return;
+      }
       if (!window.confirm(`Reject this proof? Application and domain restrictions will remain strictly enforced.`)) {
         return;
       }
@@ -402,10 +407,11 @@ export default function GoalDetail() {
     setDecidingProofId(proofId);
 
     try {
+      const commentForProof = (decisionComments[proofId] || "").trim();
       await decideApproval(id, proofId, {
         ownerId: goal.ownerId,
         status,
-        comment: decisionComment,
+        comment: commentForProof,
       });
 
       setDecisionSuccess(
@@ -422,7 +428,11 @@ export default function GoalDetail() {
       setGoal(updatedGoal);
       const updatedProofs = await getProofs(id, ownerIdParam || goal.ownerId);
       setProofs(updatedProofs);
-      setDecisionComment("");
+      setDecisionComments((prev) => {
+        const next = { ...prev };
+        delete next[proofId];
+        return next;
+      });
     } catch (err) {
       console.error("Failed to decide approval:", err);
       setDecisionError(err.message || "Failed to submit decision");
@@ -1193,9 +1203,12 @@ export default function GoalDetail() {
 
                               <input
                                 type="text"
-                                value={decisionComment}
-                                onChange={(e) => setDecisionComment(e.target.value)}
-                                placeholder="Optional feedback or congratulatory comment..."
+                                value={decisionComments[p.id] || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setDecisionComments((prev) => ({ ...prev, [p.id]: val }));
+                                }}
+                                placeholder="Feedback or comment (required for rejection)..."
                                 className="w-full rounded-xl border border-[#555555] bg-[#2A2A2A] px-3.5 py-2 text-xs text-white placeholder:text-neutral-400 outline-none focus:border-white"
                               />
 

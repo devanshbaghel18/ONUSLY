@@ -240,3 +240,67 @@ func TestD13_RateLimiter(t *testing.T) {
 		t.Fatalf("different IP should have succeeded with 200, got %d", recOther.Code)
 	}
 }
+
+func TestUserRateLimiter_UserIsolationAndThreshold(t *testing.T) {
+	jwtSecret := "test-secret-user-ratelimit-12345"
+	authMiddleware := middleware.Auth(jwtSecret)
+
+	// User rate limiter: 3 requests per 10 seconds
+	userLimiter := middleware.NewUserRateLimiter(3, 10*time.Second)
+
+	targetHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uid, _ := middleware.GetUserID(r.Context())
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok:" + uid))
+	})
+
+	pipeline := authMiddleware(userLimiter.Limit(targetHandler))
+
+	makeToken := func(userID string) string {
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"sub":        userID,
+			"token_type": "user",
+			"exp":        time.Now().Add(time.Hour).Unix(),
+		})
+		s, _ := tok.SignedString([]byte(jwtSecret))
+		return s
+	}
+
+	userAToken := makeToken("user-A")
+	userBToken := makeToken("user-B")
+
+	// Both users share the same IP (e.g. university or corporate NAT)
+	sharedIP := "203.0.113.50:54321"
+
+	// 1. User A makes 3 successful requests
+	for i := 1; i <= 3; i++ {
+		req := httptest.NewRequest("GET", "/api/data", nil)
+		req.RemoteAddr = sharedIP
+		req.Header.Set("Authorization", "Bearer "+userAToken)
+		rec := httptest.NewRecorder()
+		pipeline.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("user-A request %d should have succeeded with 200, got %d", i, rec.Code)
+		}
+	}
+
+	// 2. User A 4th request must be 429 Too Many Requests
+	reqA4 := httptest.NewRequest("GET", "/api/data", nil)
+	reqA4.RemoteAddr = sharedIP
+	reqA4.Header.Set("Authorization", "Bearer "+userAToken)
+	recA4 := httptest.NewRecorder()
+	pipeline.ServeHTTP(recA4, reqA4)
+	if recA4.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 for user-A on 4th request, got %d", recA4.Code)
+	}
+
+	// 3. User B on the SAME IP must NOT be blocked (User Isolation)
+	reqB1 := httptest.NewRequest("GET", "/api/data", nil)
+	reqB1.RemoteAddr = sharedIP
+	reqB1.Header.Set("Authorization", "Bearer "+userBToken)
+	recB1 := httptest.NewRecorder()
+	pipeline.ServeHTTP(recB1, reqB1)
+	if recB1.Code != http.StatusOK {
+		t.Fatalf("user-B on same IP must succeed with 200, got %d", recB1.Code)
+	}
+}

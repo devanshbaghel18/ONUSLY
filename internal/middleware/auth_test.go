@@ -103,4 +103,28 @@ func TestAuthMiddleware(t *testing.T) {
 	if rec.Body.String() != "ok:legitimate-user-789" {
 		t.Errorf("expected body 'ok:legitimate-user-789', got %s", rec.Body.String())
 	}
+
+	// 7. Valid cookie ("token") -> 200 OK without Authorization header
+	req = httptest.NewRequest("GET", "/protected", nil)
+	req.AddCookie(&http.Cookie{Name: "token", Value: signedValid})
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for valid cookie token, got %d", rec.Code)
+	}
+	if rec.Body.String() != "ok:legitimate-user-789" {
+		t.Errorf("expected body 'ok:legitimate-user-789', got %s", rec.Body.String())
+	}
+
+	// 8. Valid cookie ("onusly_token") -> 200 OK without Authorization header
+	req = httptest.NewRequest("GET", "/protected", nil)
+	req.AddCookie(&http.Cookie{Name: "onusly_token", Value: signedValid})
+	rec = httptest.NewRecorder()
+	protected.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for valid onusly_token cookie, got %d", rec.Code)
+	}
+	if rec.Body.String() != "ok:legitimate-user-789" {
+		t.Errorf("expected body 'ok:legitimate-user-789', got %s", rec.Body.String())
+	}
 }

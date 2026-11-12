@@ -160,12 +160,14 @@ func main() {
 	// Rate limiters for sensitive endpoints
 	authLimiter := middleware.NewRateLimiter(30, time.Minute)
 	pairingLimiter := middleware.NewRateLimiter(20, time.Minute)
+	apiLimiter := middleware.NewUserRateLimiter(180, time.Minute)
 
 	// Public routes
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("GET /metrics", metrics.DefaultRegistry.Handler())
 	mux.Handle("POST /auth/google", authLimiter.Limit(http.HandlerFunc(authHandler.GoogleLogin)))
 	mux.Handle("GET /auth/google/callback", authLimiter.Limit(http.HandlerFunc(authHandler.GoogleCallback)))
+	mux.HandleFunc("POST /auth/logout", authHandler.Logout)
 
 	// Downloads & Enterprise Extension CRX / Update Manifest with path-traversal guard
 	downloadsDir := "frontend/public/downloads"
@@ -471,8 +473,8 @@ func main() {
 	mux.Handle("POST /enforcement/pair/request", pairingLimiter.Limit(middleware.Idempotency(idempotencyStore)(http.HandlerFunc(enforcementHandler.RequestPairing))))
 	mux.Handle("POST /enforcement/pair/exchange", pairingLimiter.Limit(middleware.Idempotency(idempotencyStore)(http.HandlerFunc(enforcementHandler.ExchangePairing))))
 
-	// JWT authentication for all protected routes
-	protectedRoutes := middleware.Auth(cfg.JWTSecret)(idempotentProtected)
+	// JWT authentication and per-user sliding window rate limiting (180 req/min) for all protected routes
+	protectedRoutes := middleware.Auth(cfg.JWTSecret)(apiLimiter.Limit(idempotentProtected))
 
 	mux.Handle("/goals", protectedRoutes)
 	mux.Handle("/goals/", protectedRoutes)

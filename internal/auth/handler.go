@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 )
@@ -50,6 +51,18 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set HttpOnly session cookie (SameSite=Lax, Path=/)
+	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    resp.Token,
+		Path:     "/",
+		MaxAge:   7 * 24 * 3600, // 7 days (matches JWT exp)
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -71,8 +84,49 @@ func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		frontendURL = "http://localhost:5173"
 	}
 
+	// Set HttpOnly session cookie
+	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   7 * 24 * 3600,
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+
 	// redirect to frontend with token
 	http.Redirect(w, r, frontendURL+"/?token="+token, http.StatusFound)
+}
+
+// Logout clears the HttpOnly session cookie
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "onusly_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "logged out successfully",
+	})
 }
 
 // UpdateHandle allows an authenticated user to customize their public @handle.

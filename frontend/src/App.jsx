@@ -7,6 +7,7 @@ import GoalDetail from './pages/GoalDetail';
 import Communities from './pages/Communities';
 import ProtectedRoute from './components/ProtectedRoute';
 import GlobalChatNotifier from './components/GlobalChatNotifier';
+import ErrorBoundary from './components/ErrorBoundary';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
 function CursorGlow() {
@@ -32,11 +33,12 @@ function App() {
     '24284302254-n26lia4s6vi33koas28u1i26ejimdfp3.apps.googleusercontent.com';
 
   return (
-    <GoogleOAuthProvider clientId={clientId}>
-      <CursorGlow />
-      <Router>
-        <GlobalChatNotifier />
-        <Routes>
+    <ErrorBoundary>
+      <GoogleOAuthProvider clientId={clientId}>
+        <CursorGlow />
+        <Router>
+          <GlobalChatNotifier />
+          <Routes>
           <Route path="/" element={<Auth />} />
           <Route
             path="/dashboard"
@@ -86,6 +88,7 @@ function App() {
         </Routes>
       </Router>
     </GoogleOAuthProvider>
+  </ErrorBoundary>
   );
 }
 

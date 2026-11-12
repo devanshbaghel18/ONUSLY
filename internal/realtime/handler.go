@@ -142,17 +142,23 @@ func ValidateToken(tokenString, jwtSecret string) (*AuthUser, error) {
 	}, nil
 }
 
-// ExtractAndValidateAuthUser extracts the JWT from the Authorization header and validates it.
+// ExtractAndValidateAuthUser extracts the JWT from a session cookie or Authorization header and validates it.
 // Query parameter tokens are explicitly rejected for security hardening.
 func ExtractAndValidateAuthUser(r *http.Request, jwtSecret string) (*AuthUser, error) {
 	if r.URL.Query().Get("token") != "" {
 		return nil, errors.New("token in query parameters is disabled for security; use first-message authentication handshake or Authorization header")
 	}
 
-	authHeader := r.Header.Get("Authorization")
 	var tokenString string
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+	if cookie, err := r.Cookie("token"); err == nil && strings.TrimSpace(cookie.Value) != "" {
+		tokenString = strings.TrimSpace(cookie.Value)
+	} else if cookie, err := r.Cookie("onusly_token"); err == nil && strings.TrimSpace(cookie.Value) != "" {
+		tokenString = strings.TrimSpace(cookie.Value)
+	} else {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+		}
 	}
 
 	tokenString = strings.TrimSpace(tokenString)
@@ -181,11 +187,24 @@ func ServeWS(hub *Hub, jwtSecret string) http.HandlerFunc {
 			return
 		}
 
-		// Check if Authorization header is provided for direct authentication (e.g. non-browser clients)
+		// Check if Cookie or Authorization header is provided for direct authentication
 		var preAuthUser *AuthUser
-		authHeader := r.Header.Get("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			user, err := ValidateToken(strings.TrimPrefix(authHeader, "Bearer "), jwtSecret)
+		var tokenString string
+
+		if cookie, err := r.Cookie("token"); err == nil && strings.TrimSpace(cookie.Value) != "" {
+			tokenString = strings.TrimSpace(cookie.Value)
+		} else if cookie, err := r.Cookie("onusly_token"); err == nil && strings.TrimSpace(cookie.Value) != "" {
+			tokenString = strings.TrimSpace(cookie.Value)
+		} else {
+			authHeader := r.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+		}
+
+		tokenString = strings.TrimSpace(tokenString)
+		if tokenString != "" {
+			user, err := ValidateToken(tokenString, jwtSecret)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 				return

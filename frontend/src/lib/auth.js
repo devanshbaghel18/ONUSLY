@@ -79,6 +79,17 @@ export function clearAuth() {
   localStorage.removeItem("user");
   localStorage.removeItem("onusly_user");
 
+  // Asynchronously instruct backend to clear HttpOnly session cookie
+  try {
+    const baseUrl =
+      (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
+      (typeof window !== "undefined" && window.location ? `${window.location.protocol}//${window.location.hostname}:8081` : "http://localhost:8081");
+    fetch(`${baseUrl}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => {});
+  } catch {}
+
   authCleanupHandlers.forEach((handler) => {
     try {
       handler();
