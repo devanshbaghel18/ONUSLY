@@ -19,16 +19,27 @@ export default function Sidebar({ isOpen, onClose }) {
 
   useEffect(() => {
     let mounted = true;
-    getApproverInbox("pending")
-      .then((res) => {
-        if (mounted && typeof res?.total === "number") {
-          setPendingCount(res.total);
-        }
-      })
-      .catch(() => {});
+    const fetchPending = () => {
+      getApproverInbox("pending")
+        .then((res) => {
+          if (mounted && typeof res?.total === "number") {
+            setPendingCount(res.total);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchPending();
+
+    const handleUpdate = () => {
+      fetchPending();
+    };
+
+    window.addEventListener("onusly:inbox-updated", handleUpdate);
 
     return () => {
       mounted = false;
+      window.removeEventListener("onusly:inbox-updated", handleUpdate);
     };
   }, [location.pathname]);
 

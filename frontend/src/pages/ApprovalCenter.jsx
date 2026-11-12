@@ -15,6 +15,7 @@ import {
 import { getApproverInbox, decideApproval } from "../lib/api";
 import ApprovalCard from "../components/approvals/ApprovalCard";
 import EvidenceLightbox from "../components/approvals/EvidenceLightbox";
+import DecisionModal from "../components/approvals/DecisionModal";
 
 const TABS = [
   { id: "pending", label: "Pending Review" },
@@ -34,6 +35,11 @@ export default function ApprovalCenter() {
   const [searchQuery, setSearchQuery] = useState("");
   const [notice, setNotice] = useState("");
   const [lightboxData, setLightboxData] = useState(null);
+  const [decisionModal, setDecisionModal] = useState({
+    isOpen: false,
+    type: "approve",
+    item: null,
+  });
 
   const fetchInbox = useCallback(async (tab = activeTab, isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true);
@@ -111,61 +117,53 @@ export default function ApprovalCenter() {
     setLightboxData({ item, proof: photo });
   };
 
-  const handleApprove = async (item) => {
-    if (!item?.goalId || !item?.latestProof?.id) {
-      alert("Missing proof details to approve this goal.");
-      return;
-    }
-    const confirmed = window.confirm(
-      `Approve goal "${item.title}" for ${item.ownerName || item.ownerHandle || "your partner"}?\n\nThis will immediately unlock their blocked applications.`
-    );
-    if (!confirmed) return;
-
-    try {
-      await decideApproval(item.goalId, item.latestProof.id, {
-        ownerId: item.ownerId,
-        status: "approved",
-        comment: "Approved verification proof.",
-      });
-
-      // Optimistic removal from pending tab
-      setItems((prev) => prev.filter((i) => i.goalId !== item.goalId));
-      setPendingCount((c) => Math.max(0, c - 1));
-      showNotice(`✅ "${item.title}" approved! Targets unlocked.`);
-    } catch (err) {
-      alert("Approval failed: " + (err?.message || "Unknown error"));
-    }
+  const handleApprove = (item) => {
+    setDecisionModal({ isOpen: true, type: "approve", item });
   };
 
-  const handleReject = async (item) => {
+  const handleReject = (item) => {
+    setDecisionModal({ isOpen: true, type: "reject", item });
+  };
+
+  const handleConfirmDecision = async ({ status, comment }) => {
+    const item = decisionModal.item;
     if (!item?.goalId || !item?.latestProof?.id) {
-      alert("Missing proof details to reject this goal.");
-      return;
+      throw new Error("Missing proof details to record decision.");
     }
 
-    const reason = window.prompt(
-      `Reject proof for "${item.title}"?\n\nPlease enter feedback explaining why this proof does not meet requirements (minimum 5 characters):`
-    );
+    await decideApproval(item.goalId, item.latestProof.id, {
+      ownerId: item.ownerId,
+      status,
+      comment,
+    });
 
-    if (reason === null) return; // User cancelled
-    if (reason.trim().length < 5) {
-      alert("Rejection reason must be at least 5 characters long so your partner knows what to fix.");
-      return;
-    }
-
-    try {
-      await decideApproval(item.goalId, item.latestProof.id, {
-        ownerId: item.ownerId,
-        status: "rejected",
-        comment: reason.trim(),
-      });
-
-      // Optimistic removal from pending tab
+    // Optimistically update list
+    if (activeTab === "pending") {
       setItems((prev) => prev.filter((i) => i.goalId !== item.goalId));
-      setPendingCount((c) => Math.max(0, c - 1));
+    } else {
+      setItems((prev) =>
+        prev.map((i) =>
+          i.goalId === item.goalId
+            ? { ...i, status: status === "approved" ? "completed" : "rejected" }
+            : i
+        )
+      );
+    }
+
+    setPendingCount((c) => Math.max(0, c - 1));
+
+    // Dispatch custom event to sync sidebar count across app
+    window.dispatchEvent(new CustomEvent("onusly:inbox-updated"));
+
+    // Close lightbox if it was showing this goal
+    if (lightboxData?.item?.goalId === item.goalId) {
+      setLightboxData(null);
+    }
+
+    if (status === "approved") {
+      showNotice(`✅ Goal "${item.title}" approved! Targets unlocked.`);
+    } else {
       showNotice(`⚠️ Proof for "${item.title}" rejected. Feedback saved.`);
-    } catch (err) {
-      alert("Rejection failed: " + (err?.message || "Unknown error"));
     }
   };
 
@@ -395,6 +393,15 @@ export default function ApprovalCenter() {
           proof={lightboxData?.proof}
           onApprove={handleApprove}
           onReject={handleReject}
+        />
+
+        {/* Decision Modal (Approve Confirmation / Rejection Feedback) */}
+        <DecisionModal
+          isOpen={decisionModal.isOpen}
+          type={decisionModal.type}
+          item={decisionModal.item}
+          onClose={() => setDecisionModal((prev) => ({ ...prev, isOpen: false }))}
+          onConfirm={handleConfirmDecision}
         />
       </div>
     </AppLayout>
