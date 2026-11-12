@@ -184,6 +184,41 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(approval)
 }
 
+// GetInbox retrieves the accountability review inbox for the authenticated approver.
+// Query param: ?status=pending (default), approved, rejected, all.
+func (h *Handler) GetInbox(w http.ResponseWriter, r *http.Request) {
+	callerID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	callerEmail, _ := middleware.GetUserEmail(r.Context())
+	callerHandle, _ := middleware.GetUserHandle(r.Context())
+
+	statusFilter := r.URL.Query().Get("status")
+
+	inbox, err := h.service.GetApproverInbox(
+		r.Context(),
+		callerID,
+		callerEmail,
+		callerHandle,
+		statusFilter,
+	)
+	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "failed to fetch approver inbox: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(inbox)
+}
+
 func extractGoalID(path string) string {
 	path = strings.TrimPrefix(path, "/goals/")
 	path = strings.TrimSuffix(path, "/approvals")

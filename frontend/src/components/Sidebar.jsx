@@ -1,17 +1,47 @@
+import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Target,
   Users,
+  CheckSquare,
   LogOut,
   X,
 } from "lucide-react";
 import { getUser, clearAuth } from "../lib/auth";
+import { getApproverInbox } from "../lib/api";
 
 export default function Sidebar({ isOpen, onClose }) {
   const location = useLocation();
   const navigate = useNavigate();
   const user = getUser();
+  const [pendingCount, setPendingCount] = useState(0);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchPending = () => {
+      getApproverInbox("pending")
+        .then((res) => {
+          if (mounted && typeof res?.total === "number") {
+            setPendingCount(res.total);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchPending();
+
+    const handleUpdate = () => {
+      fetchPending();
+    };
+
+    window.addEventListener("onusly:inbox-updated", handleUpdate);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("onusly:inbox-updated", handleUpdate);
+    };
+  }, [location.pathname]);
 
   const handleLogout = () => {
     clearAuth();
@@ -28,6 +58,12 @@ export default function Sidebar({ isOpen, onClose }) {
       name: "My Goals",
       path: "/goals",
       icon: Target,
+    },
+    {
+      name: "Approval Center",
+      path: "/approvals",
+      icon: CheckSquare,
+      badge: pendingCount,
     },
     {
       name: "Community & Friends",
@@ -99,7 +135,18 @@ export default function Sidebar({ isOpen, onClose }) {
                     size={18}
                     className={isActive ? "text-black" : "text-neutral-400"}
                   />
-                  <span>{item.name}</span>
+                  <span className="flex-1 text-left">{item.name}</span>
+                  {item.badge > 0 && (
+                    <span
+                      className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold transition-all ${
+                        isActive
+                          ? "bg-black text-white"
+                          : "border border-red-500/30 bg-red-500/20 text-red-400"
+                      }`}
+                    >
+                      {item.badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}

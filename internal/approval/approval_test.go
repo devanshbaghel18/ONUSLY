@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -1023,4 +1024,366 @@ func TestRejectionRequiresComment(t *testing.T) {
 	if !errors.Is(err, approval.ErrCommentRequired) {
 		t.Fatalf("expected ErrCommentRequired for whitespace rejection comment, got: %v", err)
 	}
+
+	// 3. Rejection with less than 5 characters should fail with ErrCommentRequired
+	_, err = approvalService.Decide(
+		context.Background(),
+		approverID,
+		ownerID,
+		goalID,
+		proofID,
+		"rejected",
+		"no",
+	)
+	if !errors.Is(err, approval.ErrCommentRequired) {
+		t.Fatalf("expected ErrCommentRequired for too short rejection comment (< 5 chars), got: %v", err)
+	}
 }
+
+type testInboxProofRepo struct {
+	mu       sync.Mutex
+	proofs   map[string][]proof.Proof
+	goalRepo goals.GoalRepository
+}
+
+func (r *testInboxProofRepo) Create(ctx context.Context, p proof.Proof) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := p.OwnerID + "#" + p.GoalID
+	r.proofs[key] = append(r.proofs[key], p)
+	return nil
+}
+
+func (r *testInboxProofRepo) CreateWithGoalTransition(ctx context.Context, p proof.Proof, expectedGoalStatuses []string, newGoalStatus string) error {
+	if r.goalRepo != nil {
+		_, _ = r.goalRepo.UpdateStatus(ctx, p.OwnerID, p.GoalID, newGoalStatus)
+	}
+	return r.Create(ctx, p)
+}
+
+func (r *testInboxProofRepo) GetByID(ctx context.Context, ownerID, goalID, proofID string) (*proof.Proof, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.proofs[ownerID+"#"+goalID] {
+		if p.ID == proofID {
+			cp := p
+			return &cp, nil
+		}
+	}
+	return nil, errors.New("proof not found")
+}
+
+func (r *testInboxProofRepo) ListByGoal(ctx context.Context, ownerID, goalID string) ([]proof.Proof, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.proofs[ownerID+"#"+goalID], nil
+}
+
+func setupInboxTestServices(t *testing.T) (*goals.Service, *proof.Service, *approval.Service, *goals.Repository, *testInboxProofRepo) {
+	_ = os.Remove("local_goals_fallback.json")
+	t.Cleanup(func() {
+		_ = os.Remove("local_goals_fallback.json")
+	})
+
+	goalRepo := goals.NewRepository(nil, "mock-table")
+	goalService := goals.NewService(goalRepo, nil)
+
+	proofRepo := &testInboxProofRepo{
+		proofs:   make(map[string][]proof.Proof),
+		goalRepo: goalRepo,
+	}
+	proofService := proof.NewService(proofRepo, goalService)
+
+	approvalService := approval.NewService(nil, goalService, proofService)
+
+	return goalService, proofService, approvalService, goalRepo, proofRepo
+}
+
+// 1. Approver Inbox returns assigned pending goals enriched with proof
+func TestApproverInbox_ReturnsAssignedPendingGoals(t *testing.T) {
+	_, proofService, approvalService, goalRepo, _ := setupInboxTestServices(t)
+
+	aliceID := "user-alice-" + t.Name()
+	bobID := "user-bob-" + t.Name()
+	bobEmail := "bob-" + t.Name() + "@example.com"
+	goalID := "goal-study-" + t.Name()
+
+	// Alice creates goal with Bob as approver
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:            goalID,
+		OwnerID:       aliceID,
+		ApproverID:    bobID,
+		ApproverEmail: bobEmail,
+		Title:         "Study Distributed Systems",
+		Description:   "Read 3 chapters of Designing Data-Intensive Applications",
+		Status:        "active",
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Alice submits proof
+	_, err := proofService.Submit(
+		context.Background(),
+		aliceID,
+		goalID,
+		"photo",
+		"Completed notes chapters 1-3",
+		"",
+		"https://storage.onusly.app/proofs/study_notes.jpg",
+	)
+	if err != nil {
+		t.Fatalf("failed to submit proof: %v", err)
+	}
+
+	// Bob queries pending inbox
+	res, err := approvalService.GetApproverInbox(context.Background(), bobID, bobEmail, "", "pending")
+	if err != nil {
+		t.Fatalf("failed to get approver inbox: %v", err)
+	}
+
+	if res.Total != 1 || len(res.Items) != 1 {
+		t.Fatalf("expected 1 inbox item, got %d", res.Total)
+	}
+
+	item := res.Items[0]
+	if item.GoalID != goalID {
+		t.Errorf("expected GoalID %s, got %s", goalID, item.GoalID)
+	}
+	if item.Title != "Study Distributed Systems" {
+		t.Errorf("expected Title 'Study Distributed Systems', got %s", item.Title)
+	}
+	if item.LatestProof == nil {
+		t.Fatalf("expected LatestProof to be populated, got nil")
+	}
+	if item.LatestProof.PhotoURL != "https://storage.onusly.app/proofs/study_notes.jpg" {
+		t.Errorf("expected photo URL to match, got %s", item.LatestProof.PhotoURL)
+	}
+	if item.ProofCount != 1 {
+		t.Errorf("expected ProofCount 1, got %d", item.ProofCount)
+	}
+}
+
+// 2. Account Isolation: Approver cannot see goals assigned to other people
+func TestApproverInbox_AccountIsolation(t *testing.T) {
+	_, _, approvalService, goalRepo, _ := setupInboxTestServices(t)
+
+	aliceID := "user-alice-" + t.Name()
+	charlieID := "user-charlie-" + t.Name()
+	bobID := "user-bob-" + t.Name()
+
+	// Alice assigns Charlie as approver
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:         "goal-charlie-" + t.Name(),
+		OwnerID:    aliceID,
+		ApproverID: charlieID,
+		Title:      "Charlie's Review Task",
+		Status:     "proof_submitted",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Bob queries his inbox
+	res, err := approvalService.GetApproverInbox(context.Background(), bobID, "bob@example.com", "", "pending")
+	if err != nil {
+		t.Fatalf("failed to get inbox: %v", err)
+	}
+
+	if res.Total != 0 {
+		t.Errorf("expected 0 goals for Bob (Charlie's assignment), got %d", res.Total)
+	}
+}
+
+// 3. Status Filtering: Filters pending, approved, and all cleanly
+func TestApproverInbox_StatusFiltering(t *testing.T) {
+	_, _, approvalService, goalRepo, _ := setupInboxTestServices(t)
+
+	aliceID := "user-alice-" + t.Name()
+	bobID := "user-bob-" + t.Name()
+
+	// Pending goal
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:         "goal-pending-" + t.Name(),
+		OwnerID:    aliceID,
+		ApproverID: bobID,
+		Title:      "Pending 1",
+		Status:     "proof_submitted",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Completed goal
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:         "goal-completed-" + t.Name(),
+		OwnerID:    aliceID,
+		ApproverID: bobID,
+		Title:      "Completed 1",
+		Status:     "completed",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Active goal
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:         "goal-active-" + t.Name(),
+		OwnerID:    aliceID,
+		ApproverID: bobID,
+		Title:      "Active 1",
+		Status:     "active",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Query pending
+	resPending, err := approvalService.GetApproverInbox(context.Background(), bobID, "", "", "pending")
+	if err != nil || resPending.Total != 1 {
+		t.Errorf("expected 1 pending item, got total %d, err %v", resPending.Total, err)
+	}
+
+	// Query approved
+	resApproved, err := approvalService.GetApproverInbox(context.Background(), bobID, "", "", "approved")
+	if err != nil || resApproved.Total != 1 {
+		t.Errorf("expected 1 approved item, got total %d, err %v", resApproved.Total, err)
+	}
+
+	// Query all
+	resAll, err := approvalService.GetApproverInbox(context.Background(), bobID, "", "", "all")
+	if err != nil || resAll.Total != 3 {
+		t.Errorf("expected 3 total items, got %d, err %v", resAll.Total, err)
+	}
+}
+
+// 4. Invariant: Goal Owner can NEVER be approver of their own goal
+func TestApproverInbox_SelfApprovalExcluded(t *testing.T) {
+	_, _, approvalService, goalRepo, _ := setupInboxTestServices(t)
+
+	bobID := "user-bob-" + t.Name()
+
+	// Bob assigns himself
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:         "goal-bob-self-" + t.Name(),
+		OwnerID:    bobID,
+		ApproverID: bobID,
+		Title:      "Bob Self Goal",
+		Status:     "proof_submitted",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+
+	res, err := approvalService.GetApproverInbox(context.Background(), bobID, "bob@example.com", "", "pending")
+	if err != nil {
+		t.Fatalf("failed to query inbox: %v", err)
+	}
+
+	if res.Total != 0 {
+		t.Errorf("expected 0 items due to self-approval exclusion, got %d", res.Total)
+	}
+}
+
+// 5. Handler Test: GET /approvals/inbox returns 200 with populated inbox
+func TestApprovalHandler_GetInbox_Success(t *testing.T) {
+	_, proofService, approvalService, goalRepo, _ := setupInboxTestServices(t)
+	handler := approval.NewHandler(approvalService)
+
+	aliceID := "user-alice-handler-" + t.Name()
+	bobID := "user-bob-handler-" + t.Name()
+	bobEmail := "bob-handler-" + t.Name() + "@example.com"
+	goalID := "goal-handler-inbox-" + t.Name()
+
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:            goalID,
+		OwnerID:       aliceID,
+		ApproverID:    bobID,
+		ApproverEmail: bobEmail,
+		Title:         "Handler Test Goal",
+		Status:        "active",
+		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+	})
+
+	_, _ = proofService.Submit(
+		context.Background(),
+		aliceID,
+		goalID,
+		"text",
+		"Completed work evidence",
+		"",
+		"",
+	)
+
+	req := httptest.NewRequest("GET", "/approvals/inbox?status=pending", nil)
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, bobID)
+	ctx = context.WithValue(ctx, middleware.UserEmailKey, bobEmail)
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	handler.GetInbox(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, goalID) {
+		t.Errorf("expected response to contain goal ID %s, got: %s", goalID, body)
+	}
+	if !strings.Contains(body, "Handler Test Goal") {
+		t.Errorf("expected response to contain goal title, got: %s", body)
+	}
+}
+
+// 6. Handler Test: GET /approvals/inbox without JWT returns 401 Unauthorized
+func TestApprovalHandler_GetInbox_Unauthorized(t *testing.T) {
+	_, _, approvalService, _, _ := setupInboxTestServices(t)
+	handler := approval.NewHandler(approvalService)
+
+	req := httptest.NewRequest("GET", "/approvals/inbox", nil)
+	rec := httptest.NewRecorder()
+
+	handler.GetInbox(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %d", rec.Code)
+	}
+}
+
+// 7. Handler Test: GET /approvals/inbox respects ?status= query filter
+func TestApprovalHandler_GetInbox_StatusFiltering(t *testing.T) {
+	_, _, approvalService, goalRepo, _ := setupInboxTestServices(t)
+	handler := approval.NewHandler(approvalService)
+
+	aliceID := "user-alice-filter-" + t.Name()
+	bobID := "user-bob-filter-" + t.Name()
+
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:         "goal-pending-h-" + t.Name(),
+		OwnerID:    aliceID,
+		ApproverID: bobID,
+		Title:      "Pending Handler Goal",
+		Status:     "proof_submitted",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+
+	_ = goalRepo.Create(context.Background(), goals.Goal{
+		ID:         "goal-completed-h-" + t.Name(),
+		OwnerID:    aliceID,
+		ApproverID: bobID,
+		Title:      "Completed Handler Goal",
+		Status:     "completed",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Query ?status=approved
+	reqApproved := httptest.NewRequest("GET", "/approvals/inbox?status=approved", nil)
+	ctx := context.WithValue(reqApproved.Context(), middleware.UserIDKey, bobID)
+	reqApproved = reqApproved.WithContext(ctx)
+
+	recApproved := httptest.NewRecorder()
+	handler.GetInbox(recApproved, reqApproved)
+
+	if recApproved.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", recApproved.Code)
+	}
+
+	bodyApproved := recApproved.Body.String()
+	if !strings.Contains(bodyApproved, "Completed Handler Goal") {
+		t.Errorf("expected response to contain completed goal, got: %s", bodyApproved)
+	}
+	if strings.Contains(bodyApproved, "Pending Handler Goal") {
+		t.Errorf("expected response NOT to contain pending goal, got: %s", bodyApproved)
+	}
+}
+
+

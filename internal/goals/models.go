@@ -104,3 +104,19 @@ func (g *Goal) CanAccess(callerID, callerEmail, callerHandle string) bool {
 	}
 	return g.IsApprover(callerID, callerEmail, callerHandle)
 }
+
+// FormatApproverGSI2PK formats the GSI2 partition key for an approver identifier, email, or handle.
+func FormatApproverGSI2PK(approver string) string {
+	clean := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(approver), "@"))
+	return "APPROVER#" + clean
+}
+
+// FormatApproverGSI2SK formats the GSI2 sort key encoding goal status and goal ID.
+func FormatApproverGSI2SK(status, goalID string) string {
+	s := strings.ToLower(strings.TrimSpace(status))
+	if s == "" {
+		s = "active"
+	}
+	return "STATUS#" + s + "#GOAL#" + strings.TrimSpace(goalID)
+}
+

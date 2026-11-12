@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/devanshbaghel18/ONUSLY/internal/auth"
 	"github.com/devanshbaghel18/ONUSLY/internal/events"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
@@ -37,6 +39,7 @@ type Service struct {
 	repo         ApprovalRepository
 	goalService  *goals.Service
 	proofService *proof.Service
+	authRepo     auth.Repository
 	listeners    []DecisionListener
 	publisher    events.Publisher
 }
@@ -51,6 +54,13 @@ func NewService(
 		goalService:  goalService,
 		proofService: proofService,
 		publisher:    &events.NoopPublisher{},
+	}
+}
+
+// SetAuthRepo assigns an auth.Repository for enriching inbox items with owner profiles.
+func (s *Service) SetAuthRepo(ar auth.Repository) {
+	if ar != nil {
+		s.authRepo = ar
 	}
 }
 
@@ -93,7 +103,7 @@ func (s *Service) Decide(
 		return nil, ErrInvalidDecision
 	}
 
-	if status == "rejected" && comment == "" {
+	if status == "rejected" && (comment == "" || len(strings.TrimSpace(comment)) < 5) {
 		return nil, ErrCommentRequired
 	}
 
@@ -294,3 +304,124 @@ func (s *Service) ListByGoal(
 		goalID,
 	)
 }
+
+// GetApproverInbox retrieves all goals waiting for review by the authenticated approver.
+// It filters by status ("pending", "approved", "rejected", "all"), enriches each goal with
+// the latest proof and owner profile details, and orders newest submissions first.
+func (s *Service) GetApproverInbox(
+	ctx context.Context,
+	approverID string,
+	approverEmail string,
+	approverHandle string,
+	statusFilter string,
+) (*ApproverInboxResponse, error) {
+	approverID = strings.TrimSpace(approverID)
+	approverEmail = strings.ToLower(strings.TrimSpace(approverEmail))
+	cleanHandle := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(approverHandle), "@"))
+	statusFilter = strings.ToLower(strings.TrimSpace(statusFilter))
+
+	if approverID == "" && approverEmail == "" && cleanHandle == "" {
+		return nil, ErrUnauthorized
+	}
+
+	if statusFilter == "" {
+		statusFilter = "pending"
+	}
+
+	if s.goalService == nil {
+		return &ApproverInboxResponse{Items: []ApproverInboxItem{}, Total: 0}, nil
+	}
+
+	goalsList, err := s.goalService.ListForApproverWithStatus(ctx, approverID, approverEmail, cleanHandle, statusFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]ApproverInboxItem, 0, len(goalsList))
+
+	for _, g := range goalsList {
+		// Invariant: Goal owner cannot approve their own goal
+		if approverID != "" && g.OwnerID == approverID {
+			continue
+		}
+
+		// Verify caller is authorized approver
+		if !g.IsApprover(approverID, approverEmail, cleanHandle) {
+			continue
+		}
+
+		var latestProof *proof.Proof
+		proofCount := 0
+
+		if s.proofService != nil && g.OwnerID != "" && g.ID != "" {
+			proofs, err := s.proofService.ListByGoal(ctx, g.OwnerID, g.ID)
+			if err == nil && len(proofs) > 0 {
+				proofCount = len(proofs)
+				// Find most recent proof
+				latest := proofs[len(proofs)-1]
+				for _, p := range proofs {
+					if p.SubmittedAt > latest.SubmittedAt {
+						latest = p
+					}
+				}
+				latestProof = &latest
+			}
+		}
+
+		ownerName := ""
+		ownerHandle := ""
+		ownerEmail := ""
+
+		if s.authRepo != nil && g.OwnerID != "" {
+			ownerUser, err := s.authRepo.GetUserByID(ctx, g.OwnerID)
+			if err == nil && ownerUser != nil {
+				ownerName = ownerUser.Name
+				ownerHandle = ownerUser.Handle
+				ownerEmail = ownerUser.Email
+			}
+		}
+
+		items = append(items, ApproverInboxItem{
+			GoalID:             g.ID,
+			OwnerID:            g.OwnerID,
+			OwnerName:          ownerName,
+			OwnerHandle:        ownerHandle,
+			OwnerEmail:         ownerEmail,
+			Title:              g.Title,
+			Description:        g.Description,
+			Status:             g.Status,
+			CreatedAt:          g.CreatedAt,
+			UpdatedAt:          g.UpdatedAt,
+			BlockedApps:        g.BlockedApps,
+			BlockedDomains:     g.BlockedDomains,
+			ApplicationTargets: g.ApplicationTargets,
+			LatestProof:        latestProof,
+			ProofCount:         proofCount,
+		})
+	}
+
+	// Sort items descending by submission time or creation time
+	sort.SliceStable(items, func(i, j int) bool {
+		timeI := items[i].CreatedAt
+		if items[i].LatestProof != nil && items[i].LatestProof.SubmittedAt != "" {
+			timeI = items[i].LatestProof.SubmittedAt
+		} else if items[i].UpdatedAt != "" {
+			timeI = items[i].UpdatedAt
+		}
+
+		timeJ := items[j].CreatedAt
+		if items[j].LatestProof != nil && items[j].LatestProof.SubmittedAt != "" {
+			timeJ = items[j].LatestProof.SubmittedAt
+		} else if items[j].UpdatedAt != "" {
+			timeJ = items[j].UpdatedAt
+		}
+
+		return timeI > timeJ
+	})
+
+	return &ApproverInboxResponse{
+		Items: items,
+		Total: len(items),
+	}, nil
+}
+
