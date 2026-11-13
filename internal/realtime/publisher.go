@@ -27,17 +27,22 @@ func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event ev
 		return nil
 	}
 
+	payload := map[string]interface{}{
+		"eventId":     event.EventID,
+		"goalId":      event.GoalID,
+		"proofId":     event.ProofID,
+		"ownerId":     event.OwnerID,
+		"approverId":  event.ApproverID,
+		"title":       event.Title,
+		"submittedAt": event.SubmittedAt.Format(time.RFC3339),
+	}
+	if event.Files != nil {
+		payload["files"] = event.Files
+	}
+
 	wsEvent := Event{
-		Type: "proof.submitted",
-		Payload: map[string]interface{}{
-			"eventId":     event.EventID,
-			"goalId":      event.GoalID,
-			"proofId":     event.ProofID,
-			"ownerId":     event.OwnerID,
-			"approverId":  event.ApproverID,
-			"title":       event.Title,
-			"submittedAt": event.SubmittedAt.Format(time.RFC3339),
-		},
+		Type:    "proof.submitted",
+		Payload: payload,
 	}
 
 	if event.ApproverID != "" {
@@ -89,6 +94,7 @@ func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event ev
 			GoalID:          event.GoalID,
 			GoalTitle:       event.Title,
 			OwnerID:         event.OwnerID,
+			Files:           event.Files,
 			Time:            nowStr,
 		}
 
@@ -114,6 +120,7 @@ func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event ev
 				"goalId":          event.GoalID,
 				"goalTitle":       event.Title,
 				"ownerId":         event.OwnerID,
+				"files":           event.Files,
 				"time":            nowStr,
 			},
 		}
@@ -125,8 +132,8 @@ func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event ev
 	return nil
 }
 
-// PublishApprovalDecided delivers goal.unlocked event to the owner (and approver) upon approval.
-// This fulfills the core Slice A real-time unlock requirement.
+// PublishApprovalDecided delivers goal.unlocked event to the owner (and approver) upon approval,
+// and delivers goal.rejected upon rejection to maintain active restrictions and notify the owner.
 func (p *WebSocketPublisher) PublishApprovalDecided(ctx context.Context, event events.ApprovalDecidedEvent) error {
 	if p.hub == nil {
 		return nil
@@ -164,6 +171,25 @@ func (p *WebSocketPublisher) PublishApprovalDecided(ctx context.Context, event e
 			},
 		}
 		p.hub.Broadcast(approveEvent)
+	} else if event.Status == "rejected" {
+		log.Printf("[Realtime] Dispatching goal.rejected event to owner %s for goal %s", event.OwnerID, event.GoalID)
+		rejectEvent := Event{
+			Type: "goal.rejected",
+			Payload: map[string]interface{}{
+				"goalId":     event.GoalID,
+				"ownerId":    event.OwnerID,
+				"approverId": event.ApproverID,
+				"status":     "rejected",
+				"title":      event.Title,
+				"decidedAt":  event.DecidedAt.Format(time.RFC3339),
+			},
+		}
+
+		_ = p.hub.SendToUser(event.OwnerID, rejectEvent)
+		if event.ApproverID != "" && event.ApproverID != event.OwnerID {
+			_ = p.hub.SendToUser(event.ApproverID, rejectEvent)
+		}
+		p.hub.Broadcast(rejectEvent)
 	}
 
 	return nil

@@ -31,6 +31,24 @@ export default function GlobalChatNotifier() {
       return;
     }
 
+    if (event?.type === "goal.rejected") {
+      const payload = event.payload || {};
+      const timeFormatted = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const goalTitle = payload.goalTitle || payload.title || "Goal";
+
+      // Trigger extension blocklist refresh immediately to preserve strict restrictions
+      notifyExtensionSync();
+
+      setActiveToast({
+        id: `toast-rejected-${Date.now()}`,
+        senderName: "Accountability Partner",
+        text: `Proof for "${goalTitle}" was rejected. Constraints remain active.`,
+        time: timeFormatted,
+        isApproval: false,
+      });
+      return;
+    }
+
     // 2. Incoming chat message event
     if (event?.type === "chat.message") {
       const payload = event.payload || {};

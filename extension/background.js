@@ -124,11 +124,43 @@ export async function enforceOnOpenTabs() {
     const session = await storage.getSession();
     const isManaged = await storage.getManagedMode();
     const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
-    if (!cache || !cache.targets || cache.targets.length === 0) return;
 
     const tabs = await chrome.tabs.query({});
     for (const tab of tabs) {
-      if (tab.id && tab.url) {
+      if (!tab.id || !tab.url) continue;
+
+      // 1. Unblock tabs sitting on blocked.html if restrictions are now released
+      if (tab.url.includes("blocked.html")) {
+        try {
+          const urlObj = new URL(tab.url);
+          const orig = urlObj.searchParams.get("url");
+          const domain = urlObj.searchParams.get("domain");
+          const testUrl = orig || (domain ? `https://${domain}/` : "");
+
+          if (testUrl && cache && cache.lastSyncTimestamp) {
+            const evaluation = evaluateUrl(testUrl, cache);
+            if (!evaluation.isBlocked) {
+              const destination =
+                orig && !orig.startsWith("chrome-extension://") && !orig.startsWith("moz-extension://")
+                  ? orig
+                  : domain && !domain.includes(" ")
+                  ? `https://${domain}/`
+                  : null;
+
+              if (destination) {
+                pendingBlockedTabs.delete(tab.id);
+                chrome.tabs.update(tab.id, { url: destination });
+                continue;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[ONUSLY] Error evaluating unblock for tab:", e);
+        }
+      }
+
+      // 2. Enforce active targets on normal browsing tabs
+      if (cache && cache.targets && cache.targets.length > 0) {
         await checkAndBlockTab(tab.id, tab.url, cache);
       }
     }

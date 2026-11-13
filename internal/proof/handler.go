@@ -20,10 +20,11 @@ func NewHandler(service *Service) *Handler {
 }
 
 type submitProofRequest struct {
-	ProofType       string `json:"proofType"`
-	TextExplanation string `json:"textExplanation"`
-	ExternalLink    string `json:"externalLink"`
-	PhotoURL        string `json:"photoUrl"`
+	ProofType       string      `json:"proofType"`
+	TextExplanation string      `json:"textExplanation"`
+	ExternalLink    string      `json:"externalLink"`
+	PhotoURL        string      `json:"photoUrl"`
+	Files           interface{} `json:"files,omitempty"`
 }
 
 func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +46,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proof, err := h.service.Submit(
+	proof, err := h.service.SubmitWithFiles(
 		r.Context(),
 		userID,
 		goalID,
@@ -53,6 +54,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 		req.TextExplanation,
 		req.ExternalLink,
 		req.PhotoURL,
+		req.Files,
 	)
 
 	if err != nil {

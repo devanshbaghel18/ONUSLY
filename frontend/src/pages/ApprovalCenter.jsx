@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { getApproverInbox, decideApproval } from "../lib/api";
+import { notifyExtensionSync } from "../lib/extensionSync";
 import ApprovalCard from "../components/approvals/ApprovalCard";
 import EvidenceLightbox from "../components/approvals/EvidenceLightbox";
 import DecisionModal from "../components/approvals/DecisionModal";
@@ -113,8 +114,8 @@ export default function ApprovalCenter() {
   }, [items, searchQuery]);
 
   // Handlers for cards (Sub-part 2.3 & 2.4 hooks)
-  const handleInspectPhoto = (photo, item) => {
-    setLightboxData({ item, proof: photo });
+  const handleInspectPhoto = (photo, item, fileIndex = 0) => {
+    setLightboxData({ item, proof: photo, initialFileIndex: fileIndex });
   };
 
   const handleApprove = (item) => {
@@ -161,6 +162,7 @@ export default function ApprovalCenter() {
     }
 
     if (status === "approved") {
+      notifyExtensionSync();
       showNotice(`✅ Goal "${item.title}" approved! Targets unlocked.`);
     } else {
       showNotice(`⚠️ Proof for "${item.title}" rejected. Feedback saved.`);
@@ -391,6 +393,7 @@ export default function ApprovalCenter() {
           onClose={() => setLightboxData(null)}
           item={lightboxData?.item}
           proof={lightboxData?.proof}
+          initialFileIndex={lightboxData?.initialFileIndex || 0}
           onApprove={handleApprove}
           onReject={handleReject}
         />

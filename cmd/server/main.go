@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/approval"
 	"github.com/devanshbaghel18/ONUSLY/internal/auth"
@@ -184,6 +188,23 @@ func main() {
 			w.Header().Set("Content-Type", "application/xml")
 		}
 		fileServer.ServeHTTP(w, r)
+	})))
+
+	// Proof & Media Uploads Static Server with path-traversal guard
+	uploadsDir := "uploads"
+	_ = os.MkdirAll(filepath.Join(uploadsDir, "proofs"), 0755)
+	uploadFileServer := http.FileServer(http.Dir(uploadsDir))
+	mux.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cleanPath := strings.TrimSpace(r.URL.Path)
+		if strings.Contains(cleanPath, "..") || strings.Contains(cleanPath, "%2e") || strings.Contains(cleanPath, "\x00") {
+			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Header().Del("X-Frame-Options")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://*.onusly.com;")
+		uploadFileServer.ServeHTTP(w, r)
 	})))
 
 	// Real-time WebSocket Hub
@@ -480,6 +501,115 @@ func main() {
 		enforcementHandler.AutoPairDesktop,
 	)
 
+	// Proof Document & Media Upload Handler (supports multi-file PDF, Image, Document uploads up to 32MB)
+	goalRoutes.HandleFunc("POST /uploads", func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := middleware.GetUserID(r.Context())
+		if !ok || userID == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, "failed to parse multipart form: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		files := r.MultipartForm.File["files"]
+		if len(files) == 0 {
+			files = r.MultipartForm.File["file"]
+		}
+		if len(files) == 0 {
+			http.Error(w, "no files provided", http.StatusBadRequest)
+			return
+		}
+
+		type UploadedFileItem struct {
+			ID            string `json:"id"`
+			Name          string `json:"name"`
+			Size          int64  `json:"size"`
+			FormattedSize string `json:"formattedSize"`
+			Type          string `json:"type"`
+			URL           string `json:"url"`
+			DataURL       string `json:"dataUrl"`
+			IsImage       bool   `json:"isImage"`
+			IsPdf         bool   `json:"isPdf"`
+		}
+
+		var uploadedItems []UploadedFileItem
+
+		for _, fh := range files {
+			src, err := fh.Open()
+			if err != nil {
+				continue
+			}
+
+			ext := strings.ToLower(filepath.Ext(fh.Filename))
+			baseName := strings.TrimSuffix(filepath.Base(fh.Filename), ext)
+			safeBase := strings.Map(func(r rune) rune {
+				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+					return r
+				}
+				return '_'
+			}, baseName)
+			if safeBase == "" {
+				safeBase = "evidence"
+			}
+
+			uniqueFileName := fmt.Sprintf("%d-%s-%s%s", time.Now().Unix(), uuid.New().String()[:8], safeBase, ext)
+			destPath := filepath.Join(uploadsDir, "proofs", uniqueFileName)
+
+			dst, err := os.Create(destPath)
+			if err != nil {
+				src.Close()
+				continue
+			}
+
+			copiedSize, err := io.Copy(dst, src)
+			src.Close()
+			dst.Close()
+			if err != nil {
+				continue
+			}
+
+			fileURL := fmt.Sprintf("/uploads/proofs/%s", uniqueFileName)
+			contentType := fh.Header.Get("Content-Type")
+			if contentType == "" {
+				if ext == ".pdf" {
+					contentType = "application/pdf"
+				} else if ext == ".png" {
+					contentType = "image/png"
+				} else if ext == ".jpg" || ext == ".jpeg" {
+					contentType = "image/jpeg"
+				} else {
+					contentType = "application/octet-stream"
+				}
+			}
+
+			isImage := strings.HasPrefix(contentType, "image/") || ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" || ext == ".gif"
+			isPdf := contentType == "application/pdf" || ext == ".pdf"
+
+			formattedSize := fmt.Sprintf("%d KB", copiedSize/1024)
+			if copiedSize > 1024*1024 {
+				formattedSize = fmt.Sprintf("%.1f MB", float64(copiedSize)/(1024*1024))
+			}
+
+			uploadedItems = append(uploadedItems, UploadedFileItem{
+				ID:            "file-" + uuid.New().String()[:8],
+				Name:          fh.Filename,
+				Size:          copiedSize,
+				FormattedSize: formattedSize,
+				Type:          contentType,
+				URL:           fileURL,
+				DataURL:       fileURL,
+				IsImage:       isImage,
+				IsPdf:         isPdf,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(uploadedItems)
+	})
+
 	// Idempotency store for mutation endpoints
 	idempotencyStore := middleware.NewMemoryIdempotencyStore(24 * time.Hour)
 	idempotentProtected := middleware.Idempotency(idempotencyStore)(goalRoutes)
@@ -507,6 +637,7 @@ func main() {
 	mux.Handle("/communities/", protectedRoutes)
 	mux.Handle("/enforcement", protectedRoutes)
 	mux.Handle("/enforcement/", protectedRoutes)
+	mux.Handle("/uploads", protectedRoutes)
 	mux.Handle("POST /auth/revoke-all", protectedRoutes)
 	mux.Handle("POST /auth/logout-all", protectedRoutes)
 
@@ -517,10 +648,10 @@ func main() {
 
 	// Apply defense-in-depth pipeline to root handler:
 	// 1. Protective HTTP security headers (nosniff, DENY, CSP, XSS)
-	// 2. Request body size ceiling (1MB) to prevent denial-of-service memory exhaustion
+	// 2. Request body size ceiling (50MB) to allow document & high-resolution proof uploads
 	// 3. Strict origin-whitelisted CORS
 	rootHandler := middleware.SecurityHeaders(
-		middleware.MaxBytesLimiter(1024*1024)(
+		middleware.MaxBytesLimiter(50*1024*1024)(
 			cors(cfg.AllowedOrigins)(mux),
 		),
 	)

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   UploadCloud,
@@ -10,24 +11,33 @@ import {
   Loader2,
   Trash2,
   Users,
-  MessageSquare,
+  Plus,
   Send,
   Eye,
+  Layers,
 } from "lucide-react";
 import { getUser } from "../../lib/auth";
-import { submitProof, updateGoal } from "../../lib/api";
-import { getStoredFriends, sendChatMessage } from "../../lib/friendsChat";
-import { getStoredCommunities, sendCommunityMessage } from "../../lib/communities";
+import { submitProof, uploadProofFiles, API_BASE_URL } from "../../lib/api";
+import { getStoredFriends } from "../../lib/friendsChat";
+import { getStoredCommunities } from "../../lib/communities";
 
 function generateMsgId(prefix = "msg") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 
-// Compress image via HTML canvas to ensure payload stays under 2MB safely
-function processImageFile(file, maxDimension = 1600, quality = 0.85) {
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes > 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${Math.round(bytes / 1024)} KB`;
+}
+
+// Compress single image via HTML canvas to ensure reasonable size
+function processImageFile(file, maxDimension = 1400, quality = 0.82) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith("image/")) {
-      // Non-image file (e.g. video or PDF) -> Read raw Data URL
+      // Non-image file (e.g. PDF or document) -> Read raw Data URL
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
       reader.onerror = reject;
@@ -76,18 +86,11 @@ export default function SubmitProofModal({
   onSuccess,
   send,
 }) {
-  const [fileDataUrl, setFileDataUrl] = useState("");
-  const [fileName, setFileName] = useState("");
-  const [fileSize, setFileSize] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState([]);
   const [textExplanation, setTextExplanation] = useState("");
   const [externalLink, setExternalLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-
-  // Target destination state (if goal doesn't already have an assigned approver)
-  const [shareTarget, setShareTarget] = useState("friend");
-  const [selectedFriendId, setSelectedFriendId] = useState("");
-  const [selectedCommunityId, setSelectedCommunityId] = useState("");
 
   const friends = getStoredFriends();
   const communities = getStoredCommunities();
@@ -95,16 +98,11 @@ export default function SubmitProofModal({
 
   useEffect(() => {
     if (isOpen) {
-      setFileDataUrl("");
-      setFileName("");
-      setFileSize("");
+      setAttachedFiles([]);
       setTextExplanation("");
       setExternalLink("");
       setError("");
       setSubmitting(false);
-
-      if (friends.length > 0) setSelectedFriendId(friends[0].id);
-      if (communities.length > 0) setSelectedCommunityId(communities[0].id);
     }
   }, [isOpen]);
 
@@ -125,32 +123,48 @@ export default function SubmitProofModal({
     goal.approverEmail ||
     (goal.approvalType === "community" ? "Community" : "Assigned Partner");
 
-  const handleFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFilesChange = async (e) => {
+    const selected = Array.from(e.target.files || []);
+    if (selected.length === 0) return;
 
+    setError("");
     try {
-      setError("");
-      const sizeFormatted =
-        file.size > 1024 * 1024
-          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-          : `${Math.round(file.size / 1024)} KB`;
+      const processedList = await Promise.all(
+        selected.map(async (file) => {
+          const isImage = file.type.startsWith("image/");
+          const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+          const dataUrl = await processImageFile(file);
 
-      setFileName(file.name);
-      setFileSize(sizeFormatted);
+          return {
+            id: `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            name: file.name,
+            size: file.size,
+            formattedSize: formatBytes(file.size),
+            type: file.type,
+            isImage,
+            isPdf,
+            dataUrl,
+            rawFile: file,
+          };
+        })
+      );
 
-      const processedDataUrl = await processImageFile(file);
-      setFileDataUrl(processedDataUrl);
+      // Append new files without replacing already added ones
+      setAttachedFiles((prev) => [...prev, ...processedList]);
     } catch (err) {
-      console.error("Failed to read file:", err);
-      setError("Failed to read file. Please select a valid image or document.");
+      console.error("Failed to process attached files:", err);
+      setError("Failed to read one or more files. Please select valid images or documents.");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  const handleRemoveFile = () => {
-    setFileDataUrl("");
-    setFileName("");
-    setFileSize("");
+  const handleRemoveFile = (idToRemove) => {
+    setAttachedFiles((prev) => prev.filter((f) => f.id !== idToRemove));
+  };
+
+  const handleClearAllFiles = () => {
+    setAttachedFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -158,12 +172,11 @@ export default function SubmitProofModal({
     e?.preventDefault();
     if (submitting) return;
 
-    // Validation: At least one proof element must be provided
     const trimmedNotes = textExplanation.trim();
     const trimmedLink = externalLink.trim();
 
-    if (!fileDataUrl && !trimmedNotes && !trimmedLink) {
-      setError("Please attach a photo, enter an explanation, or provide a link to submit proof.");
+    if (attachedFiles.length === 0 && !trimmedNotes && !trimmedLink) {
+      setError("Please attach at least one photo/document, enter an explanation, or provide a link.");
       return;
     }
 
@@ -174,20 +187,84 @@ export default function SubmitProofModal({
       const currentUser = getUser();
       const goalId = goal.id;
 
-      // Determine proof type
+      // 1. Upload raw files to server if any raw files exist
+      let finalFiles = [...attachedFiles];
+      const rawFilesToUpload = attachedFiles.filter((f) => f.rawFile);
+
+      if (rawFilesToUpload.length > 0) {
+        try {
+          const uploadedResults = await uploadProofFiles(
+            rawFilesToUpload.map((f) => f.rawFile)
+          );
+          finalFiles = attachedFiles.map((f) => {
+            const match = uploadedResults.find((u) => u.name === f.name);
+            if (match && match.url) {
+              const fullUrl = match.url.startsWith("http")
+                ? match.url
+                : `${API_BASE_URL || "http://localhost:8080"}${match.url}`;
+              return {
+                ...f,
+                url: fullUrl,
+                dataUrl: fullUrl,
+              };
+            }
+            return f;
+          });
+        } catch (uploadErr) {
+          console.warn("Direct upload error, falling back to data URL:", uploadErr);
+        }
+      }
+
+      // 2. Prepare structured files payload
+      const filesPayload = finalFiles.map((f) => ({
+        id: f.id,
+        name: f.name,
+        size: f.size,
+        formattedSize: f.formattedSize,
+        type: f.type,
+        dataUrl: f.dataUrl,
+        url: f.url || f.dataUrl,
+        isImage: f.isImage,
+        isPdf: f.isPdf,
+      }));
+
+      // 3. Set primary photoUrl (first image or document) without stitching
+      let finalPhotoUrl = "";
+      const imageFiles = finalFiles.filter((f) => f.isImage && f.dataUrl);
+      const docFiles = finalFiles.filter((f) => !f.isImage && f.dataUrl);
+
+      if (imageFiles.length > 0) {
+        finalPhotoUrl = imageFiles[0].dataUrl;
+      } else if (docFiles.length > 0) {
+        finalPhotoUrl = docFiles[0].dataUrl;
+      }
+
+      // 4. Determine proofType
       let proofType = "text";
-      if (fileDataUrl) proofType = "photo";
+      if (imageFiles.length > 0) proofType = "photo";
+      else if (docFiles.length > 0) proofType = "document";
       else if (trimmedLink) proofType = "link";
 
-      // Submit proof to backend REST API
+      // 5. Append attached documents manifest to notes if multiple files exist
+      let finalExplanation = trimmedNotes;
+      if (finalFiles.length > 0) {
+        const fileManifest = finalFiles
+          .map((f, i) => `  ${i + 1}. ${f.name} (${f.formattedSize})`)
+          .join("\n");
+        const suffix = `\n\n[Attached Proof Documents (${finalFiles.length})]:\n${fileManifest}`;
+        finalExplanation = trimmedNotes ? `${trimmedNotes}${suffix}` : `[Attached Proof Documents (${finalFiles.length})]:\n${fileManifest}`;
+      }
+
+      // 6. Submit proof to backend REST API
       const result = await submitProof(goalId, {
         proofType,
-        photoUrl: fileDataUrl,
-        textExplanation: trimmedNotes,
+        photoUrl: finalPhotoUrl,
+        textExplanation: finalExplanation,
         externalLink: trimmedLink,
+        files: filesPayload,
       });
 
-      // Send chat notification to partner in background
+      // Send real-time chat notification to partner over WebSocket
       try {
         const senderEmail = currentUser?.email || "";
         const senderHandle = currentUser?.handle || "";
@@ -208,14 +285,16 @@ export default function SubmitProofModal({
               senderEmail,
               senderHandle,
               senderName,
-              text: `Submitted verification proof for goal: "${goal.title}"`,
+              text: `Submitted verification proof for goal: "${goal.title}" (${finalFiles.length} file(s) attached)`,
               isProof: true,
               goalId,
               goalTitle: goal.title,
               ownerId: currentUser?.id || "",
               proofType,
-              photoUrl: fileDataUrl,
-              textExplanation: trimmedNotes,
+              photoUrl: finalPhotoUrl,
+              textExplanation: finalExplanation,
+              fileCount: finalFiles.length,
+              files: filesPayload,
             },
           });
         }
@@ -236,11 +315,11 @@ export default function SubmitProofModal({
     }
   };
 
-  return (
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md animate-in fade-in duration-150"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md animate-in fade-in duration-150"
       onClick={(e) => {
         if (e.target === e.currentTarget && !submitting) onClose();
       }}
@@ -280,60 +359,103 @@ export default function SubmitProofModal({
         )}
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          {/* File Upload / Image Picker from PC */}
+          {/* Multi-File Upload / Documents Picker from PC */}
           <div>
-            <label className="block text-xs font-semibold text-white mb-2 flex items-center justify-between">
-              <span>Photo, Screenshot or File</span>
-              <span className="text-[11px] font-normal text-neutral-400">From PC</span>
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-white flex items-center gap-1.5">
+                <span>Proof Documents & Photos</span>
+                {attachedFiles.length > 0 && (
+                  <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-bold text-indigo-300">
+                    {attachedFiles.length} selected
+                  </span>
+                )}
+              </label>
+              <span className="text-[11px] font-normal text-neutral-400">Select from PC</span>
+            </div>
 
-            {fileDataUrl ? (
-              <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/40 p-3">
-                <div className="flex items-center gap-3">
-                  {fileDataUrl.startsWith("data:image/") ? (
-                    <img
-                      src={fileDataUrl}
-                      alt="Selected Proof"
-                      className="h-16 w-16 rounded-lg object-cover border border-white/10"
-                    />
-                  ) : (
-                    <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-white/5 border border-white/10 text-neutral-400">
-                      <FileText size={24} />
+            {/* List of Attached Files */}
+            {attachedFiles.length > 0 ? (
+              <div className="space-y-2 rounded-xl border border-white/10 bg-black/40 p-3">
+                <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                  {attachedFiles.map((file, idx) => (
+                    <div
+                      key={file.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-2.5 transition hover:border-white/20"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {file.isImage && file.dataUrl ? (
+                          <img
+                            src={file.dataUrl}
+                            alt={file.name}
+                            className="h-10 w-10 shrink-0 rounded-md object-cover border border-white/10"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white/5 border border-white/10 text-neutral-300">
+                            <FileText size={18} />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-white truncate max-w-[240px]">
+                            {file.name}
+                          </p>
+                          <div className="flex items-center gap-2 text-[10px] text-neutral-400 mt-0.5">
+                            <span>{file.formattedSize}</span>
+                            <span>•</span>
+                            <span className="text-indigo-300">
+                              {file.isImage ? "Photo / Screenshot" : "Document"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFile(file.id)}
+                        disabled={submitting}
+                        className="rounded-lg p-1.5 text-neutral-400 hover:bg-rose-500/10 hover:text-rose-400 transition"
+                        title="Remove file"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                  )}
+                  ))}
+                </div>
 
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-white truncate">{fileName}</p>
-                    <p className="text-[11px] text-neutral-400 mt-0.5">{fileSize}</p>
-                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 mt-1">
-                      <CheckCircle2 size={11} /> Ready to submit
-                    </span>
-                  </div>
-
+                {/* Multi-file Controls */}
+                <div className="pt-2 flex items-center justify-between border-t border-white/10 text-xs">
                   <button
                     type="button"
-                    onClick={handleRemoveFile}
+                    onClick={() => fileInputRef.current?.click()}
                     disabled={submitting}
-                    className="rounded-lg p-2 text-neutral-400 hover:bg-white/10 hover:text-rose-400 transition"
-                    title="Remove File"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-neutral-200 hover:bg-white/10 hover:text-white transition"
                   >
-                    <Trash2 size={16} />
+                    <Plus size={13} />
+                    <span>Add More Files</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearAllFiles}
+                    disabled={submitting}
+                    className="text-[11px] text-neutral-400 hover:text-rose-400 transition"
+                  >
+                    Clear All
                   </button>
                 </div>
               </div>
             ) : (
+              /* Dropzone for Initial Selection */
               <div
                 onClick={() => fileInputRef.current?.click()}
                 className="group flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-white/20 bg-white/[0.02] p-6 text-center transition-all hover:border-white/40 hover:bg-white/[0.04]"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-neutral-400 group-hover:scale-105 group-hover:text-white transition">
-                  <UploadCloud size={20} />
+                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/5 text-neutral-400 group-hover:scale-105 group-hover:text-white transition">
+                  <UploadCloud size={22} />
                 </div>
                 <p className="mt-2 text-xs font-semibold text-white">
-                  Click to select photo or screenshot from your PC
+                  Click to select photo(s) or document(s) from your PC
                 </p>
                 <p className="mt-0.5 text-[11px] text-neutral-500">
-                  PNG, JPG, WebP, GIF, or PDF (Max 2MB)
+                  Select multiple files: PNG, JPG, WebP, PDF or Docs (Max 2MB per upload)
                 </p>
               </div>
             )}
@@ -341,8 +463,9 @@ export default function SubmitProofModal({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,video/*,application/pdf"
-              onChange={handleFileChange}
+              multiple
+              accept="image/*,application/pdf,.doc,.docx,.txt"
+              onChange={handleFilesChange}
               className="hidden"
             />
           </div>
@@ -361,7 +484,7 @@ export default function SubmitProofModal({
               rows={3}
               value={textExplanation}
               onChange={(e) => setTextExplanation(e.target.value)}
-              placeholder="Describe what you accomplished (e.g. 'Finished chapters 1-3, attached summary notes above')..."
+              placeholder="Describe what you accomplished (e.g. 'Finished task requirements, attached screenshots and summary document above')..."
               className="w-full rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-white placeholder-neutral-500 transition focus:border-white/30 focus:outline-none focus:ring-1 focus:ring-white/20 resize-none"
             />
           </div>
@@ -418,7 +541,10 @@ export default function SubmitProofModal({
             </button>
             <button
               type="submit"
-              disabled={submitting || (!fileDataUrl && !textExplanation.trim() && !externalLink.trim())}
+              disabled={
+                submitting ||
+                (attachedFiles.length === 0 && !textExplanation.trim() && !externalLink.trim())
+              }
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black shadow-lg hover:bg-neutral-200 transition disabled:opacity-40"
             >
               {submitting ? (
@@ -429,13 +555,16 @@ export default function SubmitProofModal({
               ) : (
                 <>
                   <Send size={14} />
-                  <span>Submit Proof for Verification</span>
+                  <span>
+                    Submit Proof {attachedFiles.length > 1 ? `(${attachedFiles.length} files)` : ""}
+                  </span>
                 </>
               )}
             </button>
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

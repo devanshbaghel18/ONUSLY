@@ -2,8 +2,12 @@ package proof
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -50,6 +54,62 @@ func (s *Service) SetPublisher(p events.Publisher) {
 	}
 }
 
+func saveBase64ToFile(dataURI, prefix string) (string, error) {
+	if !strings.HasPrefix(dataURI, "data:") {
+		return dataURI, nil
+	}
+
+	commaIdx := strings.Index(dataURI, ",")
+	if commaIdx == -1 {
+		return dataURI, nil
+	}
+
+	header := strings.ToLower(dataURI[:commaIdx])
+	payload := dataURI[commaIdx+1:]
+
+	rawBytes, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return dataURI, nil
+	}
+
+	ext := ".bin"
+	if strings.Contains(header, "image/jpeg") || strings.Contains(header, "image/jpg") {
+		ext = ".jpg"
+	} else if strings.Contains(header, "image/png") {
+		ext = ".png"
+	} else if strings.Contains(header, "image/webp") {
+		ext = ".webp"
+	} else if strings.Contains(header, "image/gif") {
+		ext = ".gif"
+	} else if strings.Contains(header, "application/pdf") {
+		ext = ".pdf"
+	} else if strings.Contains(header, "text/plain") {
+		ext = ".txt"
+	}
+
+	uploadsDir := filepath.Join("uploads", "proofs")
+	_ = os.MkdirAll(uploadsDir, 0755)
+
+	safePrefix := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, prefix)
+	if safePrefix == "" {
+		safePrefix = "proof"
+	}
+
+	filename := fmt.Sprintf("%d-%s-%s%s", time.Now().Unix(), uuid.New().String()[:8], safePrefix, ext)
+	filePath := filepath.Join(uploadsDir, filename)
+
+	if err := os.WriteFile(filePath, rawBytes, 0644); err != nil {
+		return dataURI, nil
+	}
+
+	return "/uploads/proofs/" + filename, nil
+}
+
 func (s *Service) Submit(
 	ctx context.Context,
 	ownerID string,
@@ -58,6 +118,19 @@ func (s *Service) Submit(
 	textExplanation string,
 	externalLink string,
 	photoURL string,
+) (*Proof, error) {
+	return s.SubmitWithFiles(ctx, ownerID, goalID, proofType, textExplanation, externalLink, photoURL, nil)
+}
+
+func (s *Service) SubmitWithFiles(
+	ctx context.Context,
+	ownerID string,
+	goalID string,
+	proofType string,
+	textExplanation string,
+	externalLink string,
+	photoURL string,
+	files interface{},
 ) (*Proof, error) {
 
 	if strings.TrimSpace(ownerID) == "" {
@@ -106,39 +179,72 @@ func (s *Service) Submit(
 		}
 		if photoURL != "" {
 			lower := strings.ToLower(photoURL)
-			if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+			if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "/uploads/") {
 				if len(photoURL) > 2048 {
 					return nil, errors.New("photo URL exceeds maximum length of 2048 characters")
 				}
-				parsedURL, err := url.ParseRequestURI(photoURL)
-				if err != nil || parsedURL.Host == "" {
-					return nil, errors.New("photo URL must be a valid http(s) URL")
-				}
-			} else if strings.HasPrefix(lower, "data:image/") || strings.HasPrefix(lower, "data:application/pdf") {
-				// Base64 data URI validation
-				if len(photoURL) > 2*1024*1024 {
-					return nil, errors.New("photo data URI exceeds maximum size limit of 2MB")
-				}
-				validMIMEPrefixes := []string{
-					"data:image/jpeg;base64,",
-					"data:image/jpg;base64,",
-					"data:image/png;base64,",
-					"data:image/webp;base64,",
-					"data:image/gif;base64,",
-					"data:application/pdf;base64,",
-				}
-				hasValidPrefix := false
-				for _, prefix := range validMIMEPrefixes {
-					if strings.HasPrefix(lower, prefix) {
-						hasValidPrefix = true
-						break
+				if !strings.HasPrefix(lower, "/uploads/") {
+					parsedURL, err := url.ParseRequestURI(photoURL)
+					if err != nil || parsedURL.Host == "" {
+						return nil, errors.New("photo URL must be a valid http(s) URL")
 					}
 				}
-				if !hasValidPrefix {
-					return nil, errors.New("photo data URI must have a valid MIME prefix (jpeg, png, webp, gif, pdf)")
+			} else if strings.HasPrefix(lower, "data:") {
+				if proofType == "photo" {
+					if len(photoURL) > 2*1024*1024 {
+						return nil, errors.New("photo data URI exceeds maximum size limit of 2MB")
+					}
+					validMIMEPrefixes := []string{
+						"data:image/jpeg;base64,",
+						"data:image/jpg;base64,",
+						"data:image/png;base64,",
+						"data:image/webp;base64,",
+						"data:image/gif;base64,",
+						"data:application/pdf;base64,",
+					}
+					hasValidPrefix := false
+					for _, prefix := range validMIMEPrefixes {
+						if strings.HasPrefix(lower, prefix) {
+							hasValidPrefix = true
+							break
+						}
+					}
+					if !hasValidPrefix {
+						return nil, errors.New("photo data URI must have a valid MIME prefix (jpeg, png, webp, gif, pdf)")
+					}
+				} else if proofType == "document" {
+					if len(photoURL) > 32*1024*1024 {
+						return nil, errors.New("document data URI exceeds maximum size limit of 32MB")
+					}
+					if strings.HasPrefix(lower, "data:text/html") || strings.HasPrefix(lower, "data:application/x-msdownload") || strings.HasPrefix(lower, "data:application/javascript") {
+						return nil, errors.New("document data URI has unsupported MIME type")
+					}
 				}
 			} else {
 				return nil, errors.New("photo URL must be an http(s) URL or valid image data URI")
+			}
+		}
+	}
+
+	// Auto-offload large base64 data to disk in uploads/proofs to stay well below DynamoDB's 400KB limit
+	if strings.HasPrefix(photoURL, "data:") {
+		savedURL, err := saveBase64ToFile(photoURL, "proof")
+		if err == nil {
+			photoURL = savedURL
+		}
+	}
+
+	if fileList, ok := files.([]interface{}); ok {
+		for _, item := range fileList {
+			if fileMap, isMap := item.(map[string]interface{}); isMap {
+				if dUrl, hasDUrl := fileMap["dataUrl"].(string); hasDUrl && strings.HasPrefix(dUrl, "data:") {
+					nameStr, _ := fileMap["name"].(string)
+					saved, err := saveBase64ToFile(dUrl, nameStr)
+					if err == nil {
+						fileMap["dataUrl"] = saved
+						fileMap["url"] = saved
+					}
+				}
 			}
 		}
 	}
@@ -170,6 +276,7 @@ func (s *Service) Submit(
 		TextExplanation: strings.TrimSpace(textExplanation),
 		ExternalLink:    strings.TrimSpace(externalLink),
 		PhotoURL:        strings.TrimSpace(photoURL),
+		Files:           files,
 		SubmittedAt:     now,
 	}
 
@@ -194,6 +301,7 @@ func (s *Service) Submit(
 			OwnerID:     p.OwnerID,
 			ApproverID:  goal.ApproverID,
 			Title:       goal.Title,
+			Files:       files,
 			SubmittedAt: submittedTime,
 		}
 		_ = s.publisher.PublishProofSubmitted(ctx, event)

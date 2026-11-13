@@ -1,9 +1,9 @@
-import { getToken, clearAuth } from "./auth";
+import { getToken, clearAuth } from "./auth.js";
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL !== undefined
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL !== undefined
     ? import.meta.env.VITE_API_BASE_URL
-    : import.meta.env.DEV
+    : typeof import.meta !== "undefined" && import.meta.env?.DEV
     ? "http://localhost:8080"
     : "";
 
@@ -165,7 +165,31 @@ export async function getBlocklist() {
   });
 }
 
-export async function submitProof(goalId, { proofType = "text", textExplanation = "", externalLink = "", photoUrl = "" } = {}) {
+export async function uploadProofFiles(files) {
+  if (!files || files.length === 0) return [];
+  const token = getToken();
+  const formData = new FormData();
+  for (const f of files) {
+    formData.append("files", f);
+  }
+
+  const res = await fetch(`${API_BASE_URL}/uploads`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(errorText || "Failed to upload proof files");
+  }
+
+  return await res.json();
+}
+
+export async function submitProof(goalId, { proofType = "text", textExplanation = "", externalLink = "", photoUrl = "", files = null } = {}) {
   return request(`/goals/${encodeURIComponent(goalId)}/proofs`, {
     method: "POST",
     body: JSON.stringify({
@@ -173,6 +197,7 @@ export async function submitProof(goalId, { proofType = "text", textExplanation 
       textExplanation,
       externalLink,
       photoUrl,
+      files,
     }),
   });
 }
