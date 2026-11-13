@@ -135,9 +135,23 @@ export default function AppLayout({ children }) {
 
     const handleUpdate = () => fetchPending();
     window.addEventListener("onusly:inbox-updated", handleUpdate);
+
+    // Subscribe to real-time WebSocket events for instant navbar badge synchronization
+    const unsub = wsManager.subscribe((event) => {
+      if (
+        event?.type === "proof.submitted" ||
+        event?.type === "goal.unlocked" ||
+        event?.type === "goal.rejected" ||
+        event?.type === "chat.message.approved"
+      ) {
+        fetchPending();
+      }
+    });
+
     return () => {
       mounted = false;
       window.removeEventListener("onusly:inbox-updated", handleUpdate);
+      if (typeof unsub === "function") unsub();
     };
   }, [location.pathname]);
 

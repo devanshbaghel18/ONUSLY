@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import AppLayout from "../components/AppLayout";
+import { useWebSocket } from "../hooks/useWebSocket";
 import {
   CheckSquare,
   Loader2,
@@ -84,6 +85,25 @@ export default function ApprovalCenter() {
     };
   }, [activeTab, fetchInbox]);
 
+  // Real-time WebSocket synchronization for instant inbox & badge updates
+  useWebSocket((event) => {
+    if (
+      event?.type === "proof.submitted" ||
+      event?.type === "goal.unlocked" ||
+      event?.type === "goal.rejected" ||
+      event?.type === "chat.message.approved"
+    ) {
+      console.log("[ApprovalCenter] Real-time event received:", event.type);
+      fetchInbox(activeTab);
+      window.dispatchEvent(new CustomEvent("onusly:inbox-updated"));
+
+      if (event?.type === "proof.submitted") {
+        const title = event.payload?.title || "a goal";
+        showNotice(`🔔 New proof submitted for "${title}". Updated live!`);
+      }
+    }
+  });
+
   const showNotice = (msg, duration = 4000) => {
     setNotice(msg);
     setTimeout(() => setNotice(""), duration);
@@ -165,6 +185,7 @@ export default function ApprovalCenter() {
       notifyExtensionSync();
       showNotice(`✅ Goal "${item.title}" approved! Targets unlocked.`);
     } else {
+      notifyExtensionSync();
       showNotice(`⚠️ Proof for "${item.title}" rejected. Feedback saved.`);
     }
   };

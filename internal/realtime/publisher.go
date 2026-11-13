@@ -47,7 +47,11 @@ func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event ev
 
 	if event.ApproverID != "" {
 		_ = p.hub.SendToUser(event.ApproverID, wsEvent)
+		_ = p.hub.SendToEmail(event.ApproverID, wsEvent)
+		_ = p.hub.SendToHandle(event.ApproverID, wsEvent)
 	}
+	// Broadcast so all connected approver clients receive live inbox update immediately
+	p.hub.Broadcast(wsEvent)
 
 	// Synthesize and dispatch chat message so verification appears directly in the chat between owner and approver
 	if p.hub.msgStore != nil && event.ApproverID != "" && event.OwnerID != "" {
@@ -180,6 +184,7 @@ func (p *WebSocketPublisher) PublishApprovalDecided(ctx context.Context, event e
 				"ownerId":    event.OwnerID,
 				"approverId": event.ApproverID,
 				"status":     "rejected",
+				"comment":    event.Comment,
 				"title":      event.Title,
 				"decidedAt":  event.DecidedAt.Format(time.RFC3339),
 			},

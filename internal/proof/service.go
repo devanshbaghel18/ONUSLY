@@ -294,12 +294,16 @@ func (s *Service) SubmitWithFiles(
 		if submittedTime.IsZero() {
 			submittedTime = time.Now().UTC()
 		}
+		approverTarget := goal.ApproverID
+		if approverTarget == "" {
+			approverTarget = goal.ApproverEmail
+		}
 		event := events.ProofSubmittedEvent{
 			EventID:     "proof-" + p.ID,
 			GoalID:      p.GoalID,
 			ProofID:     p.ID,
 			OwnerID:     p.OwnerID,
-			ApproverID:  goal.ApproverID,
+			ApproverID:  approverTarget,
 			Title:       goal.Title,
 			Files:       files,
 			SubmittedAt: submittedTime,

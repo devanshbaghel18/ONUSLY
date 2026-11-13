@@ -213,6 +213,7 @@ func (s *Service) Decide(
 			OwnerID:    approval.OwnerID,
 			ApproverID: approval.ApproverID,
 			Status:     approval.Status,
+			Comment:    approval.Comment,
 			Title:      goal.Title,
 			DecidedAt:  decidedTime,
 		}
