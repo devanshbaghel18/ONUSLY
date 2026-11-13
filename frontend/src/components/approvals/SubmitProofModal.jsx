@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   UploadCloud,
@@ -16,7 +17,7 @@ import {
   Layers,
 } from "lucide-react";
 import { getUser } from "../../lib/auth";
-import { submitProof } from "../../lib/api";
+import { submitProof, uploadProofFiles, API_BASE_URL } from "../../lib/api";
 import { getStoredFriends } from "../../lib/friendsChat";
 import { getStoredCommunities } from "../../lib/communities";
 
@@ -143,6 +144,7 @@ export default function SubmitProofModal({
             isImage,
             isPdf,
             dataUrl,
+            rawFile: file,
           };
         })
       );
@@ -185,44 +187,81 @@ export default function SubmitProofModal({
       const currentUser = getUser();
       const goalId = goal.id;
 
-      // Prepare final photoUrl / composite evidence
+      // 1. Upload raw files to server if any raw files exist
+      let finalFiles = [...attachedFiles];
+      const rawFilesToUpload = attachedFiles.filter((f) => f.rawFile);
+
+      if (rawFilesToUpload.length > 0) {
+        try {
+          const uploadedResults = await uploadProofFiles(
+            rawFilesToUpload.map((f) => f.rawFile)
+          );
+          finalFiles = attachedFiles.map((f) => {
+            const match = uploadedResults.find((u) => u.name === f.name);
+            if (match && match.url) {
+              const fullUrl = match.url.startsWith("http")
+                ? match.url
+                : `${API_BASE_URL || "http://localhost:8080"}${match.url}`;
+              return {
+                ...f,
+                url: fullUrl,
+                dataUrl: fullUrl,
+              };
+            }
+            return f;
+          });
+        } catch (uploadErr) {
+          console.warn("Direct upload error, falling back to data URL:", uploadErr);
+        }
+      }
+
+      // 2. Prepare structured files payload
+      const filesPayload = finalFiles.map((f) => ({
+        id: f.id,
+        name: f.name,
+        size: f.size,
+        formattedSize: f.formattedSize,
+        type: f.type,
+        dataUrl: f.dataUrl,
+        url: f.url || f.dataUrl,
+        isImage: f.isImage,
+        isPdf: f.isPdf,
+      }));
+
+      // 3. Set primary photoUrl (first image or document) without stitching
       let finalPhotoUrl = "";
-      const imageFiles = attachedFiles.filter((f) => f.isImage && f.dataUrl);
-      const docFiles = attachedFiles.filter((f) => !f.isImage && f.dataUrl);
+      const imageFiles = finalFiles.filter((f) => f.isImage && f.dataUrl);
+      const docFiles = finalFiles.filter((f) => !f.isImage && f.dataUrl);
 
       if (imageFiles.length > 0) {
-        if (imageFiles.length === 1) {
-          finalPhotoUrl = imageFiles[0].dataUrl;
-        } else {
-          // Combine multiple images into single vertical inspection canvas
-          finalPhotoUrl = await compositeImages(imageFiles.map((f) => f.dataUrl));
-        }
+        finalPhotoUrl = imageFiles[0].dataUrl;
       } else if (docFiles.length > 0) {
         finalPhotoUrl = docFiles[0].dataUrl;
       }
 
-      // Determine proofType
+      // 4. Determine proofType
       let proofType = "text";
       if (imageFiles.length > 0) proofType = "photo";
       else if (docFiles.length > 0) proofType = "document";
       else if (trimmedLink) proofType = "link";
 
-      // Append attached documents manifest to notes if multiple files exist
+      // 5. Append attached documents manifest to notes if multiple files exist
       let finalExplanation = trimmedNotes;
-      if (attachedFiles.length > 0) {
-        const fileManifest = attachedFiles
+      if (finalFiles.length > 0) {
+        const fileManifest = finalFiles
           .map((f, i) => `  ${i + 1}. ${f.name} (${f.formattedSize})`)
           .join("\n");
-        const suffix = `\n\n[Attached Proof Documents (${attachedFiles.length})]:\n${fileManifest}`;
-        finalExplanation = trimmedNotes ? `${trimmedNotes}${suffix}` : `[Attached Proof Documents (${attachedFiles.length})]:\n${fileManifest}`;
+        const suffix = `\n\n[Attached Proof Documents (${finalFiles.length})]:\n${fileManifest}`;
+        finalExplanation = trimmedNotes ? `${trimmedNotes}${suffix}` : `[Attached Proof Documents (${finalFiles.length})]:\n${fileManifest}`;
       }
 
-      // Submit proof to backend REST API
+      // 6. Submit proof to backend REST API
       const result = await submitProof(goalId, {
         proofType,
         photoUrl: finalPhotoUrl,
         textExplanation: finalExplanation,
         externalLink: trimmedLink,
+        files: filesPayload,
       });
 
       // Send real-time chat notification to partner over WebSocket
@@ -246,7 +285,7 @@ export default function SubmitProofModal({
               senderEmail,
               senderHandle,
               senderName,
-              text: `Submitted verification proof for goal: "${goal.title}" (${attachedFiles.length} file(s) attached)`,
+              text: `Submitted verification proof for goal: "${goal.title}" (${finalFiles.length} file(s) attached)`,
               isProof: true,
               goalId,
               goalTitle: goal.title,
@@ -254,7 +293,8 @@ export default function SubmitProofModal({
               proofType,
               photoUrl: finalPhotoUrl,
               textExplanation: finalExplanation,
-              fileCount: attachedFiles.length,
+              fileCount: finalFiles.length,
+              files: filesPayload,
             },
           });
         }
@@ -275,11 +315,11 @@ export default function SubmitProofModal({
     }
   };
 
-  return (
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md animate-in fade-in duration-150"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md animate-in fade-in duration-150"
       onClick={(e) => {
         if (e.target === e.currentTarget && !submitting) onClose();
       }}
@@ -524,6 +564,7 @@ export default function SubmitProofModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

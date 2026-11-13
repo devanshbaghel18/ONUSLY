@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 )
 
 // SecurityHeaders applies protective HTTP response headers mitigating XSS, clickjacking,
@@ -9,11 +10,18 @@ import (
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws: wss: http: https:; frame-ancestors 'none';")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
+		// Allow embedded preview of uploaded verification proof documents in dashboard iframes
+		if strings.HasPrefix(r.URL.Path, "/uploads/") {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://*.onusly.com;")
+		} else {
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws: wss: http: https:; frame-ancestors 'none';")
+		}
 
 		next.ServeHTTP(w, r)
 	})

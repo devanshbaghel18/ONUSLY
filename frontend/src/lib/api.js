@@ -165,6 +165,30 @@ export async function getBlocklist() {
   });
 }
 
+export async function uploadProofFiles(files) {
+  if (!files || files.length === 0) return [];
+  const token = getToken();
+  const formData = new FormData();
+  for (const f of files) {
+    formData.append("files", f);
+  }
+
+  const res = await fetch(`${API_BASE_URL}/uploads`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(errorText || "Failed to upload proof files");
+  }
+
+  return await res.json();
+}
+
 export async function submitProof(goalId, { proofType = "text", textExplanation = "", externalLink = "", photoUrl = "", files = null } = {}) {
   return request(`/goals/${encodeURIComponent(goalId)}/proofs`, {
     method: "POST",

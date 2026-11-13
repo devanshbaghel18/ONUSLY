@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   ZoomIn,
@@ -21,6 +22,26 @@ import {
   File,
 } from "lucide-react";
 import { getUniqueDisplayTargets } from "../../lib/blockedApps";
+import { API_BASE_URL } from "../../lib/api";
+
+function resolveMediaUrl(rawUrl) {
+  if (!rawUrl) return "";
+  if (
+    rawUrl.startsWith("data:") ||
+    rawUrl.startsWith("blob:") ||
+    rawUrl.startsWith("http://") ||
+    rawUrl.startsWith("https://")
+  ) {
+    return rawUrl;
+  }
+  const cleanBase = (
+    API_BASE_URL ||
+    (typeof window !== "undefined" && window.location
+      ? `${window.location.protocol}//${window.location.hostname}:8080`
+      : "http://localhost:8080")
+  ).replace(/\/+$/, "");
+  return `${cleanBase}${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`;
+}
 
 /**
  * Extracts all attached files from a proof submission.
@@ -34,26 +55,38 @@ function extractProofFiles(currentProof) {
 
   // 1. Structured files array passed from API / WebSocket
   if (Array.isArray(currentProof.files) && currentProof.files.length > 0) {
-    return currentProof.files.map((f, idx) => ({
-      id: f.id || `file-${idx}`,
-      name: f.name || `Attachment ${idx + 1}`,
-      size: f.size || 0,
-      formattedSize:
-        f.formattedSize ||
-        (f.size ? `${Math.round(f.size / 1024)} KB` : ""),
-      type: f.type || "",
-      dataUrl: f.dataUrl || "",
-      isImage: Boolean(
-        f.isImage ||
-          (f.dataUrl && f.dataUrl.startsWith("data:image/")) ||
-          (f.type && f.type.startsWith("image/"))
-      ),
-      isPdf: Boolean(
+    return currentProof.files.map((f, idx) => {
+      const rawUrl = f.url || f.dataUrl || "";
+      const resolved = resolveMediaUrl(rawUrl);
+      const isPdf = Boolean(
         f.isPdf ||
-          (f.dataUrl && f.dataUrl.startsWith("data:application/pdf")) ||
-          (f.name && f.name.toLowerCase().endsWith(".pdf"))
-      ),
-    }));
+          (rawUrl && rawUrl.startsWith("data:application/pdf")) ||
+          (f.name && f.name.toLowerCase().endsWith(".pdf")) ||
+          (rawUrl && rawUrl.toLowerCase().endsWith(".pdf"))
+      );
+      const isImage = Boolean(
+        !isPdf &&
+          (f.isImage ||
+            (rawUrl && rawUrl.startsWith("data:image/")) ||
+            (f.type && f.type.startsWith("image/")) ||
+            /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(f.name || "") ||
+            /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(rawUrl))
+      );
+
+      return {
+        id: f.id || `file-${idx}`,
+        name: f.name || `Attachment ${idx + 1}`,
+        size: f.size || 0,
+        formattedSize:
+          f.formattedSize ||
+          (f.size ? `${Math.round(f.size / 1024)} KB` : ""),
+        type: f.type || "",
+        dataUrl: resolved,
+        url: resolved,
+        isImage,
+        isPdf,
+      };
+    });
   }
 
   // 2. Parse from textExplanation if notes contain [Attached Proof Documents (N)] manifest (legacy)
@@ -109,14 +142,16 @@ function extractProofFiles(currentProof) {
 
   // 3. Fallback: single photoUrl
   if (currentProof.photoUrl) {
+    const resolved = resolveMediaUrl(currentProof.photoUrl);
     const isPdf =
-      currentProof.photoUrl.startsWith("data:application/pdf") ||
-      currentProof.photoUrl.toLowerCase().endsWith(".pdf");
+      resolved.startsWith("data:application/pdf") ||
+      resolved.toLowerCase().endsWith(".pdf");
     return [
       {
         id: "single-proof",
         name: isPdf ? "Document Evidence.pdf" : "Photo Evidence",
-        dataUrl: currentProof.photoUrl,
+        dataUrl: resolved,
+        url: resolved,
         isImage: !isPdf,
         isPdf,
       },
@@ -277,9 +312,9 @@ export default function EvidenceLightbox({
     item.blockedDomains
   );
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md select-none animate-in fade-in duration-200"
+      className="fixed inset-0 z-[9999] flex flex-col bg-black/95 backdrop-blur-md select-none animate-in fade-in duration-200"
       onMouseUp={handleMouseUp}
     >
       {/* ============================================================
@@ -544,13 +579,19 @@ export default function EvidenceLightbox({
                   )}
                 </div>
 
-                {/* PDF Embedded Frame */}
+                {/* PDF Embedded Frame with Object + iframe fallback */}
                 {activeFile.dataUrl ? (
-                  <iframe
-                    src={activeFile.dataUrl}
-                    title={activeFile.name}
+                  <object
+                    data={activeFile.dataUrl}
+                    type="application/pdf"
                     className="h-[68vh] w-full border-0 bg-white"
-                  />
+                  >
+                    <iframe
+                      src={activeFile.dataUrl}
+                      title={activeFile.name}
+                      className="h-full w-full border-0 bg-white"
+                    />
+                  </object>
                 ) : (
                   <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-neutral-400">
                     <FileText size={48} className="text-rose-400/80" />
@@ -801,6 +842,7 @@ export default function EvidenceLightbox({
           </div>
         </aside>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
