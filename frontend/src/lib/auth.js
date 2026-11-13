@@ -1,4 +1,4 @@
-import { notifyExtensionSync } from "./extensionSync";
+import { notifyExtensionSync } from "./extensionSync.js";
 
 export function getToken() {
   return localStorage.getItem("token");
