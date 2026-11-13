@@ -10,6 +10,7 @@ type Proof struct {
 	ProofType       string `dynamodbav:"ProofType" json:"proofType"`
 	TextExplanation string `dynamodbav:"TextExplanation,omitempty" json:"textExplanation,omitempty"`
 	ExternalLink    string `dynamodbav:"ExternalLink,omitempty" json:"externalLink,omitempty"`
-	PhotoURL        string `dynamodbav:"PhotoURL,omitempty" json:"photoUrl,omitempty"`
-	SubmittedAt     string `dynamodbav:"SubmittedAt" json:"submittedAt"`
+	PhotoURL        string      `dynamodbav:"PhotoURL,omitempty" json:"photoUrl,omitempty"`
+	Files           interface{} `dynamodbav:"Files,omitempty" json:"files,omitempty"`
+	SubmittedAt     string      `dynamodbav:"SubmittedAt" json:"submittedAt"`
 }

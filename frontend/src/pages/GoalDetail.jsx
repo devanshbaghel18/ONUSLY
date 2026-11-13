@@ -149,6 +149,9 @@ export default function GoalDetail() {
       if (String(payload.goalId) === String(id)) {
         console.log("[GoalDetail] Real-time goal unlock received:", payload);
 
+        // Instantly notify extension to sync blocklist so sites unlock immediately
+        notifyExtensionSync();
+
         // 1. Instantly flip the goal status to "completed" in local state
         setGoal((prev) => (prev ? { ...prev, status: "completed" } : prev));
 
@@ -179,7 +182,28 @@ export default function GoalDetail() {
           .catch(() => {});
       }
     }
+
+    if (event?.type === "goal.rejected") {
+      const payload = event.payload || {};
+      if (String(payload.goalId) === String(id)) {
+        console.log("[GoalDetail] Real-time goal rejection received:", payload);
+        notifyExtensionSync();
+        setGoal((prev) => (prev ? { ...prev, status: "rejected" } : prev));
+        getProofs(id, ownerIdParam)
+          .then((fresh) => {
+            if (fresh) setProofs(fresh);
+          })
+          .catch(() => {});
+      }
+    }
   });
+
+  // When goal status is completed on load, ensure extension blocklist is in sync
+  useEffect(() => {
+    if (goal && goal.status === "completed") {
+      notifyExtensionSync();
+    }
+  }, [goal?.status]);
 
   // Share for Verification Modal State
   const [showShareModal, setShowShareModal] = useState(false);
@@ -735,17 +759,6 @@ export default function GoalDetail() {
                       </span>
                     )}
 
-                    {isOwner && goal.status !== "completed" && (
-                      <button
-                        type="button"
-                        onClick={openShareModal}
-                        className="btn-premium flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-xs font-bold text-black hover:bg-neutral-100 transition shadow-sm"
-                      >
-                        <Share2 size={14} />
-                        <span>Share for Verification</span>
-                      </button>
-                    )}
-
                     {isOwner && !isEditingGoal && (
                       <button
                         type="button"
@@ -978,64 +991,6 @@ export default function GoalDetail() {
                     );
                   })()}
                 </div>
-
-                {/* How to Unlock via Chat Card (Owner vs Approver) */}
-                {isOwner ? (
-                  <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <MessageSquare size={16} className="text-white" />
-                        <h4 className="text-sm font-bold text-white">
-                          Verify & Unlock via Chat
-                        </h4>
-                      </div>
-                      <p className="text-xs text-[#A3A3A3] leading-relaxed max-w-lg">
-                        Submit proof directly in Community or Friend chat using the <strong className="text-white">+</strong> button. Once verified, this goal unlocks automatically in real time.
-                      </p>
-                    </div>
-
-                    {goal.status !== "completed" ? (
-                      <button
-                        type="button"
-                        onClick={openShareModal}
-                        className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shrink-0"
-                      >
-                        <Share2 size={13} />
-                        <span>Share for Verification in Chat</span>
-                      </button>
-                    ) : (
-                      <Link
-                        to="/community-friends"
-                        className="inline-flex items-center gap-2 rounded-xl bg-[#292929] border border-[#444] px-5 py-2.5 text-xs font-semibold text-white hover:border-white transition shrink-0"
-                      >
-                        <span>Open Community & Friends Chat</span>
-                        <ExternalLink size={13} />
-                      </Link>
-                    )}
-                  </div>
-                ) : (
-                  <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck size={16} className="text-white" />
-                        <h4 className="text-sm font-bold text-white">
-                          Accountability Review Mode
-                        </h4>
-                      </div>
-                      <p className="text-xs text-[#A3A3A3] leading-relaxed max-w-lg">
-                        You are reviewing this goal as the designated accountability partner. Check the distraction shield and inspect the proof submissions below.
-                      </p>
-                    </div>
-
-                    <Link
-                      to="/community-friends"
-                      className="inline-flex items-center gap-2 rounded-xl bg-[#292929] border border-[#444] px-5 py-2.5 text-xs font-semibold text-white hover:border-white transition shrink-0"
-                    >
-                      <span>Chat with Partner</span>
-                      <ExternalLink size={13} />
-                    </Link>
-                  </div>
-                )}
               </div>
 
               {/* =====================================================
@@ -1054,17 +1009,6 @@ export default function GoalDetail() {
                       </p>
                     </div>
                   </div>
-
-                  {(goal.status === "active" || goal.status === "rejected") && isOwner && (
-                    <button
-                      type="button"
-                      onClick={openShareModal}
-                      className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-sm active:scale-95"
-                    >
-                      <Send size={13} />
-                      <span>Share Proof in Community / Friend Chat</span>
-                    </button>
-                  )}
                 </div>
 
                 {decisionSuccess && (
@@ -1254,14 +1198,26 @@ export default function GoalDetail() {
                               <span>Approved and unlocked! Constraints have been released.</span>
                             </div>
                           ) : goal.status === "rejected" ? (
-                            <div className="flex flex-col gap-1 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
+                            <div className="flex flex-col gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
                               <div className="flex items-center gap-2 font-bold">
                                 <AlertCircle size={15} className="text-amber-400 shrink-0" />
                                 <span>Proof Rejected — Restrictions remain active</span>
                               </div>
                               <p className="text-[11px] text-neutral-300 pl-6">
-                                Review your partner's feedback and click "Share for Verification" to submit revised proof.
+                                Review your partner's feedback and submit revised proof to lift constraints.
                               </p>
+                              {isOwner && (
+                                <div className="pl-6 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={openShareModal}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-1.5 text-xs font-bold text-black hover:bg-neutral-200 transition active:scale-95 shadow-sm"
+                                  >
+                                    <Send size={12} />
+                                    <span>Submit Revised Proof</span>
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div className="flex items-center gap-2 text-xs text-neutral-400 bg-neutral-900/60 border border-white/10 rounded-xl p-2.5">

@@ -18,7 +18,7 @@ import { getUser } from "../lib/auth";
 import { getGoals, repeatGoal } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import CreateGoalModal from "../components/CreateGoalModal";
-import ShareProofModal from "../components/ShareProofModal";
+import SubmitProofModal from "../components/approvals/SubmitProofModal";
 import ConnectExtension from "../components/ConnectExtension";
 import DeviceCoverageSection from "../components/DeviceCoverageSection";
 import { notifyExtensionSync } from "../lib/extensionSync";
@@ -661,14 +661,19 @@ export default function Dashboard() {
                             <CheckCircle2 size={13} />
                             Approved
                           </span>
+                        ) : g.status === "proof_submitted" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                            In Review
+                          </span>
                         ) : (
                           <button
                             type="button"
                             onClick={() => setShareGoal(g)}
                             className="btn-premium inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white hover:bg-white/10 hover:border-white/30 transition"
-                            title="Share proof for verification in chat"
+                            title={g.status === "rejected" ? "Resubmit revised verification proof" : "Submit proof for verification"}
                           >
-                            <span>Share Proof in Chat</span>
+                            <span>{g.status === "rejected" ? "Resubmit Proof" : "Submit Proof"}</span>
                             <span aria-hidden="true">↗</span>
                           </button>
                         )}
@@ -690,17 +695,18 @@ export default function Dashboard() {
           }}
         />
 
-        {/* Modal Popup for Sharing Goal Proof / Verification Request */}
-        <ShareProofModal
+        {/* Modal Popup for Submitting Goal Proof / Verification Request */}
+        <SubmitProofModal
           isOpen={Boolean(shareGoal)}
           onClose={() => setShareGoal(null)}
           goal={shareGoal}
-          onSuccess={(updatedGoal) => {
+          onSuccess={(newProof) => {
             setGoals((prev) =>
               prev.map((g) =>
-                g.id === updatedGoal.id ? { ...g, ...updatedGoal } : g
+                g.id === shareGoal.id ? { ...g, status: "proof_submitted" } : g
               )
             );
+            setShareGoal(null);
           }}
           send={send}
         />

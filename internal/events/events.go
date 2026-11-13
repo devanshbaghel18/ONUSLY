@@ -9,13 +9,14 @@ import (
 
 // ProofSubmittedEvent represents a domain event emitted after a proof is persisted to DynamoDB.
 type ProofSubmittedEvent struct {
-	EventID     string    `json:"eventId"`
-	GoalID      string    `json:"goalId"`
-	ProofID     string    `json:"proofId"`
-	OwnerID     string    `json:"ownerId"`
-	ApproverID  string    `json:"approverId"`
-	Title       string    `json:"title"`
-	SubmittedAt time.Time `json:"submittedAt"`
+	EventID     string      `json:"eventId"`
+	GoalID      string      `json:"goalId"`
+	ProofID     string      `json:"proofId"`
+	OwnerID     string      `json:"ownerId"`
+	ApproverID  string      `json:"approverId"`
+	Title       string      `json:"title"`
+	Files       interface{} `json:"files,omitempty"`
+	SubmittedAt time.Time   `json:"submittedAt"`
 }
 
 // ApprovalDecidedEvent represents a domain event emitted after an approval decision commits to DynamoDB.

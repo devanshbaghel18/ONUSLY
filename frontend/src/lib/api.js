@@ -165,7 +165,7 @@ export async function getBlocklist() {
   });
 }
 
-export async function submitProof(goalId, { proofType = "text", textExplanation = "", externalLink = "", photoUrl = "" } = {}) {
+export async function submitProof(goalId, { proofType = "text", textExplanation = "", externalLink = "", photoUrl = "", files = null } = {}) {
   return request(`/goals/${encodeURIComponent(goalId)}/proofs`, {
     method: "POST",
     body: JSON.stringify({
@@ -173,6 +173,7 @@ export async function submitProof(goalId, { proofType = "text", textExplanation 
       textExplanation,
       externalLink,
       photoUrl,
+      files,
     }),
   });
 }

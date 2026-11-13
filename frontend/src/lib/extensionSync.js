@@ -11,8 +11,8 @@ export function notifyExtensionSync() {
   const targetApiUrl =
     API_BASE_URL ||
     (typeof window !== "undefined" && window.location
-      ? `${window.location.protocol}//${window.location.hostname}:8081`
-      : "http://localhost:8081");
+      ? `${window.location.protocol}//${window.location.hostname}:8080`
+      : "http://localhost:8080");
 
   const token =
     localStorage.getItem("token") ||

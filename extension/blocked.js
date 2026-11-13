@@ -49,16 +49,34 @@ async function renderBlockState() {
     const testUrl = originalUrl || `https://${targetDomain}/`;
     const evaluation = evaluateUrl(testUrl, cache);
 
-    // If no longer blocked (e.g. goal approved or unblocked), display unlocked state with navigation option
-    if (!evaluation.isBlocked) {
+    // Only consider restrictions lifted if we have a valid, confirmed cache sync from backend
+    if (cache && cache.lastSyncTimestamp && !evaluation.isBlocked) {
       statusCard.className = "status-card";
       statusCard.style.borderColor = "#10B981";
       statusCard.style.background = "rgba(16, 185, 129, 0.1)";
       statusHeader.style.color = "#34D399";
       statusHeader.textContent = "RESTRICTIONS LIFTED";
-      instructionText.textContent = "All accountability locks for this site have been released!";
+      instructionText.textContent = "Goal approved! Restrictions released. Redirecting you...";
       goalList.innerHTML = "<li style='color: #A7F3D0;'>All goals completed and verified.</li>";
       btnCheckText.textContent = "Continue to Website →";
+
+      let destination = dashboardUrl;
+      if (
+        originalUrl &&
+        !originalUrl.startsWith("chrome-extension://") &&
+        !originalUrl.startsWith("moz-extension://")
+      ) {
+        destination = originalUrl;
+      } else if (
+        targetDomain &&
+        !targetDomain.includes(" ") &&
+        targetDomain !== "Restricted Website"
+      ) {
+        destination = `https://${targetDomain}/`;
+      }
+      setTimeout(() => {
+        window.location.replace(destination);
+      }, 500);
       return;
     }
 
@@ -215,7 +233,7 @@ async function init() {
 
 init();
 
-// Auto-check ticker every 5 seconds: actively checks with backend for approved goals
+// Auto-check ticker every 3 seconds: actively checks with backend for approved goals
 setInterval(async () => {
   try {
     await chrome.runtime.sendMessage({ type: "SYNC_NOW" });
@@ -223,4 +241,4 @@ setInterval(async () => {
   } catch {
     // Ignore background auto-sync network errors
   }
-}, 5000);
+}, 3000);

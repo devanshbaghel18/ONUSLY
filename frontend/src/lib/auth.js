@@ -1,3 +1,5 @@
+import { notifyExtensionSync } from "./extensionSync";
+
 export function getToken() {
   return localStorage.getItem("token");
 }
@@ -63,6 +65,10 @@ export function setAuth(token, user) {
     localStorage.setItem("user", userStr);
     localStorage.setItem("onusly_user", userStr);
   }
+  // Immediately sync extension when user authenticates
+  try {
+    notifyExtensionSync();
+  } catch {}
 }
 
 let authCleanupHandlers = new Set();
@@ -83,7 +89,7 @@ export function clearAuth() {
   try {
     const baseUrl =
       (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
-      (typeof window !== "undefined" && window.location ? `${window.location.protocol}//${window.location.hostname}:8081` : "http://localhost:8081");
+      (typeof window !== "undefined" && window.location ? `${window.location.protocol}//${window.location.hostname}:8080` : "http://localhost:8080");
     fetch(`${baseUrl}/auth/logout`, {
       method: "POST",
       credentials: "include",

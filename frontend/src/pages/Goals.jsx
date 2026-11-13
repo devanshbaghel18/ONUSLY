@@ -118,8 +118,18 @@ export default function Goals() {
       setGoals((prev) =>
         prev.map((g) => (g.id === payload.goalId ? { ...g, status: "completed" } : g))
       );
+      notifyExtensionSync();
       setSuccessNotice(`🎉 Real-time: "${payload.title || "Goal"}" was approved and unlocked!`);
       setTimeout(() => setSuccessNotice(""), 6000);
+      getGoals().then((data) => setGoals(data)).catch(() => {});
+    }
+
+    if (event?.type === "goal.rejected") {
+      const payload = event.payload || {};
+      setGoals((prev) =>
+        prev.map((g) => (g.id === payload.goalId ? { ...g, status: "rejected" } : g))
+      );
+      notifyExtensionSync();
       getGoals().then((data) => setGoals(data)).catch(() => {});
     }
   });

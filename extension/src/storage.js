@@ -199,8 +199,8 @@ export function createStorage(customAdapter = null) {
     async getSettings() {
       const data = await adapter.get([KEY_SETTINGS]);
       const settings = data[KEY_SETTINGS] || {};
-      if (!settings.baseUrl || settings.baseUrl === "http://localhost:8080") {
-        settings.baseUrl = "http://localhost:8081";
+      if (!settings.baseUrl || settings.baseUrl.includes("8081")) {
+        settings.baseUrl = "http://localhost:8080";
       }
       if (!settings.dashboardUrl) {
         settings.dashboardUrl = "http://localhost:5173";

@@ -59,6 +59,19 @@ func (s *Service) Submit(
 	externalLink string,
 	photoURL string,
 ) (*Proof, error) {
+	return s.SubmitWithFiles(ctx, ownerID, goalID, proofType, textExplanation, externalLink, photoURL, nil)
+}
+
+func (s *Service) SubmitWithFiles(
+	ctx context.Context,
+	ownerID string,
+	goalID string,
+	proofType string,
+	textExplanation string,
+	externalLink string,
+	photoURL string,
+	files interface{},
+) (*Proof, error) {
 
 	if strings.TrimSpace(ownerID) == "" {
 		return nil, ErrInvalidProof
@@ -170,6 +183,7 @@ func (s *Service) Submit(
 		TextExplanation: strings.TrimSpace(textExplanation),
 		ExternalLink:    strings.TrimSpace(externalLink),
 		PhotoURL:        strings.TrimSpace(photoURL),
+		Files:           files,
 		SubmittedAt:     now,
 	}
 
@@ -194,6 +208,7 @@ func (s *Service) Submit(
 			OwnerID:     p.OwnerID,
 			ApproverID:  goal.ApproverID,
 			Title:       goal.Title,
+			Files:       files,
 			SubmittedAt: submittedTime,
 		}
 		_ = s.publisher.PublishProofSubmitted(ctx, event)
