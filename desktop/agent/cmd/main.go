@@ -43,9 +43,10 @@ func main() {
 	var appsSubArgs []string
 	var updateSubArgs []string
 	var supportSubArgs []string
+	var policySubArgs []string
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
-		if !strings.HasPrefix(arg, "-") && (arg == "run" || arg == "pair" || arg == "status" || arg == "diagnostics" || arg == "daemon" || arg == "service" || arg == "dns" || arg == "apps" || arg == "version" || arg == "update" || arg == "support") {
+		if !strings.HasPrefix(arg, "-") && (arg == "run" || arg == "pair" || arg == "status" || arg == "diagnostics" || arg == "daemon" || arg == "service" || arg == "dns" || arg == "apps" || arg == "version" || arg == "update" || arg == "support" || arg == "policy") {
 			cmd = arg
 			if arg == "service" && i+1 < len(os.Args) {
 				serviceSubArgs = os.Args[i+1:]
@@ -65,6 +66,10 @@ func main() {
 			}
 			if arg == "support" && i+1 < len(os.Args) {
 				supportSubArgs = os.Args[i+1:]
+				break
+			}
+			if arg == "policy" && i+1 < len(os.Args) {
+				policySubArgs = os.Args[i+1:]
 				break
 			}
 		} else {
@@ -101,6 +106,14 @@ func main() {
 	if cmd == "update" {
 		if err := runUpdateCommand(updateSubArgs, *configDir, *dataDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Update Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if cmd == "policy" {
+		if err := runPolicyCommand(policySubArgs, *configDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Policy Error: %v\n", err)
 			os.Exit(1)
 		}
 		return
