@@ -105,6 +105,12 @@ class ReviewDecisionDialog(
         hideError()
         val comment = etDecisionComment.text.toString().trim()
 
+        val isReject = decisionStatus.equals("rejected", ignoreCase = true)
+        if (isReject && comment.length < 5) {
+            showError("Rejection feedback must be at least 5 characters explaining what needs improvement.")
+            return
+        }
+
         if (comment.length > 2000) {
             showError("Comment cannot exceed 2000 characters.")
             return

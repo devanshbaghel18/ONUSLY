@@ -6,6 +6,7 @@ import com.onusly.app.data.api.OnuslyApiException
 import com.onusly.app.data.auth.AuthManager
 import com.onusly.app.data.model.ApprovalDecisionRequest
 import com.onusly.app.data.model.ApprovalResult
+import com.onusly.app.data.model.ApproverInboxResponse
 import com.onusly.app.data.model.CreateGoalRequest
 import com.onusly.app.data.model.CreateProofRequest
 import com.onusly.app.data.model.Goal
@@ -13,6 +14,7 @@ import com.onusly.app.data.model.Proof
 import com.onusly.app.data.model.PublicProfile
 import com.onusly.app.data.model.SyncResult
 import com.onusly.app.data.model.UpdateGoalRequest
+import com.onusly.app.data.model.UploadedFileItem
 import com.onusly.app.data.model.UserProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -197,6 +199,17 @@ class GoalsRepository(
         return apiClient.getProofs(baseUrl, token, goalId, ownerId)
     }
 
+    suspend fun uploadProofFile(
+        fileName: String,
+        mimeType: String,
+        fileBytes: ByteArray
+    ): Result<UploadedFileItem> {
+        val (baseUrl, token) = getAuth()
+            ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
+
+        return apiClient.uploadProofFile(baseUrl, token, fileName, mimeType, fileBytes)
+    }
+
     suspend fun getApprovals(goalId: String): Result<List<ApprovalResult>> {
         val (baseUrl, token) = getAuth()
             ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
@@ -216,6 +229,13 @@ class GoalsRepository(
                 )
             }
         }
+    }
+
+    suspend fun getApproverInbox(status: String = "pending"): Result<ApproverInboxResponse> {
+        val (baseUrl, token) = getAuth()
+            ?: return Result.failure(OnuslyApiException(401, "User is not signed in"))
+
+        return apiClient.getApproverInbox(baseUrl, token, status)
     }
 
     suspend fun decideApproval(

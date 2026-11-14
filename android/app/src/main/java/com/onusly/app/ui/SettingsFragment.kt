@@ -38,6 +38,11 @@ class SettingsFragment : Fragment() {
     private lateinit var tvAccessibilityDiagnostics: TextView
     private lateinit var btnSettingsAccessibility: MaterialButton
 
+    private lateinit var cardSettingsBattery: MaterialCardView
+    private lateinit var tvBatteryOptimizationStatus: TextView
+    private lateinit var tvBatteryOptimizationDiagnostics: TextView
+    private lateinit var btnBatteryOptimization: MaterialButton
+
     private lateinit var btnSettingsSignOut: MaterialButton
 
     override fun onCreateView(
@@ -56,6 +61,7 @@ class SettingsFragment : Fragment() {
         updateProfileUi()
         updateBaseUrlUi()
         updateAccessibilityUi()
+        updateBatteryOptimizationUi()
     }
 
     private fun bindViews(view: View) {
@@ -73,6 +79,11 @@ class SettingsFragment : Fragment() {
         tvAccessibilityDiagnostics = view.findViewById(R.id.tvAccessibilityDiagnostics)
         btnSettingsAccessibility = view.findViewById(R.id.btnSettingsAccessibility)
 
+        cardSettingsBattery = view.findViewById(R.id.cardSettingsBattery)
+        tvBatteryOptimizationStatus = view.findViewById(R.id.tvBatteryOptimizationStatus)
+        tvBatteryOptimizationDiagnostics = view.findViewById(R.id.tvBatteryOptimizationDiagnostics)
+        btnBatteryOptimization = view.findViewById(R.id.btnBatteryOptimization)
+
         btnSettingsSignOut = view.findViewById(R.id.btnSettingsSignOut)
     }
 
@@ -88,6 +99,16 @@ class SettingsFragment : Fragment() {
         btnSettingsAccessibility.setOnClickListener {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
+        }
+
+        btnBatteryOptimization.setOnClickListener {
+            val ctx = context ?: return@setOnClickListener
+            try {
+                val intent = com.onusly.app.engine.AntiTamperManager.createBatteryOptimizationIntent(ctx)
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(ctx, "Could not open battery settings: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
 
         btnSettingsSignOut.setOnClickListener {
@@ -165,6 +186,28 @@ class SettingsFragment : Fragment() {
             cardSettingsAccessibility.strokeColor = ContextCompat.getColor(context, R.color.warning)
             cardSettingsAccessibility.strokeWidth = 2
             tvAccessibilityDiagnostics.text = "Enforcement is currently paused. Android requires users to manually enable Accessibility Services in System Settings.\n\nTap below to open Accessibility Settings, find ONUSLY, and switch it ON.\n\nNote: If Android 13+ restricts settings, open App Info > ⋮ (menu) > 'Allow restricted settings'."
+        }
+    }
+
+    private fun updateBatteryOptimizationUi() {
+        val context = context ?: return
+        val isIgnored = com.onusly.app.engine.AntiTamperManager.isIgnoringBatteryOptimizations(context)
+        if (isIgnored) {
+            tvBatteryOptimizationStatus.text = "UNRESTRICTED"
+            tvBatteryOptimizationStatus.setTextColor(ContextCompat.getColor(context, R.color.success))
+            cardSettingsBattery.strokeColor = ContextCompat.getColor(context, R.color.success)
+            cardSettingsBattery.strokeWidth = 2
+            tvBatteryOptimizationDiagnostics.text = "App is exempt from system battery optimization. Periodic background checks and anti-tamper telemetry run reliably without being suspended."
+            btnBatteryOptimization.text = "Battery Optimization Configured"
+            btnBatteryOptimization.isEnabled = false
+        } else {
+            tvBatteryOptimizationStatus.text = "RESTRICTED"
+            tvBatteryOptimizationStatus.setTextColor(ContextCompat.getColor(context, R.color.warning))
+            cardSettingsBattery.strokeColor = ContextCompat.getColor(context, R.color.warning)
+            cardSettingsBattery.strokeWidth = 2
+            tvBatteryOptimizationDiagnostics.text = "Battery saver or power management may kill background enforcement and delay heartbeat telemetry.\n\nTap below to request Unrestricted battery usage."
+            btnBatteryOptimization.text = "Request Unrestricted Battery Access"
+            btnBatteryOptimization.isEnabled = true
         }
     }
 

@@ -7,6 +7,7 @@ import com.onusly.app.data.auth.AuthManager
 import com.onusly.app.data.cache.BlocklistCache
 import com.onusly.app.data.cache.SharedPreferencesBlocklistCache
 import com.onusly.app.data.model.CachedBlocklist
+import com.onusly.app.data.model.HeartbeatResult
 import com.onusly.app.data.model.SyncResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -96,6 +97,10 @@ class SyncRepository(
         _cachedBlocklistFlow.value = getActiveCache()
     }
 
+    fun getDeviceId(): String {
+        return getOrCreateDeviceId()
+    }
+
     private fun getOrCreateDeviceId(): String {
         val existing = settingsPrefs.getString("device_id", null)
         if (!existing.isNullOrBlank()) {
@@ -145,7 +150,7 @@ class SyncRepository(
                     onUserSignOut()
                 } else if (result.statusCode == 403 && (result.message.contains("device_revoked", ignoreCase = true) || result.message.contains("DEVICE_REVOKED", ignoreCase = true) || result.message.contains("revoked", ignoreCase = true))) {
                     // Remote device revocation: deactivate local enforcement, clear cache and credentials
-                    onUserSignOut()
+                    onDeviceRevoked()
                 } else {
                     // Keep existing cache
                     refreshFlowFromCache()
@@ -156,12 +161,14 @@ class SyncRepository(
         return result
     }
 
-    suspend fun sendHeartbeat(issues: List<String> = emptyList()): Boolean {
-        val session = authManager.getSession() ?: return false
-        if (session.jwtToken.isBlank() || session.userId.isBlank()) return false
+    suspend fun sendHeartbeat(issues: List<String> = emptyList()): HeartbeatResult {
+        val session = authManager.getSession() ?: return HeartbeatResult.Error(401, "User is not signed in")
+        if (session.jwtToken.isBlank() || session.userId.isBlank()) {
+            return HeartbeatResult.Error(401, "Invalid session")
+        }
         val cache = getActiveCache()
         val isEnforcing = cache != null && cache.targets.isNotEmpty() && issues.isEmpty()
-        return apiClient.sendHeartbeat(
+        val result = apiClient.sendHeartbeat(
             baseUrl = getBaseUrl(),
             jwtToken = session.jwtToken,
             deviceId = getOrCreateDeviceId(),
@@ -169,6 +176,16 @@ class SyncRepository(
             blocklistVersion = cache?.version ?: "",
             issues = issues
         )
+
+        if (result is HeartbeatResult.DeviceRevoked) {
+            onDeviceRevoked()
+        }
+
+        return result
+    }
+
+    fun onDeviceRevoked() {
+        onUserSignOut()
     }
 
     fun notifySessionExpiration() {

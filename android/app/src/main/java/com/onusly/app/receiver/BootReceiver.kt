@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.onusly.app.OnuslyApplication
+import com.onusly.app.service.EnforcementSyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -12,11 +13,19 @@ import kotlinx.coroutines.withTimeoutOrNull
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action != Intent.ACTION_BOOT_COMPLETED) {
+        val action = intent?.action ?: return
+        val isRecognizedAction = action == Intent.ACTION_BOOT_COMPLETED ||
+                action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+                action == "android.intent.action.QUICKBOOT_POWERON" ||
+                action == "com.htc.intent.action.QUICKBOOT_POWERON"
+
+        if (!isRecognizedAction) {
             return
         }
 
-        Log.d(TAG, "Device boot completed received. Initializing background sync.")
+        Log.d(TAG, "Device lifecycle event received: $action. Ensuring periodic sync is scheduled.")
+        // Ensure background JobScheduler task persists and is registered
+        EnforcementSyncScheduler.schedule(context)
 
         val pendingResult = goAsync()
         val app = (context.applicationContext as? OnuslyApplication)

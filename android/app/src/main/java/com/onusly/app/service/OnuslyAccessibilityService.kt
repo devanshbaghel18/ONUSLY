@@ -80,6 +80,15 @@ class OnuslyAccessibilityService : AccessibilityService() {
             }
         }
 
+        // Send an immediate heartbeat on connection so live dashboard flips green immediately
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val app = application as? OnuslyApplication
+                app?.syncRepository?.sendHeartbeat(issues = emptyList())
+            } catch (_: Exception) {
+            }
+        }
+
         // Start periodic sync every 60 seconds while service is running
         periodicSyncJob = serviceScope.launch(Dispatchers.IO) {
             while (isActive) {
@@ -87,6 +96,7 @@ class OnuslyAccessibilityService : AccessibilityService() {
                 try {
                     val app = application as? OnuslyApplication
                     app?.syncRepository?.syncBlocklist()
+                    app?.syncRepository?.sendHeartbeat(issues = emptyList())
                 } catch (_: Exception) {
                 }
             }
@@ -233,5 +243,16 @@ class OnuslyAccessibilityService : AccessibilityService() {
         cachedBlocklist = null
         periodicSyncJob?.cancel()
         serviceScope.cancel()
+
+        try {
+            val app = application as? OnuslyApplication
+            app?.applicationScope?.launch(Dispatchers.IO) {
+                try {
+                    app.syncRepository.sendHeartbeat(issues = listOf("accessibility_disabled"))
+                } catch (_: Exception) {
+                }
+            }
+        } catch (_: Exception) {
+        }
     }
 }

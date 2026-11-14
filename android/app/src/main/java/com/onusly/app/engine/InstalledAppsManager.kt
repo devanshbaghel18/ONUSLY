@@ -2,7 +2,10 @@ package com.onusly.app.engine
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import com.onusly.app.data.model.AppCategory
 import com.onusly.app.data.model.InstalledAppInfo
+import com.onusly.app.data.model.TargetCatalog
 
 object InstalledAppsManager {
 
@@ -95,6 +98,49 @@ object InstalledAppsManager {
                 lower.contains("safetyhub")
     }
 
+    fun resolveCategory(packageName: String, label: String = ""): AppCategory {
+        val cleanPkg = packageName.trim().lowercase()
+        val cleanLabel = label.trim().lowercase()
+
+        // 1. Social
+        if (cleanPkg.contains("instagram") || cleanPkg.contains("twitter") || cleanPkg.contains("tiktok") ||
+            cleanPkg.contains("musically") || cleanPkg.contains("snapchat") || cleanPkg.contains("facebook") ||
+            cleanPkg.contains("katana") || cleanPkg.contains("reddit") || cleanPkg.contains("pinterest") ||
+            cleanPkg.contains("linkedin") || cleanLabel.contains("instagram") || cleanLabel.contains("twitter") ||
+            cleanLabel.contains("tiktok") || cleanLabel.contains("snapchat") || cleanLabel.contains("reddit")
+        ) {
+            return AppCategory.SOCIAL
+        }
+
+        // 2. Entertainment / Streaming
+        if (cleanPkg.contains("youtube") || cleanPkg.contains("netflix") || cleanPkg.contains("twitch") ||
+            cleanPkg.contains("spotify") || cleanPkg.contains("disney") || cleanPkg.contains("hulu") ||
+            cleanPkg.contains("primevideo") || cleanPkg.contains("hotstar") || cleanLabel.contains("youtube") ||
+            cleanLabel.contains("netflix") || cleanLabel.contains("twitch") || cleanLabel.contains("spotify")
+        ) {
+            return AppCategory.ENTERTAINMENT
+        }
+
+        // 3. Messaging
+        if (cleanPkg.contains("whatsapp") || cleanPkg.contains("discord") || cleanPkg.contains("telegram") ||
+            cleanPkg.contains("messenger") || cleanPkg.contains("signal") || cleanPkg.contains("orca") ||
+            cleanLabel.contains("whatsapp") || cleanLabel.contains("discord") || cleanLabel.contains("telegram")
+        ) {
+            return AppCategory.MESSAGING
+        }
+
+        // 4. Gaming
+        if (cleanPkg.contains("roblox") || cleanPkg.contains("pubg") || cleanPkg.contains("game") ||
+            cleanPkg.contains("clash") || cleanPkg.contains("minecraft") || cleanPkg.contains("candycrush") ||
+            cleanPkg.contains("supercell") || cleanPkg.contains("riotgames") || cleanPkg.contains("epicgames") ||
+            cleanLabel.contains("game") || cleanLabel.contains("roblox") || cleanLabel.contains("pubg")
+        ) {
+            return AppCategory.GAMING
+        }
+
+        return AppCategory.OTHER
+    }
+
     fun getInstalledApps(context: Context): List<InstalledAppInfo> {
         val pm = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -128,21 +174,58 @@ object InstalledAppsManager {
                 null
             }
 
-            apps.add(InstalledAppInfo(packageName = pkg, label = label, icon = icon))
+            val appInfo = try {
+                info.activityInfo?.applicationInfo
+            } catch (_: Exception) {
+                null
+            }
+
+            var resolvedCat = resolveCategory(pkg, label)
+            if (resolvedCat == AppCategory.OTHER && appInfo != null) {
+                resolvedCat = when (appInfo.category) {
+                    ApplicationInfo.CATEGORY_GAME -> AppCategory.GAMING
+                    ApplicationInfo.CATEGORY_SOCIAL -> AppCategory.SOCIAL
+                    ApplicationInfo.CATEGORY_VIDEO,
+                    ApplicationInfo.CATEGORY_AUDIO -> AppCategory.ENTERTAINMENT
+                    else -> AppCategory.OTHER
+                }
+            }
+
+            apps.add(InstalledAppInfo(packageName = pkg, label = label, icon = icon, category = resolvedCat))
         }
 
         return apps.sortedBy { it.label.lowercase() }
     }
 
+    fun getCatalogApps(): List<InstalledAppInfo> {
+        return TargetCatalog.ENTRIES.map { entry ->
+            val primaryPkg = entry.packageNames.firstOrNull() ?: entry.name.lowercase()
+            InstalledAppInfo(
+                packageName = primaryPkg,
+                label = entry.name,
+                icon = null,
+                category = resolveCategory(primaryPkg, entry.name)
+            )
+        }
+    }
+
     fun filterApps(
         apps: List<InstalledAppInfo>,
-        query: String?
+        query: String?,
+        category: AppCategory = AppCategory.ALL
     ): List<InstalledAppInfo> {
-        if (query.isNullOrBlank()) return apps
+        val matchesCategory = if (category == AppCategory.ALL) {
+            apps
+        } else {
+            apps.filter { it.category == category }
+        }
+
+        if (query.isNullOrBlank()) return matchesCategory
         val cleanQuery = query.trim().lowercase()
-        return apps.filter {
+        return matchesCategory.filter {
             it.label.lowercase().contains(cleanQuery) ||
-            it.packageName.lowercase().contains(cleanQuery)
+            it.packageName.lowercase().contains(cleanQuery) ||
+            it.category.title.lowercase().contains(cleanQuery)
         }
     }
 }

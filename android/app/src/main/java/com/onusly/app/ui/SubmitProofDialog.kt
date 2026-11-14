@@ -2,10 +2,13 @@ package com.onusly.app.ui
 
 import android.app.Dialog
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -44,6 +47,10 @@ class SubmitProofDialog(
     private lateinit var layoutProofPhoto: View
     private lateinit var etProofPhotoUrl: EditText
     private lateinit var btnPickPhotoGallery: TextView
+    private lateinit var layoutPhotoUploadProgress: View
+    private lateinit var pbPhotoUpload: ProgressBar
+    private lateinit var tvPhotoUploadStatus: TextView
+    private lateinit var ivProofPhotoPreview: ImageView
     private lateinit var tvExplanationLabel: TextView
     private lateinit var etProofExplanation: EditText
     private lateinit var pbSubmitProof: ProgressBar
@@ -79,6 +86,10 @@ class SubmitProofDialog(
         layoutProofPhoto = view.findViewById(R.id.layoutProofPhoto)
         etProofPhotoUrl = view.findViewById(R.id.etProofPhotoUrl)
         btnPickPhotoGallery = view.findViewById(R.id.btnPickPhotoGallery)
+        layoutPhotoUploadProgress = view.findViewById(R.id.layoutPhotoUploadProgress)
+        pbPhotoUpload = view.findViewById(R.id.pbPhotoUpload)
+        tvPhotoUploadStatus = view.findViewById(R.id.tvPhotoUploadStatus)
+        ivProofPhotoPreview = view.findViewById(R.id.ivProofPhotoPreview)
         tvExplanationLabel = view.findViewById(R.id.tvExplanationLabel)
         etProofExplanation = view.findViewById(R.id.etProofExplanation)
         pbSubmitProof = view.findViewById(R.id.pbSubmitProof)
@@ -102,7 +113,7 @@ class SubmitProofDialog(
 
         btnPickPhotoGallery.setOnClickListener {
             (context as? MainActivity)?.pickProofImage { uri ->
-                etProofPhotoUrl.setText(uri.toString())
+                handleSelectedImage(uri)
             }
         }
 
@@ -112,6 +123,64 @@ class SubmitProofDialog(
 
         btnConfirmSubmitProof.setOnClickListener {
             validateAndSubmit()
+        }
+    }
+
+    private fun getFileNameFromUri(context: Context, uri: Uri): String? {
+        if (uri.scheme == "content") {
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1 && cursor.moveToFirst()) {
+                        return cursor.getString(nameIndex)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return uri.path?.let { p ->
+            val cut = p.lastIndexOf('/')
+            if (cut != -1) p.substring(cut + 1) else p
+        }
+    }
+
+    private fun handleSelectedImage(uri: Uri) {
+        hideError()
+        layoutPhotoUploadProgress.visibility = View.VISIBLE
+        pbPhotoUpload.visibility = View.VISIBLE
+        tvPhotoUploadStatus.text = "Uploading evidence to server..."
+        ivProofPhotoPreview.visibility = View.VISIBLE
+        ivProofPhotoPreview.setImageURI(uri)
+
+        scope.launch(Dispatchers.IO) {
+            val fileName = getFileNameFromUri(context, uri) ?: "evidence_${System.currentTimeMillis()}.jpg"
+            val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+            val bytes = try {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            } catch (e: Exception) {
+                null
+            }
+
+            withContext(Dispatchers.Main) {
+                if (bytes == null || bytes.isEmpty()) {
+                    layoutPhotoUploadProgress.visibility = View.GONE
+                    showError("Could not read selected photo file.")
+                    return@withContext
+                }
+
+                val uploadResult = withContext(Dispatchers.IO) {
+                    goalsRepository.uploadProofFile(fileName, mimeType, bytes)
+                }
+
+                uploadResult.onSuccess { uploadedItem ->
+                    etProofPhotoUrl.setText(uploadedItem.url)
+                    layoutPhotoUploadProgress.visibility = View.VISIBLE
+                    pbPhotoUpload.visibility = View.GONE
+                    tvPhotoUploadStatus.text = "Uploaded: ${uploadedItem.name} (${uploadedItem.formattedSize})"
+                }.onFailure { err ->
+                    layoutPhotoUploadProgress.visibility = View.GONE
+                    showError("Upload failed: ${err.message}. You may also paste an external URL.")
+                }
+            }
         }
     }
 
@@ -236,6 +305,9 @@ class SubmitProofDialog(
     companion object {
         fun isValidUrl(url: String): Boolean {
             val trimmed = url.trim()
+            if (trimmed.startsWith("/uploads/", ignoreCase = true)) {
+                return true
+            }
             if (trimmed.startsWith("content://", ignoreCase = true) || trimmed.startsWith("file://", ignoreCase = true)) {
                 return true
             }

@@ -112,7 +112,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Photo URL"
+                android:text="Photo / File"
                 android:textColor="@color/text_primary"
                 android:textSize="13sp" />
         </RadioGroup>
@@ -196,7 +196,42 @@
                 android:textColorHint="@color/text_muted"
                 android:textSize="13sp"
                 android:inputType="textUri"
-                android:hint="https://images.example.com/screenshot.png" />
+                android:hint="https://... or select photo from gallery" />
+
+            <LinearLayout
+                android:id="@+id/layoutPhotoUploadProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="6dp"
+                android:visibility="gone">
+
+                <ProgressBar
+                    android:id="@+id/pbPhotoUpload"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:indeterminate="true" />
+
+                <TextView
+                    android:id="@+id/tvPhotoUploadStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="Uploading evidence to server..."
+                    android:textColor="@color/primary"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <ImageView
+                android:id="@+id/ivProofPhotoPreview"
+                android:layout_width="match_parent"
+                android:layout_height="130dp"
+                android:layout_marginTop="8dp"
+                android:scaleType="centerCrop"
+                android:background="@color/surface_card"
+                android:visibility="gone"
+                android:contentDescription="Photo Proof Preview" />
         </LinearLayout>
 
         <!-- Explanation Field -->

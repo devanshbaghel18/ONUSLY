@@ -11,6 +11,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -18,6 +19,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.onusly.app.OnuslyApplication
 import com.onusly.app.R
+import com.onusly.app.data.model.ApproverInboxResponse
 import com.onusly.app.data.model.Goal
 import com.onusly.app.data.model.GoalParser
 import com.onusly.app.data.model.Proof
@@ -39,6 +41,10 @@ class ReviewsFragment : Fragment() {
 
     private lateinit var tvReviewsHeader: TextView
     private lateinit var btnLookupGoal: MaterialButton
+    private lateinit var btnFilterPendingReviews: MaterialButton
+    private lateinit var btnFilterApprovedReviews: MaterialButton
+    private lateinit var btnFilterRejectedReviews: MaterialButton
+    private lateinit var btnFilterAllReviews: MaterialButton
     private lateinit var layoutReviewsOfflineBanner: LinearLayout
     private lateinit var btnRetryReviewsNetwork: MaterialButton
     private lateinit var pbLoadingReviews: ProgressBar
@@ -50,6 +56,7 @@ class ReviewsFragment : Fragment() {
     private val reviewItems = mutableListOf<ReviewItem>()
     private val manuallyLookedUpGoals = mutableListOf<ReviewItem>()
     private var pollJob: Job? = null
+    private var currentFilter: String = "pending"
 
     companion object {
         private const val KEY_MANUALLY_LOOKED_UP_GOALS = "key_manually_looked_up_goals"
@@ -97,7 +104,11 @@ class ReviewsFragment : Fragment() {
 
     data class ReviewItem(
         val goal: Goal,
-        val proof: Proof
+        val proof: Proof,
+        val ownerName: String = "",
+        val ownerHandle: String = "",
+        val ownerEmail: String = "",
+        val proofCount: Int = 1
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -222,6 +233,10 @@ class ReviewsFragment : Fragment() {
     private fun bindViews(view: View) {
         tvReviewsHeader = view.findViewById(R.id.tvReviewsHeader)
         btnLookupGoal = view.findViewById(R.id.btnLookupGoal)
+        btnFilterPendingReviews = view.findViewById(R.id.btnFilterPendingReviews)
+        btnFilterApprovedReviews = view.findViewById(R.id.btnFilterApprovedReviews)
+        btnFilterRejectedReviews = view.findViewById(R.id.btnFilterRejectedReviews)
+        btnFilterAllReviews = view.findViewById(R.id.btnFilterAllReviews)
         layoutReviewsOfflineBanner = view.findViewById(R.id.layoutReviewsOfflineBanner)
         btnRetryReviewsNetwork = view.findViewById(R.id.btnRetryReviewsNetwork)
         pbLoadingReviews = view.findViewById(R.id.pbLoadingReviews)
@@ -234,6 +249,45 @@ class ReviewsFragment : Fragment() {
         btnLookupGoal.setOnClickListener { showLookupGoalDialog() }
         btnEmptyLookupGoal.setOnClickListener { showLookupGoalDialog() }
         btnRetryReviewsNetwork.setOnClickListener { refreshReviews() }
+
+        btnFilterPendingReviews.setOnClickListener { setFilter("pending") }
+        btnFilterApprovedReviews.setOnClickListener { setFilter("approved") }
+        btnFilterRejectedReviews.setOnClickListener { setFilter("rejected") }
+        btnFilterAllReviews.setOnClickListener { setFilter("all") }
+    }
+
+    private fun setFilter(filter: String) {
+        if (currentFilter == filter) return
+        currentFilter = filter
+        updateFilterButtonStyles()
+        refreshReviews()
+    }
+
+    private fun updateFilterButtonStyles() {
+        val ctx = context ?: return
+        val activeBg = ContextCompat.getColorStateList(ctx, R.color.primary)
+        val inactiveBg = ContextCompat.getColorStateList(ctx, android.R.color.transparent)
+        val activeText = ContextCompat.getColor(ctx, R.color.text_primary)
+        val inactiveText = ContextCompat.getColor(ctx, R.color.text_secondary)
+        val cardBorder = ContextCompat.getColorStateList(ctx, R.color.surface_card)
+
+        fun applyStyle(btn: MaterialButton, isActive: Boolean) {
+            if (isActive) {
+                btn.backgroundTintList = activeBg
+                btn.setTextColor(activeText)
+                btn.strokeWidth = 0
+            } else {
+                btn.backgroundTintList = inactiveBg
+                btn.setTextColor(inactiveText)
+                btn.strokeColor = cardBorder
+                btn.strokeWidth = (1 * resources.displayMetrics.density).toInt()
+            }
+        }
+
+        applyStyle(btnFilterPendingReviews, currentFilter == "pending")
+        applyStyle(btnFilterApprovedReviews, currentFilter == "approved")
+        applyStyle(btnFilterRejectedReviews, currentFilter == "rejected")
+        applyStyle(btnFilterAllReviews, currentFilter == "all")
     }
 
     private fun observeOfflineState() {
@@ -281,32 +335,49 @@ class ReviewsFragment : Fragment() {
 
         pbLoadingReviews.visibility = View.VISIBLE
         viewLifecycleOwner.lifecycleScope.launch {
-            val goalsResult = withContext(Dispatchers.IO) { app.goalsRepository.fetchReviews() }
-            if (goalsResult.isFailure) {
+            val inboxResult = withContext(Dispatchers.IO) {
+                app.goalsRepository.getApproverInbox(currentFilter)
+            }
+            if (inboxResult.isFailure) {
                 pbLoadingReviews.visibility = View.GONE
                 return@launch
             }
-            val goals = goalsResult.getOrDefault(emptyList())
+            val inboxResponse = inboxResult.getOrDefault(ApproverInboxResponse())
 
             val items = mutableListOf<ReviewItem>()
-
-            // Find goals that have proof_submitted
-            val submittedGoals = goals.filter { it.isProofSubmitted }
-            for (goal in submittedGoals) {
-                val proofsResult = withContext(Dispatchers.IO) {
-                    app.goalsRepository.getProofs(goal.id, goal.ownerId)
-                }
-                val proofs = proofsResult.getOrDefault(emptyList())
-                val latestProof = findLatestProof(proofs)
-                if (latestProof != null) {
-                    items.add(ReviewItem(goal, latestProof))
-                }
+            for (inboxItem in inboxResponse.items) {
+                val proof = inboxItem.latestProof ?: Proof(
+                    id = "proof-placeholder-${inboxItem.goalId}",
+                    goalId = inboxItem.goalId,
+                    ownerId = inboxItem.ownerId,
+                    proofType = "none",
+                    textExplanation = "Goal is waiting for proof submission.",
+                    submittedAt = if (inboxItem.updatedAt.isNotBlank()) inboxItem.updatedAt else inboxItem.createdAt
+                )
+                items.add(
+                    ReviewItem(
+                        goal = inboxItem.toGoal(),
+                        proof = proof,
+                        ownerName = inboxItem.ownerName,
+                        ownerHandle = inboxItem.ownerHandle,
+                        ownerEmail = inboxItem.ownerEmail,
+                        proofCount = inboxItem.proofCount
+                    )
+                )
             }
 
-            // Include any manually looked-up goals that are still in review
+            // Include any manually looked-up goals that match the active filter
             for (item in manuallyLookedUpGoals) {
                 if (items.none { it.goal.id == item.goal.id }) {
-                    items.add(item)
+                    val matches = when (currentFilter.lowercase()) {
+                        "pending" -> item.goal.isProofSubmitted
+                        "approved" -> item.goal.isCompleted
+                        "rejected" -> item.goal.isRejected
+                        else -> true
+                    }
+                    if (matches) {
+                        items.add(item)
+                    }
                 }
             }
 
@@ -498,7 +569,13 @@ class ReviewsFragment : Fragment() {
                 val isSelf = currentUserId != null && currentUserId == item.goal.ownerId
 
                 tvReviewGoalTitle.text = item.goal.title
-                tvReviewOwner.text = "Owner: ${item.goal.ownerId}"
+                val ownerDisplayName = when {
+                    item.ownerName.isNotBlank() -> item.ownerName
+                    item.ownerHandle.isNotBlank() -> "@${item.ownerHandle}"
+                    item.ownerEmail.isNotBlank() -> item.ownerEmail
+                    else -> item.goal.ownerId
+                }
+                tvReviewOwner.text = "Owner: $ownerDisplayName"
 
                 if (item.goal.isTargeted) {
                     val allTargets = item.goal.blockedApps + item.goal.blockedDomains
@@ -541,7 +618,17 @@ class ReviewsFragment : Fragment() {
                     }
                 }
 
-                if (isSelf) {
+                if (item.goal.isCompleted) {
+                    tvSelfApprovalNotice.visibility = View.VISIBLE
+                    tvSelfApprovalNotice.text = "This goal has been verified and completed."
+                    btnApprove.visibility = View.GONE
+                    btnReject.visibility = View.GONE
+                } else if (item.goal.isRejected) {
+                    tvSelfApprovalNotice.visibility = View.VISIBLE
+                    tvSelfApprovalNotice.text = "This proof submission was rejected."
+                    btnApprove.visibility = View.GONE
+                    btnReject.visibility = View.GONE
+                } else if (isSelf) {
                     tvSelfApprovalNotice.visibility = View.VISIBLE
                     tvSelfApprovalNotice.text = "You are the goal owner. Only your accountability partner (${item.goal.approverEmail.ifBlank { "assigned friend" }}) can verify and approve."
                     btnApprove.isEnabled = false

@@ -8,6 +8,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.onusly.app.R
+import com.onusly.app.data.model.AppCategory
 import com.onusly.app.data.model.InstalledAppInfo
 
 class InstalledAppsAdapter(
@@ -37,12 +38,20 @@ class InstalledAppsAdapter(
     inner class AppViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val ivAppIcon: ImageView = itemView.findViewById(R.id.ivAppIcon)
         private val tvAppLabel: TextView = itemView.findViewById(R.id.tvAppLabel)
+        private val tvAppCategory: TextView = itemView.findViewById(R.id.tvAppCategory)
         private val tvAppPackage: TextView = itemView.findViewById(R.id.tvAppPackage)
         private val cbAppSelected: CheckBox = itemView.findViewById(R.id.cbAppSelected)
 
         fun bind(app: InstalledAppInfo) {
             tvAppLabel.text = app.label
             tvAppPackage.text = app.packageName
+
+            if (app.category != AppCategory.OTHER) {
+                tvAppCategory.text = app.category.title.uppercase()
+                tvAppCategory.visibility = View.VISIBLE
+            } else {
+                tvAppCategory.visibility = View.GONE
+            }
 
             if (app.icon != null) {
                 ivAppIcon.setImageDrawable(app.icon)
