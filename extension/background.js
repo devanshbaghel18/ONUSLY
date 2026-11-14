@@ -264,6 +264,9 @@ export async function processAuthHandoff(message) {
 
   await storage.saveSession(session);
 
+  // Attempt pairing with local desktop daemon over Native Messaging
+  pairDesktopAgent(token, userId).catch(() => {});
+
   // Immediately trigger blocklist sync and enforce on open tabs
   const syncResult = await syncService.sync();
   if (syncResult.success) {
@@ -395,6 +398,58 @@ export async function syncFromDesktopAgent(action = "get-blocklist") {
             resolve({ success: false, error: response?.error || "Agent returned invalid response" });
           }
         );
+      } catch (err) {
+        resolve({ success: false, error: err.message });
+      }
+    });
+  }
+
+  return { success: false, error: "Native messaging unsupported" };
+}
+
+/**
+ * Pairs the browser extension with the OS desktop agent over Native Messaging.
+ * Sends authorization credentials and extension ID to establish bidirectional enforcement.
+ *
+ * @param {string} token
+ * @param {string} userId
+ */
+export async function pairDesktopAgent(token, userId) {
+  const payload = {
+    action: "pair-request",
+    extensionId: globalThis.chrome?.runtime?.id || "jifigaejbinmdhnljobkodcgeaplojmg",
+    userId: userId || "",
+    token: token || "",
+  };
+
+  if (globalThis.browser?.runtime?.sendNativeMessage) {
+    try {
+      const resp = await globalThis.browser.runtime.sendNativeMessage("com.onusly.desktop_agent", payload);
+      if (resp?.success) {
+        await storage.setManagedMode(true);
+        return { success: true, paired: true };
+      }
+      return { success: false, error: resp?.error || "Agent pairing rejected" };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  if (globalThis.chrome?.runtime?.sendNativeMessage) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendNativeMessage("com.onusly.desktop_agent", payload, async (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+          if (response?.success) {
+            await storage.setManagedMode(true);
+            resolve({ success: true, paired: true });
+          } else {
+            resolve({ success: false, error: response?.error || "Agent pairing rejected" });
+          }
+        });
       } catch (err) {
         resolve({ success: false, error: err.message });
       }
