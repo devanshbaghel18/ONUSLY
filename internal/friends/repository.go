@@ -350,6 +350,7 @@ func (r *Repository) AcceptFriendRequest(ctx context.Context, req FriendRequest)
 							"PK": &types.AttributeValueMemberS{Value: "USER#" + req.RecipientID},
 							"SK": &types.AttributeValueMemberS{Value: "FRIEND_REQ_IN#" + req.ID},
 						},
+						ConditionExpression: aws.String("attribute_exists(PK)"),
 					},
 				},
 				{
@@ -396,6 +397,7 @@ func (r *Repository) RejectFriendRequest(ctx context.Context, req FriendRequest)
 							"PK": &types.AttributeValueMemberS{Value: "USER#" + req.RecipientID},
 							"SK": &types.AttributeValueMemberS{Value: "FRIEND_REQ_IN#" + req.ID},
 						},
+						ConditionExpression: aws.String("attribute_exists(PK)"),
 					},
 				},
 				{

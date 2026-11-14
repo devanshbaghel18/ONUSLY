@@ -610,9 +610,12 @@ func (r *Repository) DeleteMessage(ctx context.Context, callerEmail, callerHandl
 
 		txCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 		defer cancel()
-		_, _ = r.db.TransactWriteItems(txCtx, &dynamodb.TransactWriteItemsInput{
+		_, err := r.db.TransactWriteItems(txCtx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: transactItems,
 		})
+		if err != nil {
+			return fmt.Errorf("transact delete chat message: %w", err)
+		}
 	}
 
 	return nil
