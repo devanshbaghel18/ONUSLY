@@ -15,3 +15,4 @@ func newPlatformPolicyManager(configDir string) (core.PolicyManager, error) {
 	mgr := policy.NewLinuxPolicyManager(nativeHostBin, backupDir, false)
 	return mgr, nil
 }
+

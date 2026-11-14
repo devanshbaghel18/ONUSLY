@@ -36,3 +36,4 @@ func newPlatformPolicyManager(configDir string) (core.PolicyManager, error) {
 	mgr := policy.NewWindowsPolicyManager(nativeHostBin, manifestDir, backupDir, updateURL, reg)
 	return mgr, nil
 }
+

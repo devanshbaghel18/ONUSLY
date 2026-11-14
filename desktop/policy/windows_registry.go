@@ -16,9 +16,27 @@ func NewRealWindowsRegistry() *RealWindowsRegistry {
 	return &RealWindowsRegistry{}
 }
 
+func splitRootKey(path string) (registry.Key, string) {
+	trimmed := strings.Trim(path, `\`)
+	upper := strings.ToUpper(trimmed)
+	if strings.HasPrefix(upper, `HKCU\`) {
+		return registry.CURRENT_USER, trimmed[5:]
+	}
+	if strings.HasPrefix(upper, `HKEY_CURRENT_USER\`) {
+		return registry.CURRENT_USER, trimmed[18:]
+	}
+	if strings.HasPrefix(upper, `HKLM\`) {
+		return registry.LOCAL_MACHINE, trimmed[5:]
+	}
+	if strings.HasPrefix(upper, `HKEY_LOCAL_MACHINE\`) {
+		return registry.LOCAL_MACHINE, trimmed[19:]
+	}
+	return registry.LOCAL_MACHINE, trimmed
+}
+
 func (r *RealWindowsRegistry) KeyExists(keyPath string) bool {
-	keyPath = strings.Trim(keyPath, `\`)
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.QUERY_VALUE)
+	root, sub := splitRootKey(keyPath)
+	k, err := registry.OpenKey(root, sub, registry.QUERY_VALUE)
 	if err != nil {
 		return false
 	}
@@ -27,13 +45,13 @@ func (r *RealWindowsRegistry) KeyExists(keyPath string) bool {
 }
 
 func (r *RealWindowsRegistry) OpenKey(keyPath string, write bool) (RegistryKey, error) {
-	keyPath = strings.Trim(keyPath, `\`)
+	root, sub := splitRootKey(keyPath)
 	access := uint32(registry.QUERY_VALUE)
 	if write {
 		access |= registry.SET_VALUE
 	}
 
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, access)
+	k, err := registry.OpenKey(root, sub, access)
 	if err != nil {
 		return nil, err
 	}
@@ -41,8 +59,8 @@ func (r *RealWindowsRegistry) OpenKey(keyPath string, write bool) (RegistryKey, 
 }
 
 func (r *RealWindowsRegistry) CreateKey(keyPath string) (RegistryKey, bool, error) {
-	keyPath = strings.Trim(keyPath, `\`)
-	k, openedExisting, err := registry.CreateKey(registry.LOCAL_MACHINE, keyPath, registry.ALL_ACCESS)
+	root, sub := splitRootKey(keyPath)
+	k, openedExisting, err := registry.CreateKey(root, sub, registry.ALL_ACCESS)
 	if err != nil {
 		return nil, false, err
 	}
@@ -50,8 +68,8 @@ func (r *RealWindowsRegistry) CreateKey(keyPath string) (RegistryKey, bool, erro
 }
 
 func (r *RealWindowsRegistry) DeleteKey(keyPath string) error {
-	keyPath = strings.Trim(keyPath, `\`)
-	err := registry.DeleteKey(registry.LOCAL_MACHINE, keyPath)
+	root, sub := splitRootKey(keyPath)
+	err := registry.DeleteKey(root, sub)
 	if errors.Is(err, registry.ErrNotExist) {
 		return nil
 	}
@@ -59,8 +77,8 @@ func (r *RealWindowsRegistry) DeleteKey(keyPath string) error {
 }
 
 func (r *RealWindowsRegistry) DeleteValue(keyPath, valueName string) error {
-	keyPath = strings.Trim(keyPath, `\`)
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.SET_VALUE)
+	root, sub := splitRootKey(keyPath)
+	k, err := registry.OpenKey(root, sub, registry.SET_VALUE)
 	if err != nil {
 		if errors.Is(err, registry.ErrNotExist) {
 			return nil

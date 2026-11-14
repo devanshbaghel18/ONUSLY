@@ -58,3 +58,4 @@ func TestPolicyCommands_MockLifecycle(t *testing.T) {
 		t.Fatalf("runPolicyRemove failed: %v", err)
 	}
 }
+
