@@ -370,12 +370,14 @@ func (r *Repository) ListByApprover(
 	var pks []string
 	if approverID != "" {
 		pks = append(pks, FormatApproverGSI2PK(approverID))
+		pks = append(pks, FormatApproverGSI2PK("partner-"+approverID))
 	}
 	if approverEmail != "" {
 		pks = append(pks, FormatApproverGSI2PK(approverEmail))
 	}
 	if cleanHandle != "" {
 		pks = append(pks, FormatApproverGSI2PK(cleanHandle))
+		pks = append(pks, FormatApproverGSI2PK("partner-"+cleanHandle))
 	}
 
 	for _, pk := range pks {
@@ -406,14 +408,18 @@ func (r *Repository) ListByApprover(
 		}
 
 		matches := false
-		if approverID != "" && g.ApproverID == approverID {
+		if approverID != "" && (g.ApproverID == approverID || g.ApproverID == "partner-"+approverID) {
 			matches = true
 		}
 		if approverEmail != "" && strings.EqualFold(strings.TrimSpace(g.ApproverEmail), approverEmail) {
 			matches = true
 		}
-		if cleanHandle != "" && strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(g.ApproverEmail), "@"), cleanHandle) {
-			matches = true
+		if cleanHandle != "" {
+			if strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(g.ApproverEmail), "@"), cleanHandle) ||
+				strings.EqualFold(g.ApproverID, "partner-"+cleanHandle) ||
+				strings.EqualFold(g.ApproverID, cleanHandle) {
+				matches = true
+			}
 		}
 
 		if matches {

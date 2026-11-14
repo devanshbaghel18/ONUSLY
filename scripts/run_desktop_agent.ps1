@@ -1,4 +1,4 @@
-﻿# ONUSLY Desktop Agent Console Runner
+# ONUSLY Desktop Agent Console Runner
 # Starts the background process monitor (Steam, Epic Games, Discord, games) and IPC server
 
 $ErrorActionPreference = "Stop"
@@ -30,3 +30,4 @@ Write-Host "Starting agent daemon in console mode (Press Ctrl+C to stop)..." -Fo
 Write-Host "---------------------------------------------------------" -ForegroundColor DarkGray
 
 & $binPath run -config-dir $configDir -data-dir $dataDir -socket $pipePath -api-url "http://localhost:8080"
+

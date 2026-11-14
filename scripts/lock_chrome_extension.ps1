@@ -30,3 +30,4 @@ Write-Host "Verifying status..." -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "[INFO] Open chrome://extensions in Chrome. The toggle switch will be locked ON and the Remove button will be gone." -ForegroundColor Green
 Read-Host "Press Enter to exit"
+

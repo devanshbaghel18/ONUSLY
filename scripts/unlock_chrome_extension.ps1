@@ -30,3 +30,4 @@ Write-Host "Verifying status..." -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "[INFO] Open chrome://extensions in Chrome. The extension is now unlocked and can be modified normally." -ForegroundColor Green
 Read-Host "Press Enter to exit"
+
