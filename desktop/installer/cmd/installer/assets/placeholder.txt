@@ -1,0 +1,2 @@
+This directory contains embedded assets for the ONUSLY Windows desktop installer.
+During a full release build, onusly-agent.exe and onusly-native-host.exe are compiled and placed here.

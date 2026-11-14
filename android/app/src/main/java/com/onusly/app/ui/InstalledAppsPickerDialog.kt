@@ -11,7 +11,10 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import com.onusly.app.R
+import com.onusly.app.data.model.AppCategory
 import com.onusly.app.data.model.InstalledAppInfo
 import com.onusly.app.engine.InstalledAppsManager
 import kotlinx.coroutines.CoroutineScope
@@ -29,16 +32,24 @@ class InstalledAppsPickerDialog(
     private val dialog = Dialog(context, android.R.style.Theme_Material_Dialog)
     private var allApps: List<InstalledAppInfo> = emptyList()
     private var scanJob: Job? = null
+    private var selectedCategory: AppCategory = AppCategory.ALL
 
     fun show() {
         val view = LayoutInflater.from(context).inflate(R.layout.dialog_app_picker, null)
         dialog.setContentView(view)
         dialog.window?.setLayout(
             (context.resources.displayMetrics.widthPixels * 0.95).toInt(),
-            (context.resources.displayMetrics.heightPixels * 0.75).toInt()
+            (context.resources.displayMetrics.heightPixels * 0.80).toInt()
         )
 
         val etSearchApps: EditText = view.findViewById(R.id.etSearchApps)
+        val chipGroupCategories: ChipGroup = view.findViewById(R.id.chipGroupCategories)
+        val chipCatAll: Chip = view.findViewById(R.id.chipCatAll)
+        val chipCatSocial: Chip = view.findViewById(R.id.chipCatSocial)
+        val chipCatEntertainment: Chip = view.findViewById(R.id.chipCatEntertainment)
+        val chipCatMessaging: Chip = view.findViewById(R.id.chipCatMessaging)
+        val chipCatGaming: Chip = view.findViewById(R.id.chipCatGaming)
+
         val etManualPackage: EditText = view.findViewById(R.id.etManualPackage)
         val btnAddManualPackage: MaterialButton = view.findViewById(R.id.btnAddManualPackage)
         val tvManualPackageError: TextView = view.findViewById(R.id.tvManualPackageError)
@@ -55,18 +66,29 @@ class InstalledAppsPickerDialog(
         rvInstalledApps.adapter = adapter
         tvSelectedCount.text = "${adapter.selectedPackages.size} selected"
 
-        // Load apps asynchronously on IO dispatcher - store scan job
+        fun updateAppList() {
+            val query = etSearchApps.text?.toString()
+            val filtered = InstalledAppsManager.filterApps(allApps, query, selectedCategory)
+            adapter.setApps(filtered)
+        }
+
+        chipCatAll.setOnClickListener { selectedCategory = AppCategory.ALL; updateAppList() }
+        chipCatSocial.setOnClickListener { selectedCategory = AppCategory.SOCIAL; updateAppList() }
+        chipCatEntertainment.setOnClickListener { selectedCategory = AppCategory.ENTERTAINMENT; updateAppList() }
+        chipCatMessaging.setOnClickListener { selectedCategory = AppCategory.MESSAGING; updateAppList() }
+        chipCatGaming.setOnClickListener { selectedCategory = AppCategory.GAMING; updateAppList() }
+
+        // Load apps asynchronously on IO dispatcher
         scanJob = CoroutineScope(Dispatchers.Main).launch {
-            allApps = withContext(Dispatchers.IO) {
+            val installed = withContext(Dispatchers.IO) {
                 InstalledAppsManager.getInstalledApps(context)
             }
-            val currentQuery = etSearchApps.text?.toString()
-            if (!currentQuery.isNullOrBlank()) {
-                val filtered = InstalledAppsManager.filterApps(allApps, currentQuery)
-                adapter.setApps(filtered)
-            } else {
-                adapter.setApps(allApps)
-            }
+            // Supplement with known catalog distractors so they are easily selectable
+            val catalog = InstalledAppsManager.getCatalogApps()
+            val combined = (installed + catalog.filter { cat -> installed.none { it.packageName.equals(cat.packageName, ignoreCase = true) } })
+                .sortedBy { it.label.lowercase() }
+            allApps = combined
+            updateAppList()
         }
 
         dialog.setOnDismissListener {
@@ -82,8 +104,7 @@ class InstalledAppsPickerDialog(
         etSearchApps.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                val filtered = InstalledAppsManager.filterApps(allApps, s?.toString())
-                adapter.setApps(filtered)
+                updateAppList()
             }
             override fun afterTextChanged(s: Editable?) {}
         })
@@ -101,14 +122,14 @@ class InstalledAppsPickerDialog(
                     adapter.selectedPackages.add(input)
                     tvSelectedCount.text = "${adapter.selectedPackages.size} selected"
                     if (allApps.none { it.packageName.equals(input, ignoreCase = true) }) {
-                        allApps = listOf(InstalledAppInfo(packageName = input, label = input, icon = null)) + allApps
-                        val currentQuery = etSearchApps.text?.toString()
-                        val filtered = if (!currentQuery.isNullOrBlank()) {
-                            InstalledAppsManager.filterApps(allApps, currentQuery)
-                        } else {
-                            allApps
-                        }
-                        adapter.setApps(filtered)
+                        val newApp = InstalledAppInfo(
+                            packageName = input,
+                            label = input,
+                            icon = null,
+                            category = InstalledAppsManager.resolveCategory(input, input)
+                        )
+                        allApps = listOf(newApp) + allApps
+                        updateAppList()
                     } else {
                         adapter.notifyDataSetChanged()
                     }

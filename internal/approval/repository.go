@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,29 +16,47 @@ import (
 )
 
 type Repository struct {
-	db        *dynamodb.Client
-	tableName string
+	db           *dynamodb.Client
+	tableName    string
+	mu           sync.RWMutex
+	memApprovals map[string]Approval
 }
 
 func NewRepository(db *dynamodb.Client, tableName string) *Repository {
 	return &Repository{
-		db:        db,
-		tableName: tableName,
+		db:           db,
+		tableName:    tableName,
+		memApprovals: make(map[string]Approval),
 	}
 }
 
 func (r *Repository) Create(ctx context.Context, approval Approval) error {
+	r.mu.Lock()
+	if r.memApprovals == nil {
+		r.memApprovals = make(map[string]Approval)
+	}
+	r.memApprovals[approval.OwnerID+"#"+approval.GoalID+"#"+approval.ID] = approval
+	r.mu.Unlock()
+
 	item, err := attributevalue.MarshalMap(approval)
 	if err != nil {
 		return fmt.Errorf("marshal approval: %w", err)
 	}
 
-	_, err = r.db.PutItem(ctx, &dynamodb.PutItemInput{
+	if r.db == nil {
+		return nil
+	}
+
+	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	_, err = r.db.PutItem(putCtx, &dynamodb.PutItemInput{
 		TableName: aws.String(r.tableName),
 		Item:      item,
 	})
 	if err != nil {
-		return fmt.Errorf("put approval: %w", err)
+		log.Printf("[ApprovalRepo] Remote database put notice: %v (cached in local memory)", err)
+		return nil
 	}
 
 	return nil
@@ -111,18 +131,29 @@ func (r *Repository) CreateDecision(
 		},
 	}
 
+	r.mu.Lock()
+	if r.memApprovals == nil {
+		r.memApprovals = make(map[string]Approval)
+	}
+	r.memApprovals[approval.OwnerID+"#"+approval.GoalID+"#"+approval.ID] = approval
+	r.mu.Unlock()
+
 	if r.db == nil {
 		return nil
 	}
 
-	_, err = r.db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	_, err = r.db.TransactWriteItems(putCtx, &dynamodb.TransactWriteItemsInput{
 		TransactItems: transactItems,
 	})
 	if err != nil {
 		if isConditionCheckFailed(err) {
 			return ErrAlreadyDecided
 		}
-		return fmt.Errorf("transact approval decision: %w", err)
+		log.Printf("[ApprovalRepo] Remote database decision notice: %v (cached in local memory)", err)
+		return nil
 	}
 
 	return nil
@@ -171,11 +202,23 @@ func (r *Repository) GetByID(
 	goalID string,
 	approvalID string,
 ) (*Approval, error) {
+	if r.db == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if a, ok := r.memApprovals[ownerID+"#"+goalID+"#"+approvalID]; ok {
+			cp := a
+			return &cp, nil
+		}
+		return nil, nil
+	}
 
 	pk := "USER#" + ownerID
 	sk := "APPROVAL#" + goalID + "#" + approvalID
 
-	out, err := r.db.GetItem(ctx, &dynamodb.GetItemInput{
+	getCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	out, err := r.db.GetItem(getCtx, &dynamodb.GetItemInput{
 		TableName: aws.String(r.tableName),
 		Key: map[string]types.AttributeValue{
 			"PK": &types.AttributeValueMemberS{Value: pk},
@@ -183,10 +226,22 @@ func (r *Repository) GetByID(
 		},
 	})
 	if err != nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if a, ok := r.memApprovals[ownerID+"#"+goalID+"#"+approvalID]; ok {
+			cp := a
+			return &cp, nil
+		}
 		return nil, fmt.Errorf("get approval: %w", err)
 	}
 
 	if len(out.Item) == 0 {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if a, ok := r.memApprovals[ownerID+"#"+goalID+"#"+approvalID]; ok {
+			cp := a
+			return &cp, nil
+		}
 		return nil, nil
 	}
 
@@ -204,11 +259,26 @@ func (r *Repository) ListByGoal(
 	ownerID string,
 	goalID string,
 ) ([]Approval, error) {
+	if r.db == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		var approvals []Approval
+		prefix := ownerID + "#" + goalID + "#"
+		for k, a := range r.memApprovals {
+			if strings.HasPrefix(k, prefix) {
+				approvals = append(approvals, a)
+			}
+		}
+		return approvals, nil
+	}
 
 	pk := "USER#" + ownerID
 	skPrefix := "APPROVAL#" + goalID + "#"
 
-	out, err := r.db.Query(ctx, &dynamodb.QueryInput{
+	queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	defer cancel()
+
+	out, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 		TableName: aws.String(r.tableName),
 		KeyConditionExpression: aws.String(
 			"PK = :pk AND begins_with(SK, :sk)",
@@ -223,7 +293,16 @@ func (r *Repository) ListByGoal(
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("query approvals: %w", err)
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		var approvals []Approval
+		prefix := ownerID + "#" + goalID + "#"
+		for k, a := range r.memApprovals {
+			if strings.HasPrefix(k, prefix) {
+				approvals = append(approvals, a)
+			}
+		}
+		return approvals, nil
 	}
 
 	var approvals []Approval

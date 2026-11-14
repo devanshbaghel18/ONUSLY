@@ -1,5 +1,6 @@
 package com.onusly.app
 
+import com.onusly.app.data.model.AppCategory
 import com.onusly.app.data.model.InstalledAppInfo
 import com.onusly.app.engine.BlockerEngine
 import com.onusly.app.engine.InstalledAppsManager
@@ -135,5 +136,59 @@ class InstalledAppsManagerTest {
 
         val filtered = InstalledAppsManager.filterApps(list, "tiktok")
         assertTrue(filtered.isEmpty())
+    }
+
+    @Test
+    fun testResolveCategory_AccurateClassification() {
+        assertEquals(AppCategory.SOCIAL, InstalledAppsManager.resolveCategory("com.instagram.android", "Instagram"))
+        assertEquals(AppCategory.SOCIAL, InstalledAppsManager.resolveCategory("com.zhiliaoapp.musically", "TikTok"))
+        assertEquals(AppCategory.SOCIAL, InstalledAppsManager.resolveCategory("com.twitter.android", "X"))
+        assertEquals(AppCategory.SOCIAL, InstalledAppsManager.resolveCategory("com.reddit.frontpage", "Reddit"))
+
+        assertEquals(AppCategory.ENTERTAINMENT, InstalledAppsManager.resolveCategory("com.google.android.youtube", "YouTube"))
+        assertEquals(AppCategory.ENTERTAINMENT, InstalledAppsManager.resolveCategory("com.netflix.mediaclient", "Netflix"))
+        assertEquals(AppCategory.ENTERTAINMENT, InstalledAppsManager.resolveCategory("tv.twitch.android.app", "Twitch"))
+
+        assertEquals(AppCategory.MESSAGING, InstalledAppsManager.resolveCategory("com.whatsapp", "WhatsApp"))
+        assertEquals(AppCategory.MESSAGING, InstalledAppsManager.resolveCategory("com.discord", "Discord"))
+        assertEquals(AppCategory.MESSAGING, InstalledAppsManager.resolveCategory("org.telegram.messenger", "Telegram"))
+
+        assertEquals(AppCategory.GAMING, InstalledAppsManager.resolveCategory("com.roblox.client", "Roblox"))
+        assertEquals(AppCategory.GAMING, InstalledAppsManager.resolveCategory("com.tencent.ig", "PUBG Mobile"))
+    }
+
+    @Test
+    fun testFilterApps_ByCategoryAndQuery() {
+        val apps = listOf(
+            InstalledAppInfo("com.instagram.android", "Instagram", null, AppCategory.SOCIAL),
+            InstalledAppInfo("com.google.android.youtube", "YouTube", null, AppCategory.ENTERTAINMENT),
+            InstalledAppInfo("com.discord", "Discord", null, AppCategory.MESSAGING),
+            InstalledAppInfo("com.roblox.client", "Roblox", null, AppCategory.GAMING)
+        )
+
+        val socialOnly = InstalledAppsManager.filterApps(apps, null, AppCategory.SOCIAL)
+        assertEquals(1, socialOnly.size)
+        assertEquals("Instagram", socialOnly[0].label)
+
+        val entertainmentOnly = InstalledAppsManager.filterApps(apps, null, AppCategory.ENTERTAINMENT)
+        assertEquals(1, entertainmentOnly.size)
+        assertEquals("YouTube", entertainmentOnly[0].label)
+
+        // Category filter combined with text query
+        val filtered = InstalledAppsManager.filterApps(apps, "you", AppCategory.ENTERTAINMENT)
+        assertEquals(1, filtered.size)
+        assertEquals("YouTube", filtered[0].label)
+
+        val mismatched = InstalledAppsManager.filterApps(apps, "instagram", AppCategory.ENTERTAINMENT)
+        assertTrue(mismatched.isEmpty())
+    }
+
+    @Test
+    fun testGetCatalogApps_ReturnsPrepopulatedEntries() {
+        val catalogApps = InstalledAppsManager.getCatalogApps()
+        assertTrue(catalogApps.isNotEmpty())
+        assertTrue(catalogApps.any { it.label.equals("Instagram", ignoreCase = true) })
+        assertTrue(catalogApps.any { it.label.equals("YouTube", ignoreCase = true) })
+        assertTrue(catalogApps.any { it.category == AppCategory.SOCIAL })
     }
 }

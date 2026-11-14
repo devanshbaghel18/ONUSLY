@@ -42,6 +42,12 @@ sealed class SyncResult {
     data class Error(val statusCode: Int, val message: String) : SyncResult()
 }
 
+sealed class HeartbeatResult {
+    data class Success(val deviceId: String) : HeartbeatResult()
+    object DeviceRevoked : HeartbeatResult()
+    data class Error(val statusCode: Int, val message: String) : HeartbeatResult()
+}
+
 data class BlockEvaluationResult(
     val isBlocked: Boolean,
     val matchingTargets: List<BlocklistTarget>

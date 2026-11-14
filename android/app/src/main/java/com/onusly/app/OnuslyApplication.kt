@@ -58,10 +58,9 @@ class OnuslyApplication : Application() {
             realtimeWebSocketManager.connect()
         }
 
-        // Periodic 60-second heartbeat loop while application process is alive
+        // Immediate and periodic 60-second heartbeat loop while application process is alive
         applicationScope.launch(Dispatchers.IO) {
             while (true) {
-                delay(60_000)
                 if (authManager.isSignedIn()) {
                     try {
                         val accessibilityActive = com.onusly.app.service.OnuslyAccessibilityService.isServiceRunning ||
@@ -71,10 +70,12 @@ class OnuslyApplication : Application() {
                     } catch (_: Exception) {
                     }
                 }
+                delay(60_000)
             }
         }
 
         registerNetworkCallback()
+        com.onusly.app.service.EnforcementSyncScheduler.schedule(this)
     }
 
     private fun registerNetworkCallback() {

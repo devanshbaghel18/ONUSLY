@@ -85,3 +85,53 @@ data class ApprovalResult(
     val comment: String = "",
     val decidedAt: String = ""
 )
+
+data class ApproverInboxItem(
+    val goalId: String,
+    val ownerId: String,
+    val ownerName: String = "",
+    val ownerHandle: String = "",
+    val ownerEmail: String = "",
+    val title: String,
+    val description: String = "",
+    val status: String,
+    val createdAt: String = "",
+    val updatedAt: String = "",
+    val blockedApps: List<String> = emptyList(),
+    val blockedDomains: List<String> = emptyList(),
+    val applicationTargets: List<ApplicationTarget> = emptyList(),
+    val latestProof: Proof? = null,
+    val proofCount: Int = 0
+) {
+    fun toGoal(): Goal {
+        return Goal(
+            id = goalId,
+            ownerId = ownerId,
+            title = title,
+            description = description,
+            status = status,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            blockedApps = blockedApps,
+            blockedDomains = blockedDomains,
+            applicationTargets = applicationTargets
+        )
+    }
+}
+
+data class ApproverInboxResponse(
+    val items: List<ApproverInboxItem> = emptyList(),
+    val total: Int = 0
+)
+
+data class UploadedFileItem(
+    val id: String,
+    val name: String,
+    val size: Long = 0,
+    val formattedSize: String = "",
+    val type: String = "",
+    val url: String,
+    val dataUrl: String = "",
+    val isImage: Boolean = true,
+    val isPdf: Boolean = false
+)

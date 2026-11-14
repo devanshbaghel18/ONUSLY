@@ -287,4 +287,84 @@ object GoalParser {
             picture = optSafeString(obj, "picture")
         )
     }
+
+    fun optStringList(obj: JSONObject, key: String): List<String> {
+        val array = obj.optJSONArray(key) ?: return emptyList()
+        val result = mutableListOf<String>()
+        for (i in 0 until array.length()) {
+            if (array.isNull(i)) continue
+            val item = array.optString(i, "").trim()
+            if (item.isNotEmpty() && item != "null") {
+                result.add(item)
+            }
+        }
+        return result
+    }
+
+    fun parseApproverInboxItem(obj: JSONObject): ApproverInboxItem {
+        val latestProofObj = obj.optJSONObject("latestProof")
+        val latestProof = if (latestProofObj != null) parseProof(latestProofObj) else null
+        return ApproverInboxItem(
+            goalId = optSafeString(obj, "goalId"),
+            ownerId = optSafeString(obj, "ownerId"),
+            ownerName = optSafeString(obj, "ownerName"),
+            ownerHandle = optSafeString(obj, "ownerHandle"),
+            ownerEmail = optSafeString(obj, "ownerEmail"),
+            title = optSafeString(obj, "title"),
+            description = optSafeString(obj, "description"),
+            status = optSafeString(obj, "status"),
+            createdAt = optSafeString(obj, "createdAt"),
+            updatedAt = optSafeString(obj, "updatedAt"),
+            blockedApps = optStringList(obj, "blockedApps"),
+            blockedDomains = optStringList(obj, "blockedDomains"),
+            applicationTargets = parseApplicationTargets(obj),
+            latestProof = latestProof,
+            proofCount = obj.optInt("proofCount", if (latestProof != null) 1 else 0)
+        )
+    }
+
+    fun parseApproverInboxResponse(jsonString: String): ApproverInboxResponse {
+        val obj = JSONObject(jsonString)
+        val itemsArray = obj.optJSONArray("items") ?: JSONArray()
+        val items = mutableListOf<ApproverInboxItem>()
+        for (i in 0 until itemsArray.length()) {
+            val itemObj = itemsArray.optJSONObject(i) ?: continue
+            items.add(parseApproverInboxItem(itemObj))
+        }
+        val total = obj.optInt("total", items.size)
+        return ApproverInboxResponse(items = items, total = total)
+    }
+
+    fun parseUploadedFileItem(obj: JSONObject): UploadedFileItem {
+        return UploadedFileItem(
+            id = optSafeString(obj, "id"),
+            name = optSafeString(obj, "name"),
+            size = obj.optLong("size", 0L),
+            formattedSize = optSafeString(obj, "formattedSize"),
+            type = optSafeString(obj, "type"),
+            url = optSafeString(obj, "url"),
+            dataUrl = optSafeString(obj, "dataUrl"),
+            isImage = obj.optBoolean("isImage", true),
+            isPdf = obj.optBoolean("isPdf", false)
+        )
+    }
+
+    fun parseUploadedFileList(jsonString: String): List<UploadedFileItem> {
+        val result = mutableListOf<UploadedFileItem>()
+        try {
+            val array = JSONArray(jsonString)
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                result.add(parseUploadedFileItem(obj))
+            }
+        } catch (_: Exception) {
+            try {
+                val singleObj = JSONObject(jsonString)
+                if (singleObj.has("url")) {
+                    result.add(parseUploadedFileItem(singleObj))
+                }
+            } catch (_: Exception) {}
+        }
+        return result
+    }
 }

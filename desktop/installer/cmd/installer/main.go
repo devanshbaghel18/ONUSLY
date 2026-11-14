@@ -130,6 +130,20 @@ func openBrowser(targetURL string) {
 func extractAsset(assetName, destPath string) error {
 	in, err := assetsFS.Open("assets/" + assetName)
 	if err != nil {
+		// Fallback: check if binary exists in sibling search paths
+		altPaths := []string{
+			assetName,
+			filepath.Join("bin", assetName),
+			filepath.Join("assets", assetName),
+			filepath.Join("..", "..", "..", "bin", assetName),
+			filepath.Join(filepath.Dir(destPath), assetName),
+		}
+		for _, alt := range altPaths {
+			if data, readErr := os.ReadFile(alt); readErr == nil && len(data) > 0 {
+				_ = os.Remove(destPath)
+				return os.WriteFile(destPath, data, 0755)
+			}
+		}
 		return fmt.Errorf("open embedded asset %s: %w", assetName, err)
 	}
 	defer in.Close()

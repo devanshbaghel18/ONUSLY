@@ -1,6 +1,7 @@
 package com.onusly.app.data.api
 
 import com.onusly.app.data.model.BlocklistParser
+import com.onusly.app.data.model.HeartbeatResult
 import com.onusly.app.data.model.SyncResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -73,7 +74,7 @@ class EnforcementApiClient(
         enforcing: Boolean = true,
         blocklistVersion: String = "",
         issues: List<String> = emptyList()
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): HeartbeatResult = withContext(Dispatchers.IO) {
         try {
             val url = "${baseUrl.trimEnd('/')}/enforcement/heartbeat"
             val issuesJson = issues.joinToString(separator = ",", prefix = "[", postfix = "]") { "\"$it\"" }
@@ -83,6 +84,7 @@ class EnforcementApiClient(
                     "deviceId": "$deviceId",
                     "clientType": "android",
                     "platform": "android",
+                    "browser": "",
                     "clientVersion": "$clientVersion",
                     "enforcing": $enforcing,
                     "blocklistVersion": "$blocklistVersion",
@@ -96,9 +98,28 @@ class EnforcementApiClient(
                 .addHeader("Authorization", "Bearer $jwtToken")
                 .post(requestBody)
                 .build()
-            httpClient.newCall(request).execute().use { it.isSuccessful }
-        } catch (_: Exception) {
-            false
+            httpClient.newCall(request).execute().use { response ->
+                when (response.code) {
+                    200 -> {
+                        HeartbeatResult.Success(deviceId)
+                    }
+                    403 -> {
+                        val body = response.body?.string() ?: ""
+                        if (body.contains("DEVICE_REVOKED", ignoreCase = true) ||
+                            body.contains("device_revoked", ignoreCase = true)) {
+                            HeartbeatResult.DeviceRevoked
+                        } else {
+                            HeartbeatResult.Error(response.code, body)
+                        }
+                    }
+                    else -> {
+                        val body = response.body?.string() ?: ""
+                        HeartbeatResult.Error(response.code, body)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            HeartbeatResult.Error(-1, e.message ?: "Network error")
         }
     }
 }

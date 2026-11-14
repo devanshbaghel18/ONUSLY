@@ -2,6 +2,7 @@ package com.onusly.app.data.api
 
 import com.onusly.app.data.model.ApprovalDecisionRequest
 import com.onusly.app.data.model.ApprovalResult
+import com.onusly.app.data.model.ApproverInboxResponse
 import com.onusly.app.data.model.ChatMessage
 import com.onusly.app.data.model.CommunityItem
 import com.onusly.app.data.model.CreateGoalRequest
@@ -14,10 +15,12 @@ import com.onusly.app.data.model.GoalParser
 import com.onusly.app.data.model.Proof
 import com.onusly.app.data.model.PublicProfile
 import com.onusly.app.data.model.UpdateGoalRequest
+import com.onusly.app.data.model.UploadedFileItem
 import com.onusly.app.data.model.UserProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -252,6 +255,49 @@ class OnuslyApiClient(
         }
     }
 
+    suspend fun uploadProofFile(
+        baseUrl: String,
+        jwtToken: String,
+        fileName: String,
+        mimeType: String,
+        fileBytes: ByteArray
+    ): Result<UploadedFileItem> = withContext(Dispatchers.IO) {
+        val mediaType = (if (mimeType.isNotBlank()) mimeType else "application/octet-stream").toMediaType()
+        val fileRequestBody = fileBytes.toRequestBody(mediaType)
+
+        val multipartBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("files", fileName, fileRequestBody)
+            .build()
+
+        val url = "${baseUrl.trimEnd('/')}/uploads"
+        val request = Request.Builder()
+            .url(url)
+            .apply {
+                if (jwtToken.isNotBlank()) {
+                    addHeader("Authorization", "Bearer $jwtToken")
+                }
+            }
+            .post(multipartBody)
+            .build()
+
+        executeRequest(request).mapCatching { body ->
+            val list = GoalParser.parseUploadedFileList(body)
+            if (list.isEmpty()) {
+                throw OnuslyApiException(500, "Server returned empty upload response")
+            }
+            list.first()
+        }
+    }
+
+    suspend fun uploadProofFile(
+        fileName: String,
+        mimeType: String,
+        fileBytes: ByteArray
+    ): Result<UploadedFileItem> {
+        return uploadProofFile(defaultBaseUrl, defaultJwtToken, fileName, mimeType, fileBytes)
+    }
+
     // --- Approvals API ---
 
     suspend fun getApprovals(
@@ -277,6 +323,32 @@ class OnuslyApiClient(
 
     suspend fun getApprovals(goalId: String): Result<List<ApprovalResponse>> {
         return getApprovals(defaultBaseUrl, defaultJwtToken, goalId)
+    }
+
+    suspend fun getApproverInbox(
+        baseUrl: String,
+        jwtToken: String,
+        status: String = "pending"
+    ): Result<ApproverInboxResponse> {
+        val encodedStatus = encodePathSegment(status.trim())
+        val url = "${baseUrl.trimEnd('/')}/approvals/inbox?status=$encodedStatus"
+        val request = Request.Builder()
+            .url(url)
+            .apply {
+                if (jwtToken.isNotBlank()) {
+                    addHeader("Authorization", "Bearer $jwtToken")
+                }
+            }
+            .get()
+            .build()
+
+        return executeRequest(request).mapCatching { body ->
+            GoalParser.parseApproverInboxResponse(body)
+        }
+    }
+
+    suspend fun getApproverInbox(status: String = "pending"): Result<ApproverInboxResponse> {
+        return getApproverInbox(defaultBaseUrl, defaultJwtToken, status)
     }
 
     suspend fun decideApproval(
