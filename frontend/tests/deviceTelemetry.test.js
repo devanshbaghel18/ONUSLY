@@ -69,4 +69,31 @@ describe("Sub-part 6.4 — Live Multi-Device Telemetry & Dashboard Integration S
     assert.equal(approverTelemetry.badgeText, "1 Device Connected • Active Enforcement");
     assert.deepEqual(approverTelemetry.devices, []);
   });
+
+  it("5. Immediately flips to RED (Offline) when local extension is disabled", () => {
+    const disabledTelemetry = formatEnforcementSummary(
+      {
+        goalId: "goal-5",
+        aggregateStatus: "enforcing",
+        devicesCount: 1,
+        enforcingCount: 1,
+        devices: [
+          {
+            deviceId: "dev-ext-1",
+            platform: "windows",
+            clientType: "extension",
+            clientVersion: "1.0.0",
+            enforcing: true,
+          },
+        ],
+      },
+      false // localExtensionActive = false (disabled in chrome://extensions)
+    );
+
+    assert.equal(disabledTelemetry.isEnforcing, false);
+    assert.equal(disabledTelemetry.count, 0);
+    assert.equal(disabledTelemetry.badgeText, "No Connected Enforcing Devices (Offline)");
+    assert.equal(disabledTelemetry.badgeColor, "red");
+    assert.equal(disabledTelemetry.devices[0].enforcing, false);
+  });
 });

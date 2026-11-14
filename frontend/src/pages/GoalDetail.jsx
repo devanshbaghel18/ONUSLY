@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { getUser } from "../lib/auth";
 import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal, getGoalEnforcementStatus, getApprovals, getSubmissions } from "../lib/api";
-import { formatEnforcementSummary } from "../lib/deviceTelemetry";
+import { formatEnforcementSummary, pingExtension } from "../lib/deviceTelemetry";
 import SubmitProofModal from "../components/approvals/SubmitProofModal";
 import SubmissionTimeline from "../components/approvals/SubmissionTimeline";
 import { getStoredFriends, sendChatMessage } from "../lib/friendsChat";
@@ -87,10 +87,31 @@ export default function GoalDetail() {
   const [pinnedIds, setPinnedIds] = useState(() => getPinnedGoalIds());
   const [repeating, setRepeating] = useState(false);
   const [enforcementTelemetry, setEnforcementTelemetry] = useState(null);
+  const [localExtensionActive, setLocalExtensionActive] = useState(null);
+
+  // Periodically check local extension liveness via ping so toggling off/on reflects instantly
+  useEffect(() => {
+    let ignore = false;
+
+    const checkLocalExtension = async () => {
+      const res = await pingExtension(800);
+      if (!ignore) {
+        setLocalExtensionActive(res.active);
+      }
+    };
+
+    checkLocalExtension();
+    const interval = setInterval(checkLocalExtension, 2500);
+
+    return () => {
+      ignore = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   const telemetrySummary = useMemo(
-    () => formatEnforcementSummary(enforcementTelemetry),
-    [enforcementTelemetry]
+    () => formatEnforcementSummary(enforcementTelemetry, localExtensionActive),
+    [enforcementTelemetry, localExtensionActive]
   );
 
   const isPinned = pinnedIds.includes(id);
@@ -909,7 +930,13 @@ export default function GoalDetail() {
                                 ) : (
                                   <Smartphone size={13} className="text-amber-400" />
                                 )}
-                                <span className="capitalize">{dev.platform || "Device"}</span>
+                                <span className="capitalize">
+                                  {dev.clientType === "extension"
+                                    ? "Chrome Extension"
+                                    : dev.clientType === "desktop_agent" || dev.clientType === "desktop-agent"
+                                    ? "Desktop Daemon"
+                                    : dev.platform || "Device"}
+                                </span>
                                 <span className="text-neutral-400">v{dev.clientVersion || "1.0.0"}</span>
                                 {dev.enforcing ? (
                                   <span className="text-[10px] font-bold uppercase text-emerald-400">● Enforcing</span>
