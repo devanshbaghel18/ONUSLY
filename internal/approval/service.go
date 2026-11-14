@@ -213,6 +213,7 @@ func (s *Service) Decide(
 			OwnerID:    approval.OwnerID,
 			ApproverID: approval.ApproverID,
 			Status:     approval.Status,
+			Comment:    approval.Comment,
 			Title:      goal.Title,
 			DecidedAt:  decidedTime,
 		}
@@ -424,4 +425,175 @@ func (s *Service) GetApproverInbox(
 		Total: len(items),
 	}, nil
 }
+
+// GetSubmissions compiles the complete multi-attempt dossier, audit trail, and accountability streak metrics.
+func (s *Service) GetSubmissions(
+	ctx context.Context,
+	callerID, callerEmail, callerHandle, goalID string,
+) (*SubmissionDossier, error) {
+	goal, err := s.goalService.GetByID(ctx, "", goalID)
+	if err != nil || goal == nil {
+		return nil, ErrGoalNotFound
+	}
+
+	if !goal.CanAccess(callerID, callerEmail, callerHandle) {
+		return nil, ErrUnauthorized
+	}
+
+	proofs, err := s.proofService.ListByGoal(ctx, goal.OwnerID, goalID)
+	if err != nil {
+		return nil, err
+	}
+
+	approvals, err := s.repo.ListByGoal(ctx, goal.OwnerID, goalID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Index approvals by ProofID
+	approvalMap := make(map[string]Approval)
+	for _, app := range approvals {
+		if app.ProofID != "" {
+			approvalMap[app.ProofID] = app
+		}
+	}
+
+	// Sort proofs chronologically ascending (earliest attempt first)
+	sort.SliceStable(proofs, func(i, j int) bool {
+		if proofs[i].SubmittedAt == proofs[j].SubmittedAt {
+			return proofs[i].ID < proofs[j].ID
+		}
+		return proofs[i].SubmittedAt < proofs[j].SubmittedAt
+	})
+
+	attempts := make([]SubmissionAttempt, 0, len(proofs))
+	auditLog := make([]AuditReceipt, 0, len(approvals))
+	totalReviewMinutes := 0
+	reviewCount := 0
+
+	for i, p := range proofs {
+		attemptNum := i + 1
+		isLatest := (i == len(proofs)-1)
+
+		attempt := SubmissionAttempt{
+			AttemptNumber: attemptNum,
+			ProofID:       p.ID,
+			SubmittedAt:   p.SubmittedAt,
+			ProofType:     p.ProofType,
+			Explanation:   p.TextExplanation,
+			ExternalLink:  p.ExternalLink,
+			PhotoURL:      p.PhotoURL,
+			Files:         p.Files,
+			Status:        "pending",
+			IsLatest:      isLatest,
+		}
+
+		if app, found := approvalMap[p.ID]; found {
+			attempt.Status = app.Status
+			attempt.ApprovalID = app.ID
+			attempt.ApproverID = app.ApproverID
+			attempt.Comment = app.Comment
+			attempt.DecidedAt = app.DecidedAt
+
+			// Attempt to resolve approver name
+			if s.authRepo != nil && app.ApproverID != "" {
+				if approverUser, err := s.authRepo.GetUserByID(ctx, app.ApproverID); err == nil && approverUser != nil {
+					attempt.ApproverName = approverUser.Name
+					if attempt.ApproverName == "" {
+						attempt.ApproverName = approverUser.Handle
+					}
+				}
+			}
+
+			// Add to audit trail
+			auditLog = append(auditLog, AuditReceipt{
+				ReceiptID:    app.ID,
+				GoalID:       goalID,
+				ProofID:      p.ID,
+				AttemptIndex: attemptNum,
+				Decision:     app.Status,
+				DecidedAt:    app.DecidedAt,
+				ApproverID:   app.ApproverID,
+				ApproverName: attempt.ApproverName,
+				Comment:      app.Comment,
+			})
+
+			// Calculate turnaround time if both timestamps exist
+			if p.SubmittedAt != "" && app.DecidedAt != "" {
+				subTime, err1 := time.Parse(time.RFC3339, p.SubmittedAt)
+				decTime, err2 := time.Parse(time.RFC3339, app.DecidedAt)
+				if err1 == nil && err2 == nil && decTime.After(subTime) {
+					totalReviewMinutes += int(decTime.Sub(subTime).Minutes())
+					reviewCount++
+				}
+			}
+		}
+
+		attempts = append(attempts, attempt)
+	}
+
+	// Calculate Accountability Metrics across user's goals
+	stats := AccountabilityStats{}
+	if reviewCount > 0 {
+		stats.AvgReviewTimeMinutes = totalReviewMinutes / reviewCount
+	}
+
+	// Query user goals to compute active streak and completion rate
+	userGoals, err := s.goalService.List(ctx, goal.OwnerID)
+	if err == nil && len(userGoals) > 0 {
+		completedCount := 0
+		for _, g := range userGoals {
+			if g.Status == "completed" {
+				completedCount++
+			}
+		}
+		stats.TotalVerified = completedCount
+		stats.TotalRejected = len(auditLog) - completedCount
+		if stats.TotalRejected < 0 {
+			stats.TotalRejected = 0
+		}
+		stats.CompletionRate = float64(completedCount) / float64(len(userGoals)) * 100.0
+
+		// Calculate consecutive streak
+		streak := 0
+		for _, g := range userGoals {
+			if g.Status == "completed" {
+				streak++
+			} else if g.Status == "active" || g.Status == "proof_submitted" {
+				// in progress, continue
+				continue
+			} else {
+				break
+			}
+		}
+		stats.CurrentStreak = streak
+	}
+
+	dossier := &SubmissionDossier{
+		GoalID:                goalID,
+		GoalTitle:             goal.Title,
+		GoalStatus:            goal.Status,
+		OwnerID:               goal.OwnerID,
+		ApproverEmail:         goal.ApproverEmail,
+		TotalAttempts:         len(attempts),
+		Attempts:              attempts,
+		AuditLog:              auditLog,
+		AccountabilityMetrics: stats,
+	}
+
+	// Identify pending attempt and latest decision
+	for i := len(attempts) - 1; i >= 0; i-- {
+		if attempts[i].Status == "pending" {
+			dossier.PendingAttempt = &attempts[i]
+		}
+		if attempts[i].Status == "approved" || attempts[i].Status == "rejected" {
+			if dossier.LatestDecision == nil {
+				dossier.LatestDecision = &attempts[i]
+			}
+		}
+	}
+
+	return dossier, nil
+}
+
 

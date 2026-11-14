@@ -27,6 +27,7 @@ type ApprovalDecidedEvent struct {
 	OwnerID    string    `json:"ownerId"`
 	ApproverID string    `json:"approverId"`
 	Status     string    `json:"status"` // "approved" | "rejected"
+	Comment    string    `json:"comment,omitempty"`
 	Title      string    `json:"title"`
 	DecidedAt  time.Time `json:"decidedAt"`
 }

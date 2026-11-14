@@ -249,3 +249,52 @@ func extractGoalAndApprovalID(path string) (string, string) {
 
 	return "", ""
 }
+
+func (h *Handler) GetSubmissions(w http.ResponseWriter, r *http.Request) {
+	callerID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	goalID := r.PathValue("id")
+	if goalID == "" {
+		path := strings.TrimPrefix(r.URL.Path, "/goals/")
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(parts) >= 1 {
+			goalID = parts[0]
+		}
+	}
+
+	if goalID == "" {
+		http.Error(w, "invalid goal ID", http.StatusBadRequest)
+		return
+	}
+
+	callerEmail, _ := middleware.GetUserEmail(r.Context())
+	callerHandle, _ := middleware.GetUserHandle(r.Context())
+
+	dossier, err := h.service.GetSubmissions(
+		r.Context(),
+		callerID,
+		callerEmail,
+		callerHandle,
+		goalID,
+	)
+	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			http.Error(w, "forbidden: you are not authorized to view submissions for this goal", http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, ErrGoalNotFound) {
+			http.Error(w, "goal not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to fetch submissions dossier", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(dossier)
+}
+

@@ -83,7 +83,11 @@ func (s *Service) CreateFromApprovalDecided(ctx context.Context, event events.Ap
 		message = fmt.Sprintf("Your proof for %q was approved! Focus locks lifted.", event.Title)
 	} else {
 		title = "Proof Rejected"
-		message = fmt.Sprintf("Your proof for %q was rejected. Please review feedback and resubmit.", event.Title)
+		if event.Comment != "" {
+			message = fmt.Sprintf("Your proof for %q was rejected: %q. Tap to resubmit.", event.Title, event.Comment)
+		} else {
+			message = fmt.Sprintf("Your proof for %q was rejected. Please review feedback and resubmit.", event.Title)
+		}
 	}
 
 	notif := &Notification{

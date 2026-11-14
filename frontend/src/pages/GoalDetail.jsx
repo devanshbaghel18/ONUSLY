@@ -29,8 +29,9 @@ import {
   Smartphone,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
-import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal, getGoalEnforcementStatus, getApprovals } from "../lib/api";
+import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal, getGoalEnforcementStatus, getApprovals, getSubmissions } from "../lib/api";
 import SubmitProofModal from "../components/approvals/SubmitProofModal";
+import SubmissionTimeline from "../components/approvals/SubmissionTimeline";
 import { getStoredFriends, sendChatMessage } from "../lib/friendsChat";
 import { getStoredCommunities, sendCommunityMessage } from "../lib/communities";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -76,6 +77,7 @@ export default function GoalDetail() {
 
   // Proofs & Decision State
   const [proofs, setProofs] = useState([]);
+  const [submissionDossier, setSubmissionDossier] = useState(null);
   const [loadingProofs, setLoadingProofs] = useState(true);
   const [decidingProofId, setDecidingProofId] = useState(null);
   const [decisionComments, setDecisionComments] = useState({});
@@ -180,6 +182,11 @@ export default function GoalDetail() {
             if (fresh) setProofs(fresh);
           })
           .catch(() => {});
+        getSubmissions(id)
+          .then((fresh) => {
+            if (fresh) setSubmissionDossier(fresh);
+          })
+          .catch(() => {});
       }
     }
 
@@ -192,6 +199,11 @@ export default function GoalDetail() {
         getProofs(id, ownerIdParam)
           .then((fresh) => {
             if (fresh) setProofs(fresh);
+          })
+          .catch(() => {});
+        getSubmissions(id)
+          .then((fresh) => {
+            if (fresh) setSubmissionDossier(fresh);
           })
           .catch(() => {});
       }
@@ -402,6 +414,14 @@ export default function GoalDetail() {
         if (!ignore) setLoadingProofs(false);
       });
 
+    getSubmissions(id)
+      .then((dossier) => {
+        if (!ignore && dossier) setSubmissionDossier(dossier);
+      })
+      .catch((err) => {
+        console.debug("Could not load submissions dossier:", err?.message);
+      });
+
     getApprovals(id)
       .then((data) => {
         if (!ignore && Array.isArray(data)) setApprovals(data);
@@ -468,6 +488,10 @@ export default function GoalDetail() {
       setGoal(updatedGoal);
       const updatedProofs = await getProofs(id, ownerIdParam || goal.ownerId);
       setProofs(updatedProofs);
+      try {
+        const d = await getSubmissions(id);
+        if (d) setSubmissionDossier(d);
+      } catch (_) {}
       setDecisionComments((prev) => {
         const next = { ...prev };
         delete next[proofId];
@@ -1063,174 +1087,125 @@ export default function GoalDetail() {
                     )}
                   </div>
                 ) : (
-                  <div className="mt-6 space-y-4">
-                    {proofs.map((p, idx) => {
+                  <div className="mt-6 space-y-6">
+                    {/* Multi-Attempt Timeline & Accountability Streaks */}
+                    {submissionDossier && submissionDossier.attempts && submissionDossier.attempts.length > 0 ? (
+                      <SubmissionTimeline
+                        attempts={submissionDossier.attempts}
+                        auditLog={submissionDossier.auditLog || []}
+                        accountabilityMetrics={submissionDossier.accountabilityMetrics}
+                        isOwner={isOwner}
+                        approverEmail={goal?.approverEmail}
+                      />
+                    ) : (
+                      <SubmissionTimeline
+                        attempts={proofs.map((p, idx) => ({
+                          attemptNumber: proofs.length - idx,
+                          proofId: p.id,
+                          submittedAt: p.submittedAt,
+                          proofType: p.proofType,
+                          explanation: p.textExplanation,
+                          externalLink: p.externalLink,
+                          photoUrl: p.photoUrl,
+                          files: p.files,
+                          status: goal.status === "completed" ? "approved" : goal.status === "rejected" ? "rejected" : "pending",
+                          isLatest: idx === 0,
+                        }))}
+                        auditLog={[]}
+                        isOwner={isOwner}
+                        approverEmail={goal?.approverEmail}
+                      />
+                    )}
+
+                    {/* Approver Decision Action Bar if pending */}
+                    {(() => {
                       const isApproverUser =
                         Boolean(user?.email && goal?.approverEmail && user.email.toLowerCase() === goal.approverEmail.toLowerCase()) ||
                         Boolean(user?.id && goal?.approverId && user.id === goal.approverId);
                       const canDecide = isApproverUser && goal.status === "proof_submitted";
-                      const isDeciding = decidingProofId === p.id;
+                      const pendingProof = proofs.find((p) => p.status === "pending" || p.status === "proof_submitted") || proofs[0];
+
+                      if (!canDecide || !pendingProof) return null;
+
+                      const isDeciding = decidingProofId === pendingProof.id;
 
                       return (
-                        <div
-                          key={p.id}
-                          className="rounded-2xl border border-[#777777]/50 bg-[#292929] p-5 shadow-sm space-y-4"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#777777]/20 pb-3">
-                            <div className="flex items-center gap-2">
-                              <span className="rounded-lg bg-[#3A3A3A] px-2.5 py-1 text-[11px] font-bold text-white uppercase tracking-wider">
-                                Proof #{proofs.length - idx}
-                              </span>
-                              <span className="rounded-md border border-neutral-600 bg-neutral-800 px-2 py-0.5 text-[10px] font-semibold text-neutral-300 uppercase">
-                                {p.proofType || "evidence"}
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-[#A3A3A3]">
-                              Submitted {formatDate(p.submittedAt)}
+                        <div className="rounded-2xl border border-white/20 bg-gradient-to-b from-neutral-900 to-[#1F1F1F] p-5 shadow-lg space-y-3.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <ShieldCheck size={16} className="text-white" />
+                              Accountability Partner Decision — Attempt #{submissionDossier?.attempts?.length || proofs.length}
+                            </span>
+                            <span className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 rounded-full font-semibold animate-pulse">
+                              Action Required
                             </span>
                           </div>
 
-                          {p.textExplanation && (
-                            <div className="rounded-xl border border-[#444444] bg-[#1E1E1E] p-3.5">
-                              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#A3A3A3] block mb-1">
-                                Explanation
-                              </span>
-                              <p className="text-xs text-white leading-relaxed whitespace-pre-wrap">
-                                {p.textExplanation}
-                              </p>
-                            </div>
-                          )}
+                          <input
+                            type="text"
+                            value={decisionComments[pendingProof.id] || ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setDecisionComments((prev) => ({ ...prev, [pendingProof.id]: val }));
+                            }}
+                            placeholder="Feedback or comment (required for rejection)..."
+                            className="w-full rounded-xl border border-[#555555] bg-[#2A2A2A] px-3.5 py-2.5 text-xs text-white placeholder:text-neutral-400 outline-none focus:border-white transition"
+                          />
 
-                          {p.externalLink && (
-                            <div className="flex items-center gap-2 text-xs">
-                              <ExternalLink size={14} className="text-neutral-400 shrink-0" />
-                              <span className="text-[#A3A3A3]">Verification Link:</span>
-                              <a
-                                href={p.externalLink.startsWith("http") ? p.externalLink : `https://${p.externalLink}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-neutral-300 underline hover:text-white truncate"
-                              >
-                                {p.externalLink}
-                              </a>
-                            </div>
-                          )}
-
-                          {p.photoUrl && (
-                            <div className="mt-2">
-                              {p.photoUrl.startsWith("data:image/") || p.photoUrl.startsWith("http") ? (
-                                <div className="space-y-1">
-                                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#A3A3A3] block">
-                                    Photo Evidence:
-                                  </span>
-                                  <img
-                                    src={p.photoUrl}
-                                    alt="Submitted Evidence"
-                                    className="max-h-56 max-w-sm rounded-xl object-cover border border-white/10 shadow-lg"
-                                  />
-                                </div>
+                          <div className="flex flex-wrap items-center gap-3 pt-1">
+                            <button
+                              type="button"
+                              disabled={isDeciding}
+                              onClick={() => handleDecideApproval(pendingProof.id, "approved")}
+                              className="flex items-center gap-2 rounded-xl bg-white hover:bg-neutral-200 text-black px-4 py-2 text-xs font-bold transition shadow-md disabled:opacity-50 active:scale-95"
+                            >
+                              {isDeciding ? (
+                                <Loader2 size={13} className="animate-spin" />
                               ) : (
-                                <div className="flex items-center gap-2 text-xs text-[#A3A3A3]">
-                                  <FileText size={14} className="text-neutral-400 shrink-0" />
-                                  <span>Attached: <strong className="text-white">{p.photoUrl}</strong></span>
-                                </div>
+                                <ThumbsUp size={13} />
                               )}
-                            </div>
-                          )}
+                              Approve & Unlock Goal
+                            </button>
 
-                          {/* Approver Action Panel */}
-                          {canDecide ? (
-                            <div className="mt-4 rounded-xl border border-white/20 bg-gradient-to-b from-neutral-900 to-[#1F1F1F] p-4 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                                  <ShieldCheck size={15} className="text-white" />
-                                  Accountability Partner Decision
-                                </span>
-                                <span className="text-[10px] text-neutral-400 bg-neutral-800 border border-white/10 px-2 py-0.5 rounded-full">
-                                  Action Required
-                                </span>
-                              </div>
-
-                              <input
-                                type="text"
-                                value={decisionComments[p.id] || ""}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setDecisionComments((prev) => ({ ...prev, [p.id]: val }));
-                                }}
-                                placeholder="Feedback or comment (required for rejection)..."
-                                className="w-full rounded-xl border border-[#555555] bg-[#2A2A2A] px-3.5 py-2 text-xs text-white placeholder:text-neutral-400 outline-none focus:border-white"
-                              />
-
-                              <div className="flex flex-wrap items-center gap-3 pt-1">
-                                <button
-                                  type="button"
-                                  disabled={isDeciding}
-                                  onClick={() => handleDecideApproval(p.id, "approved")}
-                                  className="flex items-center gap-2 rounded-xl bg-white hover:bg-neutral-200 text-black px-4 py-2 text-xs font-bold transition shadow-md disabled:opacity-50"
-                                >
-                                  {isDeciding ? (
-                                    <Loader2 size={13} className="animate-spin" />
-                                  ) : (
-                                    <ThumbsUp size={13} />
-                                  )}
-                                  Approve & Unlock Goal
-                                </button>
-
-                                <button
-                                  type="button"
-                                  disabled={isDeciding}
-                                  onClick={() => handleDecideApproval(p.id, "rejected")}
-                                  className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-neutral-300 px-4 py-2 text-xs font-bold transition disabled:opacity-50"
-                                >
-                                  {isDeciding ? (
-                                    <Loader2 size={13} className="animate-spin" />
-                                  ) : (
-                                    <ThumbsDown size={13} />
-                                  )}
-                                  Reject Proof
-                                </button>
-                              </div>
-                            </div>
-                          ) : goal.status === "completed" ? (
-                            <div className="flex items-center gap-2 text-xs text-white font-semibold bg-white/[0.06] border border-white/15 rounded-xl p-2.5">
-                              <CheckCircle2 size={15} />
-                              <span>Approved and unlocked! Constraints have been released.</span>
-                            </div>
-                          ) : goal.status === "rejected" ? (
-                            <div className="flex flex-col gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
-                              <div className="flex items-center gap-2 font-bold">
-                                <AlertCircle size={15} className="text-amber-400 shrink-0" />
-                                <span>Proof Rejected — Restrictions remain active</span>
-                              </div>
-                              <p className="text-[11px] text-neutral-300 pl-6">
-                                Review your partner's feedback and submit revised proof to lift constraints.
-                              </p>
-                              {isOwner && (
-                                <div className="pl-6 pt-1">
-                                  <button
-                                    type="button"
-                                    onClick={openShareModal}
-                                    className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-1.5 text-xs font-bold text-black hover:bg-neutral-200 transition active:scale-95 shadow-sm"
-                                  >
-                                    <Send size={12} />
-                                    <span>Submit Revised Proof</span>
-                                  </button>
-                                </div>
+                            <button
+                              type="button"
+                              disabled={isDeciding}
+                              onClick={() => handleDecideApproval(pendingProof.id, "rejected")}
+                              className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-neutral-300 px-4 py-2 text-xs font-bold transition disabled:opacity-50 active:scale-95"
+                            >
+                              {isDeciding ? (
+                                <Loader2 size={13} className="animate-spin" />
+                              ) : (
+                                <ThumbsDown size={13} />
                               )}
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 text-xs text-neutral-400 bg-neutral-900/60 border border-white/10 rounded-xl p-2.5">
-                              <Clock size={14} className="text-neutral-500" />
-                              <span>
-                                Waiting for review by partner{" "}
-                                <strong className="text-neutral-200">({goal.approverEmail || "Assigned Approver"})</strong>.
-                              </span>
-                            </div>
-                          )}
+                              Reject Proof
+                            </button>
+                          </div>
                         </div>
                       );
-                    })}
+                    })()}
+
+                    {/* Resubmit revised proof banner if rejected */}
+                    {goal.status === "rejected" && isOwner && (
+                      <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold text-amber-300">
+                            Your latest submission was rejected by your partner.
+                          </p>
+                          <p className="text-[11px] text-neutral-400 mt-0.5">
+                            Check feedback comments above and submit revised evidence to lift restrictions.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={openShareModal}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition active:scale-95 shadow-sm"
+                        >
+                          <Send size={13} />
+                          <span>Submit Revised Proof</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1248,6 +1223,7 @@ export default function GoalDetail() {
           onSuccess={(newProof) => {
             setGoal((prev) => ({ ...prev, status: "proof_submitted" }));
             if (newProof) setProofs((prev) => [newProof, ...prev]);
+            getSubmissions(id).then((d) => d && setSubmissionDossier(d)).catch(() => {});
             setSuccessNotice("Proof submitted successfully! Awaiting your partner's verification.");
             setTimeout(() => setSuccessNotice(""), 4500);
           }}

@@ -236,6 +236,13 @@ export async function getApprovals(goalId) {
   return Array.isArray(data) ? data : [];
 }
 
+export async function getSubmissions(goalId) {
+  const data = await request(`/goals/${encodeURIComponent(goalId)}/submissions`, {
+    method: "GET",
+  });
+  return data;
+}
+
 export async function getChatHistory(peerEmail) {
   if (!peerEmail) return [];
   const data = await request(`/chat/messages?peer=${encodeURIComponent(peerEmail.trim())}`, {

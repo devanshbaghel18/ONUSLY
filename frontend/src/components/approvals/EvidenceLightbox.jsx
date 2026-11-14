@@ -20,9 +20,10 @@ import {
   ChevronRight,
   Download,
   File,
+  History,
 } from "lucide-react";
 import { getUniqueDisplayTargets } from "../../lib/blockedApps";
-import { API_BASE_URL } from "../../lib/api";
+import { API_BASE_URL, getSubmissions } from "../../lib/api";
 
 function resolveMediaUrl(rawUrl) {
   if (!rawUrl) return "";
@@ -60,17 +61,17 @@ function extractProofFiles(currentProof) {
       const resolved = resolveMediaUrl(rawUrl);
       const isPdf = Boolean(
         f.isPdf ||
-          (rawUrl && rawUrl.startsWith("data:application/pdf")) ||
-          (f.name && f.name.toLowerCase().endsWith(".pdf")) ||
-          (rawUrl && rawUrl.toLowerCase().endsWith(".pdf"))
+        (rawUrl && rawUrl.startsWith("data:application/pdf")) ||
+        (f.name && f.name.toLowerCase().endsWith(".pdf")) ||
+        (rawUrl && rawUrl.toLowerCase().endsWith(".pdf"))
       );
       const isImage = Boolean(
         !isPdf &&
-          (f.isImage ||
-            (rawUrl && rawUrl.startsWith("data:image/")) ||
-            (f.type && f.type.startsWith("image/")) ||
-            /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(f.name || "") ||
-            /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(rawUrl))
+        (f.isImage ||
+          (rawUrl && rawUrl.startsWith("data:image/")) ||
+          (f.type && f.type.startsWith("image/")) ||
+          /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(f.name || "") ||
+          /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(rawUrl))
       );
 
       return {
@@ -178,10 +179,23 @@ export default function EvidenceLightbox({
   const [imgLoading, setImgLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [dossier, setDossier] = useState(null);
+  const [showPastAttempts, setShowPastAttempts] = useState(false);
 
   const containerRef = useRef(null);
 
   const currentProof = proof || item?.latestProof;
+
+  useEffect(() => {
+    const goalId = item?.goalId || currentProof?.goalId;
+    if (isOpen && goalId) {
+      getSubmissions(goalId)
+        .then((d) => d && setDossier(d))
+        .catch(() => { });
+    } else {
+      setDossier(null);
+    }
+  }, [isOpen, item?.goalId, currentProof?.goalId]);
   const attachedFiles = extractProofFiles(currentProof);
   const activeFile =
     attachedFiles[activeFileIndex] || attachedFiles[0] || null;
@@ -430,11 +444,10 @@ export default function EvidenceLightbox({
                     key={f.id}
                     type="button"
                     onClick={() => setActiveFileIndex(idx)}
-                    className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
-                      isActive
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${isActive
                         ? "border border-indigo-500/50 bg-indigo-500/20 text-white shadow-md shadow-indigo-950/40"
                         : "border border-white/10 bg-white/5 text-neutral-400 hover:border-white/20 hover:text-neutral-200"
-                    }`}
+                      }`}
                   >
                     {f.isPdf ? (
                       <FileText size={14} className="text-rose-400 shrink-0" />
@@ -461,15 +474,14 @@ export default function EvidenceLightbox({
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onDoubleClick={activeFile?.isImage ? handleDoubleClick : undefined}
-            className={`relative flex flex-1 items-center justify-center overflow-hidden p-4 sm:p-6 ${
-              activeFile?.isImage && zoom > 1
+            className={`relative flex flex-1 items-center justify-center overflow-hidden p-4 sm:p-6 ${activeFile?.isImage && zoom > 1
                 ? isDragging
                   ? "cursor-grabbing"
                   : "cursor-grab"
                 : activeFile?.isImage
-                ? "cursor-zoom-in"
-                : "cursor-default"
-            }`}
+                  ? "cursor-zoom-in"
+                  : "cursor-default"
+              }`}
           >
             {/* Previous File Arrow (<) */}
             {attachedFiles.length > 1 && (
@@ -527,9 +539,8 @@ export default function EvidenceLightbox({
                       transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
                       transition: isDragging ? "none" : "transform 0.15s ease-out",
                     }}
-                    className={`max-h-[75vh] max-w-full rounded-xl object-contain shadow-2xl transition-opacity duration-200 ${
-                      imgLoading ? "opacity-0" : "opacity-100"
-                    }`}
+                    className={`max-h-[75vh] max-w-full rounded-xl object-contain shadow-2xl transition-opacity duration-200 ${imgLoading ? "opacity-0" : "opacity-100"
+                      }`}
                   />
                 )}
               </div>
@@ -712,11 +723,10 @@ export default function EvidenceLightbox({
                       key={f.id}
                       type="button"
                       onClick={() => setActiveFileIndex(idx)}
-                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition ${
-                        idx === activeFileIndex
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition ${idx === activeFileIndex
                           ? "bg-indigo-500/20 text-white font-semibold border border-indigo-500/40"
                           : "text-neutral-300 hover:bg-white/5 hover:text-white"
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         {f.isPdf ? (
@@ -798,6 +808,60 @@ export default function EvidenceLightbox({
                     )}
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Past Attempts & Rejection History Accordion */}
+            {dossier && dossier.attempts && dossier.attempts.length > 1 && (
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowPastAttempts(!showPastAttempts)}
+                  className="flex w-full items-center justify-between text-xs font-semibold text-neutral-300 hover:text-white transition"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <History size={13} className="text-amber-400" />
+                    Past Attempts ({dossier.attempts.length}):
+                  </span>
+                  {showPastAttempts ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+
+                {showPastAttempts && (
+                  <div className="space-y-2 pt-2 border-t border-white/5">
+                    {dossier.attempts.map((att) => (
+                      <div
+                        key={att.attemptNumber}
+                        className="rounded-lg border border-white/5 bg-black/40 p-2.5 text-[11px] space-y-1"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-white">
+                            Attempt #{att.attemptNumber}
+                          </span>
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${att.status === "approved"
+                                ? "bg-emerald-500/20 text-emerald-300"
+                                : att.status === "rejected"
+                                  ? "bg-amber-500/20 text-amber-300"
+                                  : "bg-sky-500/20 text-sky-300"
+                              }`}
+                          >
+                            {att.status}
+                          </span>
+                        </div>
+                        {att.comment && (
+                          <p className="text-amber-200/90 italic">
+                            Feedback: "{att.comment}"
+                          </p>
+                        )}
+                        {att.explanation && (
+                          <p className="text-neutral-400 truncate">
+                            Note: {att.explanation}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

@@ -35,6 +35,7 @@ export default function GlobalChatNotifier() {
       const payload = event.payload || {};
       const timeFormatted = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const goalTitle = payload.goalTitle || payload.title || "Goal";
+      const commentReason = payload.comment ? ` Reason: "${payload.comment}"` : "";
 
       // Trigger extension blocklist refresh immediately to preserve strict restrictions
       notifyExtensionSync();
@@ -42,10 +43,36 @@ export default function GlobalChatNotifier() {
       setActiveToast({
         id: `toast-rejected-${Date.now()}`,
         senderName: "Accountability Partner",
-        text: `Proof for "${goalTitle}" was rejected. Constraints remain active.`,
+        text: `Proof for "${goalTitle}" was rejected.${commentReason} Constraints remain active.`,
         time: timeFormatted,
         isApproval: false,
+        isRejection: true,
+        actionUrl: payload.goalId ? `/goals/${payload.goalId}` : "/goals",
       });
+      return;
+    }
+
+    // 2. Incoming proof submission event (for approvers)
+    if (event?.type === "proof.submitted") {
+      const payload = event.payload || {};
+      const timeFormatted = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const goalTitle = payload.title || "Goal";
+      const ownerName = payload.ownerName || (payload.ownerHandle ? `@${payload.ownerHandle}` : "Friend");
+
+      // Notify navbar and layout to refresh pending badge count
+      window.dispatchEvent(new CustomEvent("onusly:inbox-updated"));
+
+      if (location.pathname !== "/approvals") {
+        setActiveToast({
+          id: `toast-proof-${Date.now()}`,
+          senderName: ownerName,
+          text: `Submitted verification proof for "${goalTitle}". Ready for review.`,
+          time: timeFormatted,
+          isApproval: false,
+          isProofSubmission: true,
+          actionUrl: "/approvals",
+        });
+      }
       return;
     }
 
@@ -120,6 +147,16 @@ export default function GlobalChatNotifier() {
                     Goal Approved
                   </span>
                 )}
+                {activeToast.isProofSubmission && (
+                  <span className="rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-[9px] font-bold text-white">
+                    Needs Review
+                  </span>
+                )}
+                {activeToast.isRejection && (
+                  <span className="rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-[9px] font-bold text-white">
+                    Proof Rejected
+                  </span>
+                )}
                 {activeToast.isOffline && (
                   <span className="rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-[9px] font-semibold text-neutral-300">
                     Offline Delivered
@@ -128,21 +165,28 @@ export default function GlobalChatNotifier() {
                 <span className="text-[10px] text-neutral-400">{activeToast.time}</span>
               </div>
               <p className="mt-1 line-clamp-2 text-xs text-neutral-300 leading-snug">
-                {activeToast.isApproval ? activeToast.text : `"${activeToast.text}"`}
+                {activeToast.isApproval || activeToast.isProofSubmission || activeToast.isRejection ? activeToast.text : `"${activeToast.text}"`}
               </p>
               <button
                 type="button"
                 onClick={() => {
+                  const target =
+                    activeToast.actionUrl ||
+                    (activeToast.isApproval ? "/goals" : "/community-friends");
                   setActiveToast(null);
-                  if (activeToast.isApproval) {
-                    navigate("/goals");
-                  } else {
-                    navigate("/community-friends");
-                  }
+                  navigate(target);
                 }}
                 className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-bold text-white hover:text-neutral-300 transition"
               >
-                <span>{activeToast.isApproval ? "View Goals" : "Open Chat"}</span>
+                <span>
+                  {activeToast.isProofSubmission
+                    ? "Review Proof in Approval Center"
+                    : activeToast.isRejection
+                    ? "Resubmit Proof"
+                    : activeToast.isApproval
+                    ? "View Goals"
+                    : "Open Chat"}
+                </span>
                 <ArrowRight size={12} />
               </button>
             </div>

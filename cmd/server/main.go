@@ -431,6 +431,12 @@ func main() {
 	)
 
 	goalRoutes.HandleFunc(
+		"GET /goals/{id}/submissions",
+		approvalHandler.GetSubmissions,
+	)
+
+
+	goalRoutes.HandleFunc(
 		"GET /approvals/inbox",
 		approvalHandler.GetInbox,
 	)
