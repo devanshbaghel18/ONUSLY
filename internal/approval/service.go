@@ -189,6 +189,7 @@ func (s *Service) Decide(
 	); err != nil {
 		return nil, err
 	}
+	_, _ = s.goalService.UpdateStatus(ctx, goal.OwnerID, goalID, goalStatus)
 
 	for _, listener := range s.listeners {
 		func() {

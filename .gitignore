@@ -14,3 +14,7 @@ skills-lock.json
 .gradle/
 build/
 uploads/
+scratch/
+test-results/
+test_prompt*.txt
+

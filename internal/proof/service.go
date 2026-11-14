@@ -288,6 +288,7 @@ func (s *Service) SubmitWithFiles(
 	); err != nil {
 		return nil, err
 	}
+	_, _ = s.goalService.UpdateStatus(ctx, ownerID, goalID, "proof_submitted")
 
 	if s.publisher != nil {
 		submittedTime, _ := time.Parse(time.RFC3339, now)
