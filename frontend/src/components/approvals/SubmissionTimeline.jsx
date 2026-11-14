@@ -11,6 +11,8 @@ import {
   ExternalLink,
   ShieldCheck,
   File,
+  Copy,
+  Check,
 } from "lucide-react";
 import { API_BASE_URL } from "../../lib/api";
 
@@ -60,10 +62,14 @@ function formatRelativeTime(dateString) {
 
 export default function SubmissionTimeline({
   attempts = [],
+  auditLog = [],
   onSelectProof = null,
   isOwner = false,
   approverEmail = "",
 }) {
+  const [copiedReceiptId, setCopiedReceiptId] = useState("");
+  const [showAuditDrawer, setShowAuditDrawer] = useState(false);
+
   const [expandedAttempts, setExpandedAttempts] = useState(() => {
     const initial = {};
     if (attempts.length > 0) {
@@ -95,6 +101,13 @@ export default function SubmissionTimeline({
     setExpandedAttempts(latestOnly);
   };
 
+  const handleCopyReceipt = (id) => {
+    if (!id) return;
+    navigator.clipboard?.writeText(id);
+    setCopiedReceiptId(id);
+    setTimeout(() => setCopiedReceiptId(""), 2000);
+  };
+
   if (!attempts || attempts.length === 0) {
     return (
       <div className="rounded-2xl border border-white/10 bg-[#1E1E1E] p-6 text-center text-neutral-400">
@@ -122,26 +135,109 @@ export default function SubmissionTimeline({
           </span>
         </div>
 
-        {attempts.length > 1 && (
-          <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-3 text-xs">
+          {auditLog.length > 0 && (
             <button
               type="button"
-              onClick={expandAll}
-              className="text-neutral-400 hover:text-white transition"
+              onClick={() => setShowAuditDrawer(!showAuditDrawer)}
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-neutral-300 hover:bg-white/10 hover:text-white transition"
             >
-              Expand All
+              <ShieldCheck size={13} className="text-indigo-400" />
+              <span>{showAuditDrawer ? "Hide Audit Log" : `Audit Receipts (${auditLog.length})`}</span>
             </button>
-            <span className="text-neutral-600">•</span>
-            <button
-              type="button"
-              onClick={collapseAll}
-              className="text-neutral-400 hover:text-white transition"
-            >
-              Collapse Past
-            </button>
-          </div>
-        )}
+          )}
+
+          {attempts.length > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={expandAll}
+                className="text-neutral-400 hover:text-white transition"
+              >
+                Expand All
+              </button>
+              <span className="text-neutral-600">•</span>
+              <button
+                type="button"
+                onClick={collapseAll}
+                className="text-neutral-400 hover:text-white transition"
+              >
+                Collapse Past
+              </button>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Immutable Audit Receipts Panel */}
+      {showAuditDrawer && auditLog.length > 0 && (
+        <div className="rounded-2xl border border-indigo-500/30 bg-gradient-to-b from-[#161622] to-[#12121A] p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
+              <ShieldCheck size={16} />
+              <span>Immutable Verification Audit Receipts</span>
+            </div>
+            <span className="text-[10px] text-neutral-400 uppercase tracking-wider">
+              Cryptographically Recorded
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {auditLog.map((receipt, idx) => (
+              <div
+                key={receipt.receiptId || idx}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/5 bg-black/40 p-3 text-xs"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                        receipt.decision === "approved"
+                          ? "bg-emerald-500/20 text-emerald-300"
+                          : "bg-amber-500/20 text-amber-300"
+                      }`}
+                    >
+                      {receipt.decision}
+                    </span>
+                    <span className="font-semibold text-white">
+                      Attempt #{receipt.attemptIndex} Decision
+                    </span>
+                    <span className="text-[11px] text-neutral-400">
+                      • {formatRelativeTime(receipt.decidedAt)}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-neutral-300">
+                    Decision by{" "}
+                    <strong className="text-white">
+                      {receipt.approverName || approverEmail || receipt.approverId}
+                    </strong>
+                    {receipt.comment && ` — "${receipt.comment}"`}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <code className="rounded bg-white/5 px-2 py-1 font-mono text-[10px] text-neutral-400">
+                    ID: {receipt.receiptId?.slice(0, 14)}...
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyReceipt(receipt.receiptId)}
+                    className="rounded p-1 text-neutral-400 hover:bg-white/10 hover:text-white transition"
+                    title="Copy full receipt ID"
+                  >
+                    {copiedReceiptId === receipt.receiptId ? (
+                      <Check size={13} className="text-emerald-400" />
+                    ) : (
+                      <Copy size={13} />
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Vertical Stepper List */}
       <div className="relative pl-6 space-y-6 before:absolute before:bottom-3 before:left-2.5 before:top-3 before:w-0.5 before:bg-white/10">
