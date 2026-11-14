@@ -24,6 +24,7 @@ type CacheHealthStatus struct {
 	DegradedReason string `json:"degradedReason,omitempty"`
 	IsLKG          bool   `json:"isLkg"`
 	Migrated       bool   `json:"migrated"`
+	ClockTampered  bool   `json:"clockTampered,omitempty"`
 }
 
 type FileBlocklistCache struct {
@@ -126,6 +127,7 @@ func (c *FileBlocklistCache) Get(expectedUserID string) (*core.BlocklistData, er
 						if expectedUserID != "" && altCached.UserID != "" && altCached.UserID != expectedUserID {
 							return nil, core.ErrUserMismatch
 						}
+						c.checkClockTamper(&altCached)
 						return &altCached, nil
 					} else {
 						// Legacy cache is corrupt: quarantine it
@@ -149,6 +151,7 @@ func (c *FileBlocklistCache) Get(expectedUserID string) (*core.BlocklistData, er
 					if expectedUserID != "" && lkgCached.UserID != "" && lkgCached.UserID != expectedUserID {
 						return nil, core.ErrUserMismatch
 					}
+					c.checkClockTamper(&lkgCached)
 					return &lkgCached, nil
 				} else {
 					_ = os.Rename(c.lkgPath(), c.lkgPath()+".corrupt")
@@ -189,6 +192,7 @@ func (c *FileBlocklistCache) Get(expectedUserID string) (*core.BlocklistData, er
 				if expectedUserID != "" && lkgCached.UserID != "" && lkgCached.UserID != expectedUserID {
 					return nil, core.ErrUserMismatch
 				}
+				c.checkClockTamper(&lkgCached)
 				return &lkgCached, nil
 			} else {
 				// LKG is also corrupt: quarantine it
@@ -213,6 +217,7 @@ func (c *FileBlocklistCache) Get(expectedUserID string) (*core.BlocklistData, er
 					if expectedUserID != "" && altCached.UserID != "" && altCached.UserID != expectedUserID {
 						return nil, core.ErrUserMismatch
 					}
+					c.checkClockTamper(&altCached)
 					return &altCached, nil
 				} else {
 					_ = os.Rename(alt, alt+".corrupt")
@@ -278,7 +283,26 @@ func (c *FileBlocklistCache) Get(expectedUserID string) (*core.BlocklistData, er
 		}
 	}
 
+	c.checkClockTamper(&cached)
+
 	return &cached, nil
+}
+
+// checkClockTamper inspects policy timestamps against system clock to prevent anti-tampering bypass.
+func (c *FileBlocklistCache) checkClockTamper(data *core.BlocklistData) {
+	if data == nil || data.LastSyncAt == "" {
+		return
+	}
+	tSync, err := time.Parse(time.RFC3339, data.LastSyncAt)
+	if err == nil {
+		// If current system time is strictly earlier than LastSyncAt minus 60s tolerance,
+		// the user has rolled back their system clock.
+		if time.Now().UTC().Before(tSync.Add(-60 * time.Second)) {
+			c.health.ClockTampered = true
+			c.health.Degraded = true
+			c.health.DegradedReason = "system_clock_rollback_detected"
+		}
+	}
 }
 
 func (c *FileBlocklistCache) saveInternal(data *core.BlocklistData) error {
