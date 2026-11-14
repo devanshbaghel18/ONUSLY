@@ -202,11 +202,19 @@ func runPlatformDaemon(
 			handleLifecycleErr(errHb)
 		}
 
-		syncTicker := time.NewTicker(60 * time.Second)
+		// Fast conditional polling (2s) ensures sub-second unlocks after goal approvals via HTTP 304
+		syncTicker := time.NewTicker(2 * time.Second)
 		defer syncTicker.Stop()
 
 		heartbeatTicker := time.NewTicker(60 * time.Second)
 		defer heartbeatTicker.Stop()
+
+		var lastObservedVersion string
+		if initData != nil {
+			lastObservedVersion = initData.Version
+		} else if cachedBlock, _ := syncer.GetCachedBlocklist(); cachedBlock != nil {
+			lastObservedVersion = cachedBlock.Version
+		}
 
 		for {
 			select {
@@ -244,7 +252,12 @@ func runPlatformDaemon(
 				} else if res != nil {
 					dnsPolicy.UpdateFromBlocklist(res)
 					appController.UpdateBlocklist(res)
-					log.Printf("[ONUSLY Windows] Synchronized blocklist: %d target(s) (version %s)", len(res.Targets), res.Version)
+					if res.Version != lastObservedVersion {
+						lastObservedVersion = res.Version
+						log.Printf("[ONUSLY Windows] Blocklist updated instantly: %d target(s) (version %s)", len(res.Targets), res.Version)
+						// Immediately emit heartbeat so dashboard telemetry badge reflects change with zero lag!
+						_ = reporter.SendHeartbeat(workerCtx, nil)
+					}
 				}
 
 			case <-heartbeatTicker.C:

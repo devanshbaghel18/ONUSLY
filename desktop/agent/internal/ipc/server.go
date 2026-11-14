@@ -204,10 +204,16 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 		blocklist, err := s.syncer.Sync(ctx)
 		if err != nil {
 			cached, _ := s.syncer.GetCachedBlocklist()
+			if s.appsCtrl != nil && cached != nil {
+				s.appsCtrl.UpdateBlocklist(cached)
+			}
 			return core.IPCResponse{
 				Success:   true,
 				Blocklist: cached,
 			}
+		}
+		if s.appsCtrl != nil && blocklist != nil {
+			s.appsCtrl.UpdateBlocklist(blocklist)
 		}
 		return core.IPCResponse{
 			Success:   true,
