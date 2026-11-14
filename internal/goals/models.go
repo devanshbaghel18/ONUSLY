@@ -77,8 +77,15 @@ func (g *Goal) IsApprover(callerID, callerEmail, callerHandle string) bool {
 	if g.ApproverID == "COMMUNITY" || g.ApprovalType == "community" {
 		return true
 	}
-	if g.ApproverID != "" && g.ApproverID == callerID {
-		return true
+	if g.ApproverID != "" {
+		cleanAppID := strings.TrimPrefix(strings.ToLower(g.ApproverID), "partner-")
+		if g.ApproverID == callerID || cleanAppID == strings.ToLower(callerID) {
+			return true
+		}
+		cleanHandle := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(callerHandle)), "@")
+		if cleanHandle != "" && (cleanAppID == cleanHandle || g.ApproverID == cleanHandle) {
+			return true
+		}
 	}
 	if g.ApproverEmail != "" {
 		if callerEmail != "" && strings.EqualFold(g.ApproverEmail, callerEmail) {
@@ -86,7 +93,7 @@ func (g *Goal) IsApprover(callerID, callerEmail, callerHandle string) bool {
 		}
 		cleanHandle := strings.TrimPrefix(strings.TrimSpace(callerHandle), "@")
 		if cleanHandle != "" {
-			if strings.EqualFold(g.ApproverEmail, cleanHandle) || strings.EqualFold(g.ApproverEmail, "@"+cleanHandle) {
+			if strings.EqualFold(g.ApproverEmail, cleanHandle) || strings.EqualFold(g.ApproverEmail, "@"+cleanHandle) || strings.EqualFold(g.ApproverEmail, "partner-"+cleanHandle) {
 				return true
 			}
 		}

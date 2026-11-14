@@ -218,7 +218,8 @@ func (c *AppEnforcementController) handleProcessStart(ctx context.Context, proc 
 
 	if success {
 		c.totalEnforced.Add(1)
-		log.Printf("[App Enforcement] Successfully enforced restriction on PID %d (%s)", proc.PID, proc.BaseName)
+		log.Printf("[App Enforcement] Successfully terminated restricted process %s (PID: %d) for active goal %q (%s)",
+			proc.BaseName, proc.PID, target.GoalTitle, target.AppID)
 	} else {
 		c.totalFailed.Add(1)
 		event.Action = "failed"

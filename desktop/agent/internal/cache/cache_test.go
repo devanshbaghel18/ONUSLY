@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/cache"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
@@ -475,4 +476,71 @@ func TestCache_ReconciliationMatrix8Scenarios(t *testing.T) {
 			t.Errorf("expected legacy .corrupt to exist: %v", err)
 		}
 	})
+}
+
+func TestCache_ClockRollbackDetection(t *testing.T) {
+	tmpDir := t.TempDir()
+	cacheFile := filepath.Join(tmpDir, "policy_cache.json")
+	c := cache.NewFileBlocklistCache(cacheFile)
+
+	// Case 1: Normal LastSyncAt (10 minutes in the past) -> No ClockTampered
+	normalSync := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
+	dataNormal := &core.BlocklistData{
+		UserID:      "user-clock-1",
+		Version:     "v1-normal",
+		GeneratedAt: normalSync,
+		LastSyncAt:  normalSync,
+		Targets: []core.TargetItem{
+			{
+				GoalID:    "g-1",
+				GoalTitle: "No Tamper",
+				Status:    "active",
+				Domains:   []string{"distraction.com"},
+			},
+		},
+	}
+	if err := c.Save(dataNormal); err != nil {
+		t.Fatalf("failed to save cache: %v", err)
+	}
+
+	res, err := c.Get("user-clock-1")
+	if err != nil || res == nil {
+		t.Fatalf("failed to get cache: %v", err)
+	}
+	health := c.GetHealth()
+	if health.ClockTampered {
+		t.Errorf("expected ClockTampered=false for normal sync time, got true")
+	}
+
+	// Case 2: LastSyncAt is 2 hours in the future (simulating user turned system clock back 2 hours)
+	futureSync := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
+	dataFuture := &core.BlocklistData{
+		UserID:      "user-clock-1",
+		Version:     "v2-tampered",
+		GeneratedAt: futureSync,
+		LastSyncAt:  futureSync,
+		Targets: []core.TargetItem{
+			{
+				GoalID:    "g-1",
+				GoalTitle: "Tampered Clock",
+				Status:    "active",
+				Domains:   []string{"distraction.com"},
+			},
+		},
+	}
+	if err := c.Save(dataFuture); err != nil {
+		t.Fatalf("failed to save future cache: %v", err)
+	}
+
+	resTampered, err := c.Get("user-clock-1")
+	if err != nil || resTampered == nil {
+		t.Fatalf("failed to get tampered cache: %v", err)
+	}
+	healthTampered := c.GetHealth()
+	if !healthTampered.ClockTampered {
+		t.Errorf("expected ClockTampered=true when system clock is rolled back, got false")
+	}
+	if !healthTampered.Degraded || healthTampered.DegradedReason != "system_clock_rollback_detected" {
+		t.Errorf("expected degraded reason 'system_clock_rollback_detected', got %+v", healthTampered)
+	}
 }

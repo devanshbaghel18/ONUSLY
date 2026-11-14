@@ -363,7 +363,16 @@ func (m *WindowsPolicyManager) registerNativeHost(
 ) error {
 	k, openedExisting, err := m.reg.CreateKey(hostKeyPath)
 	if err != nil {
-		return err
+		// Fall back to HKCU if HKLM is restricted for non-admin sessions
+		userKeyPath := `HKCU\Software\` + strings.TrimPrefix(strings.TrimPrefix(hostKeyPath, `SOFTWARE\`), `Software\`)
+		kUser, openedUserExisting, errUser := m.reg.CreateKey(userKeyPath)
+		if errUser != nil {
+			return err
+		}
+		defer kUser.Close()
+		k = kUser
+		openedExisting = openedUserExisting
+		hostKeyPath = userKeyPath
 	}
 	defer k.Close()
 
@@ -593,14 +602,22 @@ func (m *WindowsPolicyManager) VerifyPolicies(browsers []core.BrowserInfo) ([]co
 		}
 
 		// 1. Verify Native Messaging Host Registry Key
-		if !m.reg.KeyExists(b.NativeHostDir) {
+		targetHostKey := b.NativeHostDir
+		if !m.reg.KeyExists(targetHostKey) {
+			userKeyPath := `HKCU\Software\` + strings.TrimPrefix(strings.TrimPrefix(b.NativeHostDir, `SOFTWARE\`), `Software\`)
+			if m.reg.KeyExists(userKeyPath) {
+				targetHostKey = userKeyPath
+			}
+		}
+
+		if !m.reg.KeyExists(targetHostKey) {
 			issues = append(issues, core.PolicyIssue{
 				Browser: b.Type,
 				Issue:   "native_host_registry_missing",
 				Details: fmt.Sprintf("Registry key missing: %s", b.NativeHostDir),
 			})
 		} else {
-			k, err := m.reg.OpenKey(b.NativeHostDir, false)
+			k, err := m.reg.OpenKey(targetHostKey, false)
 			if err == nil {
 				manifestPath, errVal := k.GetStringValue("")
 				k.Close()
