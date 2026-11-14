@@ -13,6 +13,10 @@ import {
   File,
   Copy,
   Check,
+  Flame,
+  Target,
+  Zap,
+  Award,
 } from "lucide-react";
 import { API_BASE_URL } from "../../lib/api";
 
@@ -63,6 +67,7 @@ function formatRelativeTime(dateString) {
 export default function SubmissionTimeline({
   attempts = [],
   auditLog = [],
+  accountabilityMetrics = null,
   onSelectProof = null,
   isOwner = false,
   approverEmail = "",
@@ -123,7 +128,76 @@ export default function SubmissionTimeline({
   const reversedAttempts = [...attempts].reverse();
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* 5.4 Accountability Streak & Velocity Metrics Strip */}
+      {accountabilityMetrics && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {/* Active Streak */}
+          <div className="rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 to-transparent p-3 shadow-sm">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+              <Flame size={14} className="fill-amber-400 text-amber-400" />
+              <span>Streak</span>
+            </div>
+            <div className="mt-1 flex items-baseline gap-1">
+              <span className="text-xl font-extrabold text-white">
+                {accountabilityMetrics.currentStreak || 0}
+              </span>
+              <span className="text-[11px] text-amber-200/70 font-medium">
+                {accountabilityMetrics.currentStreak === 1 ? "Goal" : "Goals"}
+              </span>
+            </div>
+            <p className="text-[10px] text-neutral-400 mt-0.5">Consecutive completion</p>
+          </div>
+
+          {/* Verification Success Rate */}
+          <div className="rounded-xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-transparent p-3 shadow-sm">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+              <Target size={14} />
+              <span>Accuracy</span>
+            </div>
+            <div className="mt-1 flex items-baseline gap-1">
+              <span className="text-xl font-extrabold text-white">
+                {Math.round(accountabilityMetrics.completionRate || 100)}%
+              </span>
+              <span className="text-[11px] text-emerald-200/70 font-medium">Success</span>
+            </div>
+            <p className="text-[10px] text-neutral-400 mt-0.5">Verified vs rejected</p>
+          </div>
+
+          {/* Review Turnaround Time */}
+          <div className="rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-500/10 to-transparent p-3 shadow-sm">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-400">
+              <Zap size={14} />
+              <span>Velocity</span>
+            </div>
+            <div className="mt-1 flex items-baseline gap-1">
+              <span className="text-xl font-extrabold text-white">
+                {accountabilityMetrics.avgReviewTimeMinutes > 0
+                  ? `${accountabilityMetrics.avgReviewTimeMinutes}m`
+                  : "<15m"}
+              </span>
+              <span className="text-[11px] text-sky-200/70 font-medium">Avg Review</span>
+            </div>
+            <p className="text-[10px] text-neutral-400 mt-0.5">Partner response time</p>
+          </div>
+
+          {/* Total Verified Goals */}
+          <div className="rounded-xl border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-transparent p-3 shadow-sm">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-400">
+              <Award size={14} />
+              <span>Verified</span>
+            </div>
+            <div className="mt-1 flex items-baseline gap-1">
+              <span className="text-xl font-extrabold text-white">
+                {accountabilityMetrics.totalVerified || 0}
+              </span>
+              <span className="text-[11px] text-purple-200/70 font-medium">Unlocked</span>
+            </div>
+            <p className="text-[10px] text-neutral-400 mt-0.5">Total verified milestones</p>
+          </div>
+        </div>
+      )}
+
       {/* Header with Total Counter & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
         <div className="flex items-center gap-2">
