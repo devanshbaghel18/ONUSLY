@@ -194,6 +194,28 @@ export default function DeviceCoverageSection() {
     };
   }, [loadDesktopAgent]);
 
+  // Auto-pair from URL query param ?pairCode=XXXXXX (used by OnuslySetup.exe)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("pairCode");
+    if (code && code.trim().length === 6) {
+      const clean = code.trim().toUpperCase();
+      setPairCode(clean);
+      setPairingLoading(true);
+      confirmDevicePairing(clean)
+        .then(() => {
+          setPairingMsg({ text: "Device paired successfully! Synchronizing...", type: "success" });
+          loadCoverage(true);
+        })
+        .catch((err) => {
+          setPairingMsg({ text: err.message || "Failed to pair device.", type: "error" });
+        })
+        .finally(() => {
+          setPairingLoading(false);
+        });
+    }
+  }, [loadCoverage]);
+
   const handleToggleDNS = async (currentActive) => {
     setDnsActionLoading(true);
     setDesktopActionMsg({ text: "", type: "" });
@@ -521,6 +543,32 @@ export default function DeviceCoverageSection() {
           )}
         </div>
       )}
+
+      {/* 1-Click Windows Protection Installer Banner */}
+      <div className="rounded-xl border border-white/10 bg-gradient-to-r from-purple-950/30 via-black to-black p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0">
+            <ShieldCheck size={20} className="text-purple-400" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-bold text-white">ONUSLY for Windows</h4>
+              <span className="text-[10px] bg-purple-500/20 text-purple-300 font-mono px-1.5 py-0.5 rounded border border-purple-500/30">v1.0.0</span>
+            </div>
+            <p className="text-[11px] text-[#A1A1AA] mt-0.5">
+              1-Click installer. Blocks Steam, games, and native distracting apps directly at the Windows OS level.
+            </p>
+          </div>
+        </div>
+        <a
+          href="/downloads/OnuslySetup.exe"
+          download="OnuslySetup.exe"
+          className="btn-premium inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition active:scale-95 shrink-0 shadow-md"
+        >
+          <Download size={14} />
+          <span>Download Installer (.exe)</span>
+        </a>
+      </div>
 
       {/* Quick Pair Desktop Agent Input */}
       <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
