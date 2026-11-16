@@ -31,6 +31,13 @@ func NewRepository(db *dynamodb.Client, tableName string) *Repository {
 }
 
 func (r *Repository) Create(ctx context.Context, p Proof) error {
+	if p.PK == "" && p.OwnerID != "" {
+		p.PK = "USER#" + p.OwnerID
+	}
+	if p.SK == "" && p.GoalID != "" && p.ID != "" {
+		p.SK = "PROOF#" + p.GoalID + "#" + p.ID
+	}
+
 	r.mu.Lock()
 	if r.memProofs == nil {
 		r.memProofs = make(map[string]Proof)
@@ -71,6 +78,13 @@ func (r *Repository) CreateWithGoalTransition(
 	expectedGoalStatuses []string,
 	newGoalStatus string,
 ) error {
+	if p.PK == "" && p.OwnerID != "" {
+		p.PK = "USER#" + p.OwnerID
+	}
+	if p.SK == "" && p.GoalID != "" && p.ID != "" {
+		p.SK = "PROOF#" + p.GoalID + "#" + p.ID
+	}
+
 	item, err := attributevalue.MarshalMap(p)
 	if err != nil {
 		return fmt.Errorf("marshal proof: %w", err)

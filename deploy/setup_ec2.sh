@@ -375,6 +375,9 @@ if go build -o "${APP_DIR}/server.new" ./cmd/server; then
   mv -f "${APP_DIR}/server.new" "${APP_DIR}/server"
   chmod 755 "${APP_DIR}/server"
   chown ec2-user:ec2-user "${APP_DIR}/server" 2>/dev/null || true
+  mkdir -p "${APP_DIR}/uploads/proofs"
+  chown -R ec2-user:ec2-user "${APP_DIR}/uploads" 2>/dev/null || true
+  chmod -R 755 "${APP_DIR}/uploads"
   echo "[+] Compilation successful: binary installed at ${APP_DIR}/server."
 else
   echo "[-] ERROR: Go compilation failed! Preserving existing binary." >&2
@@ -389,6 +392,18 @@ echo ">>> Installing and validating Nginx reverse proxy configuration..."
 mkdir -p /etc/nginx/conf.d
 mkdir -p /var/www/certbot
 mkdir -p /var/www/onusly/frontend/dist
+
+if command -v npm >/dev/null 2>&1 && [ -f "${APP_DIR}/frontend/package.json" ]; then
+  echo ">>> Building frontend production assets..."
+  (cd "${APP_DIR}/frontend" && (npm ci 2>/dev/null || npm install) && npm run build) || echo "[!] Notice: Frontend build failed, using pre-existing dist if available"
+fi
+
+if [ -d "${APP_DIR}/frontend/dist" ] && [ -n "$(ls -A "${APP_DIR}/frontend/dist" 2>/dev/null)" ]; then
+  cp -rf "${APP_DIR}/frontend/dist/"* /var/www/onusly/frontend/dist/
+  chown -R nginx:nginx /var/www/onusly/frontend/dist 2>/dev/null || true
+  chmod -R 755 /var/www/onusly/frontend/dist 2>/dev/null || true
+  echo "[+] Synchronized frontend production build to /var/www/onusly/frontend/dist."
+fi
 
 if [ -f "$NGINX_CONF_DEST" ]; then
   cp -p "$NGINX_CONF_DEST" "${NGINX_CONF_DEST}.bak.${TIMESTAMP}"
