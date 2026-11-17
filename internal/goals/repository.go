@@ -61,6 +61,12 @@ func NewRepository(db *dynamodb.Client, tableName string) *Repository {
 }
 
 func (r *Repository) Create(ctx context.Context, goal Goal) error {
+	if goal.PK == "" && goal.OwnerID != "" {
+		goal.PK = "USER#" + goal.OwnerID
+	}
+	if goal.SK == "" && goal.ID != "" {
+		goal.SK = "GOAL#" + goal.ID
+	}
 	if goal.Version == 0 {
 		goal.Version = 1
 	}

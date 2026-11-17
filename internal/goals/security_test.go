@@ -194,7 +194,7 @@ func TestGoal_CreateWithInvalidTargetsReturns400(t *testing.T) {
 
 	// Invalid app package
 	{
-		body := `{"title":"Invalid App Goal","blockedApps":["invalid-package-name"]}`
+		body := `{"title":"Invalid App Goal","blockedApps":["invalid;app!"]}`
 		req := httptest.NewRequest("POST", "/goals", strings.NewReader(body))
 		req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, ownerID))
 		rec := httptest.NewRecorder()
@@ -203,7 +203,7 @@ func TestGoal_CreateWithInvalidTargetsReturns400(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 Bad Request, got %d", rec.Code)
 		}
-		if !strings.Contains(rec.Body.String(), "invalid-package-name") {
+		if !strings.Contains(rec.Body.String(), "invalid;app!") {
 			t.Errorf("expected error message to identify bad app value, got %q", rec.Body.String())
 		}
 	}

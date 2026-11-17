@@ -31,6 +31,13 @@ func NewRepository(db *dynamodb.Client, tableName string) *Repository {
 }
 
 func (r *Repository) Create(ctx context.Context, approval Approval) error {
+	if approval.PK == "" && approval.OwnerID != "" {
+		approval.PK = "USER#" + approval.OwnerID
+	}
+	if approval.SK == "" && approval.GoalID != "" && approval.ID != "" {
+		approval.SK = "APPROVAL#" + approval.GoalID + "#" + approval.ID
+	}
+
 	r.mu.Lock()
 	if r.memApprovals == nil {
 		r.memApprovals = make(map[string]Approval)
@@ -71,6 +78,13 @@ func (r *Repository) CreateDecision(
 	expectedGoalStatus string,
 	newGoalStatus string,
 ) error {
+	if approval.PK == "" && approval.OwnerID != "" {
+		approval.PK = "USER#" + approval.OwnerID
+	}
+	if approval.SK == "" && approval.GoalID != "" && approval.ID != "" {
+		approval.SK = "APPROVAL#" + approval.GoalID + "#" + approval.ID
+	}
+
 	item, err := attributevalue.MarshalMap(approval)
 	if err != nil {
 		return fmt.Errorf("marshal approval: %w", err)

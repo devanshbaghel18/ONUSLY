@@ -60,9 +60,11 @@ func GenerateChromiumManifest(nativeHostBinPath string) ([]byte, error) {
 		return nil, errors.New("native host binary path cannot be empty")
 	}
 
-	absPath, err := filepath.Abs(nativeHostBinPath)
-	if err != nil {
-		absPath = nativeHostBinPath
+	absPath := nativeHostBinPath
+	if len(nativeHostBinPath) < 2 || nativeHostBinPath[1] != ':' {
+		if p, err := filepath.Abs(nativeHostBinPath); err == nil {
+			absPath = p
+		}
 	}
 
 	manifest := map[string]any{
@@ -86,9 +88,11 @@ func GenerateFirefoxManifest(nativeHostBinPath string) ([]byte, error) {
 		return nil, errors.New("native host binary path cannot be empty")
 	}
 
-	absPath, err := filepath.Abs(nativeHostBinPath)
-	if err != nil {
-		absPath = nativeHostBinPath
+	absPath := nativeHostBinPath
+	if len(nativeHostBinPath) < 2 || nativeHostBinPath[1] != ':' {
+		if p, err := filepath.Abs(nativeHostBinPath); err == nil {
+			absPath = p
+		}
 	}
 
 	manifest := map[string]any{
