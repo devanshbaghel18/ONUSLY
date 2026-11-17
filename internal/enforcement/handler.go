@@ -3,6 +3,7 @@ package enforcement
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -417,6 +418,9 @@ func (h *Handler) AutoPairDesktop(w http.ResponseWriter, r *http.Request) {
 	userHandle, _ := middleware.GetUserHandle(r.Context())
 	userName, _ := middleware.GetUserName(r.Context())
 
+	// Ensure daemon process is running
+	_ = EnsureDesktopAgentRunning()
+
 	// Step 1: Request pairing code from local service
 	reqResp, err := queryLocalAgent(core.IPCRequest{Action: "pair-request"}, 5*time.Second)
 	if err != nil {
@@ -451,4 +455,72 @@ func (h *Handler) AutoPairDesktop(w http.ResponseWriter, r *http.Request) {
 		"message": "Desktop agent successfully paired and synchronized!",
 		"status":  pollResp.Status,
 	})
+}
+
+func (h *Handler) ReconnectDesktop(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userEmail, _ := middleware.GetUserEmail(r.Context())
+	userHandle, _ := middleware.GetUserHandle(r.Context())
+	userName, _ := middleware.GetUserName(r.Context())
+
+	// 1. Ensure daemon process is running; if stopped, start it detached
+	if err := EnsureDesktopAgentRunning(); err != nil {
+		log.Printf("[Enforcement] Reconnect desktop agent launch notice: %v", err)
+	}
+
+	// 2. Query live agent status
+	statusResp, _ := queryLocalAgent(core.IPCRequest{Action: "get-status"}, 2*time.Second)
+
+	// 3. Try to sync authoritative policy immediately
+	syncResp, syncErr := queryLocalAgent(core.IPCRequest{Action: "sync"}, 5*time.Second)
+	if syncErr == nil && syncResp != nil && syncResp.Success {
+		var statusObj any
+		if syncResp.Status != nil {
+			statusObj = syncResp.Status
+		} else if fresh, _ := queryLocalAgent(core.IPCRequest{Action: "get-status"}, 2*time.Second); fresh != nil && fresh.Status != nil {
+			statusObj = fresh.Status
+		} else if statusResp != nil {
+			statusObj = statusResp.Status
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"message": "Desktop agent successfully reconnected and synchronized!",
+			"status":  statusObj,
+		})
+		return
+	}
+
+	// 4. If sync failed or device requires initial pairing, perform auto-pairing
+	reqResp, err := queryLocalAgent(core.IPCRequest{Action: "pair-request"}, 5*time.Second)
+	if err == nil && reqResp != nil && reqResp.Success && reqResp.PairCode != "" {
+		_ = h.service.ConfirmPairing(r.Context(), reqResp.PairCode, userID, userEmail, userHandle, userName)
+		pollResp, _ := queryLocalAgent(core.IPCRequest{Action: "pair-poll", Code: reqResp.PairCode}, 10*time.Second)
+		if pollResp != nil && pollResp.Success {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": true,
+				"message": "Desktop agent paired and connected successfully!",
+				"status":  pollResp.Status,
+			})
+			return
+		}
+	}
+
+	// 5. Final fallback return
+	w.Header().Set("Content-Type", "application/json")
+	if statusResp != nil && statusResp.Success {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"message": "Desktop agent is active and running.",
+			"status":  statusResp.Status,
+		})
+		return
+	}
+
+	http.Error(w, "Desktop agent could not be started or reached. Please verify onusly-agent is installed.", http.StatusBadGateway)
 }

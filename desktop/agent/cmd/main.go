@@ -434,7 +434,7 @@ func runStatus(
 		fmt.Println("Status:          REVOKED (Device revoked by account owner. Run 'onusly-agent pair' to re-pair.)")
 		fmt.Println("Enforcing:       false")
 	} else if token != "" {
-		if blocklist != nil && len(blocklist.Targets) > 0 {
+		if blocklist != nil {
 			fmt.Printf("Status:          CONNECTED (HEALTHY_ENFORCING, Account: %s)\n", userID)
 			fmt.Println("Enforcing:       true")
 		} else {

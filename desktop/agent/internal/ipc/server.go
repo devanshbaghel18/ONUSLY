@@ -210,6 +210,7 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 			return core.IPCResponse{
 				Success:   true,
 				Blocklist: cached,
+				Status:    s.buildStatus(),
 			}
 		}
 		if s.appsCtrl != nil && blocklist != nil {
@@ -218,6 +219,7 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 		return core.IPCResponse{
 			Success:   true,
 			Blocklist: blocklist,
+			Status:    s.buildStatus(),
 		}
 
 	case "get-status":
@@ -497,7 +499,7 @@ func (s *Server) buildStatus() *core.AgentStatus {
 	}
 
 	connected := token != "" && pairingState == string(auth.StatusPaired)
-	enforcing := connected && targetsCount > 0
+	enforcing := connected && blocklist != nil
 
 	var issues []string
 	var enforcementStatus string
@@ -508,7 +510,7 @@ func (s *Server) buildStatus() *core.AgentStatus {
 		issues = append(issues, "device_revoked")
 	} else if !connected {
 		enforcementStatus = "UNPAIRED"
-	} else if blocklist == nil || targetsCount == 0 {
+	} else if blocklist == nil {
 		enforcing = false
 		enforcementStatus = "ENFORCEMENT_DEGRADED"
 		issues = append(issues, "policy_missing", "service_degraded")
