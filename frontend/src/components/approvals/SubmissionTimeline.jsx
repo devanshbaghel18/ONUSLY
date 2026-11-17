@@ -13,10 +13,6 @@ import {
   File,
   Copy,
   Check,
-  Flame,
-  Target,
-  Zap,
-  Award,
 } from "lucide-react";
 import { API_BASE_URL } from "../../lib/api";
 
@@ -129,75 +125,6 @@ export default function SubmissionTimeline({
 
   return (
     <div className="space-y-5">
-      {/* 5.4 Accountability Streak & Velocity Metrics Strip */}
-      {accountabilityMetrics && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {/* Active Streak */}
-          <div className="rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 to-transparent p-3 shadow-sm">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
-              <Flame size={14} className="fill-amber-400 text-amber-400" />
-              <span>Streak</span>
-            </div>
-            <div className="mt-1 flex items-baseline gap-1">
-              <span className="text-xl font-extrabold text-white">
-                {accountabilityMetrics.currentStreak || 0}
-              </span>
-              <span className="text-[11px] text-amber-200/70 font-medium">
-                {accountabilityMetrics.currentStreak === 1 ? "Goal" : "Goals"}
-              </span>
-            </div>
-            <p className="text-[10px] text-neutral-400 mt-0.5">Consecutive completion</p>
-          </div>
-
-          {/* Verification Success Rate */}
-          <div className="rounded-xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-transparent p-3 shadow-sm">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
-              <Target size={14} />
-              <span>Accuracy</span>
-            </div>
-            <div className="mt-1 flex items-baseline gap-1">
-              <span className="text-xl font-extrabold text-white">
-                {Math.round(accountabilityMetrics.completionRate || 100)}%
-              </span>
-              <span className="text-[11px] text-emerald-200/70 font-medium">Success</span>
-            </div>
-            <p className="text-[10px] text-neutral-400 mt-0.5">Verified vs rejected</p>
-          </div>
-
-          {/* Review Turnaround Time */}
-          <div className="rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-500/10 to-transparent p-3 shadow-sm">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-400">
-              <Zap size={14} />
-              <span>Velocity</span>
-            </div>
-            <div className="mt-1 flex items-baseline gap-1">
-              <span className="text-xl font-extrabold text-white">
-                {accountabilityMetrics.avgReviewTimeMinutes > 0
-                  ? `${accountabilityMetrics.avgReviewTimeMinutes}m`
-                  : "<15m"}
-              </span>
-              <span className="text-[11px] text-sky-200/70 font-medium">Avg Review</span>
-            </div>
-            <p className="text-[10px] text-neutral-400 mt-0.5">Partner response time</p>
-          </div>
-
-          {/* Total Verified Goals */}
-          <div className="rounded-xl border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-transparent p-3 shadow-sm">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-400">
-              <Award size={14} />
-              <span>Verified</span>
-            </div>
-            <div className="mt-1 flex items-baseline gap-1">
-              <span className="text-xl font-extrabold text-white">
-                {accountabilityMetrics.totalVerified || 0}
-              </span>
-              <span className="text-[11px] text-purple-200/70 font-medium">Unlocked</span>
-            </div>
-            <p className="text-[10px] text-neutral-400 mt-0.5">Total verified milestones</p>
-          </div>
-        </div>
-      )}
-
       {/* Header with Total Counter & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
         <div className="flex items-center gap-2">
@@ -265,11 +192,10 @@ export default function SubmissionTimeline({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span
-                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${
-                        receipt.decision === "approved"
-                          ? "bg-emerald-500/20 text-emerald-300"
-                          : "bg-amber-500/20 text-amber-300"
-                      }`}
+                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${receipt.decision === "approved"
+                        ? "bg-emerald-500/20 text-emerald-300"
+                        : "bg-amber-500/20 text-amber-300"
+                        }`}
                     >
                       {receipt.decision}
                     </span>
@@ -328,13 +254,12 @@ export default function SubmissionTimeline({
             <div key={attempt.proofId || originalIdx} className="relative group">
               {/* Step Node Dot on Timeline */}
               <div
-                className={`absolute -left-6 top-3 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all ${
-                  isApproved
-                    ? "border-emerald-500 bg-emerald-950 text-emerald-400 ring-2 ring-emerald-500/20"
-                    : isRejected
+                className={`absolute -left-6 top-3 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all ${isApproved
+                  ? "border-emerald-500 bg-emerald-950 text-emerald-400 ring-2 ring-emerald-500/20"
+                  : isRejected
                     ? "border-amber-500 bg-amber-950 text-amber-400 ring-2 ring-amber-500/20"
                     : "border-sky-500 bg-sky-950 text-sky-400 ring-2 ring-sky-500/20 animate-pulse"
-                }`}
+                  }`}
               >
                 {isApproved ? (
                   <CheckCircle2 size={12} className="stroke-[3]" />
@@ -347,11 +272,10 @@ export default function SubmissionTimeline({
 
               {/* Attempt Card Container */}
               <div
-                className={`rounded-2xl border transition-all ${
-                  isLatest
-                    ? "border-white/20 bg-neutral-900/90 shadow-md ring-1 ring-white/10"
-                    : "border-white/10 bg-[#1A1A1A]/90 hover:border-white/20"
-                }`}
+                className={`rounded-2xl border transition-all ${isLatest
+                  ? "border-white/20 bg-neutral-900/90 shadow-md ring-1 ring-white/10"
+                  : "border-white/10 bg-[#1A1A1A]/90 hover:border-white/20"
+                  }`}
               >
                 {/* Accordion Header */}
                 <button
@@ -372,13 +296,12 @@ export default function SubmissionTimeline({
 
                     {/* Status Pill */}
                     <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
-                        isApproved
-                          ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                          : isRejected
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${isApproved
+                        ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                        : isRejected
                           ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
                           : "bg-sky-500/15 text-sky-300 border border-sky-500/30"
-                      }`}
+                        }`}
                     >
                       {isApproved && "Approved"}
                       {isRejected && "Rejected"}
@@ -437,10 +360,10 @@ export default function SubmissionTimeline({
                           Submitted Evidence
                         </span>
                         {attempt.photoUrl.startsWith("data:image/") ||
-                        attempt.photoUrl.endsWith(".png") ||
-                        attempt.photoUrl.endsWith(".jpg") ||
-                        attempt.photoUrl.endsWith(".jpeg") ||
-                        attempt.photoUrl.endsWith(".webp") ? (
+                          attempt.photoUrl.endsWith(".png") ||
+                          attempt.photoUrl.endsWith(".jpg") ||
+                          attempt.photoUrl.endsWith(".jpeg") ||
+                          attempt.photoUrl.endsWith(".webp") ? (
                           <div className="relative group/img max-w-sm">
                             <img
                               src={resolveMediaUrl(attempt.photoUrl)}

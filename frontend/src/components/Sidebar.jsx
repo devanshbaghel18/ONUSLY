@@ -26,7 +26,7 @@ export default function Sidebar({ isOpen, onClose }) {
             setPendingCount(res.total);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     };
 
     fetchPending();
@@ -84,9 +84,8 @@ export default function Sidebar({ isOpen, onClose }) {
 
       {/* Hamburger Drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col justify-between border-r border-white/10 bg-[#0E0E12]/95 backdrop-blur-2xl p-5 shadow-2xl transition-transform duration-300 ease-in-out ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col justify-between border-r border-white/10 bg-[#0E0E12]/95 backdrop-blur-2xl p-5 shadow-2xl transition-transform duration-300 ease-in-out ${isOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
       >
         {/* Top Header */}
         <div>
@@ -125,11 +124,10 @@ export default function Sidebar({ isOpen, onClose }) {
                   key={item.name}
                   to={item.path}
                   onClick={onClose}
-                  className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition-all ${
-                    isActive
-                      ? "border border-white bg-white text-black font-extrabold shadow-sm"
-                      : "border border-transparent text-neutral-400 hover:border-white/10 hover:bg-white/5 hover:text-white"
-                  }`}
+                  className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition-all ${isActive
+                    ? "border border-white bg-white text-black font-extrabold shadow-sm"
+                    : "border border-transparent text-neutral-400 hover:border-white/10 hover:bg-white/5 hover:text-white"
+                    }`}
                 >
                   <Icon
                     size={18}
@@ -138,11 +136,10 @@ export default function Sidebar({ isOpen, onClose }) {
                   <span className="flex-1 text-left">{item.name}</span>
                   {item.badge > 0 && (
                     <span
-                      className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold transition-all ${
-                        isActive
-                          ? "bg-black text-white"
-                          : "border border-red-500/30 bg-red-500/20 text-red-400"
-                      }`}
+                      className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold transition-all ${isActive
+                        ? "bg-black text-white"
+                        : "border border-red-500/30 bg-red-500/20 text-red-400"
+                        }`}
                     >
                       {item.badge}
                     </span>

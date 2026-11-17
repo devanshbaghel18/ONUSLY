@@ -445,8 +445,8 @@ export default function EvidenceLightbox({
                     type="button"
                     onClick={() => setActiveFileIndex(idx)}
                     className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${isActive
-                        ? "border border-indigo-500/50 bg-indigo-500/20 text-white shadow-md shadow-indigo-950/40"
-                        : "border border-white/10 bg-white/5 text-neutral-400 hover:border-white/20 hover:text-neutral-200"
+                      ? "border border-indigo-500/50 bg-indigo-500/20 text-white shadow-md shadow-indigo-950/40"
+                      : "border border-white/10 bg-white/5 text-neutral-400 hover:border-white/20 hover:text-neutral-200"
                       }`}
                   >
                     {f.isPdf ? (
@@ -475,12 +475,12 @@ export default function EvidenceLightbox({
             onMouseMove={handleMouseMove}
             onDoubleClick={activeFile?.isImage ? handleDoubleClick : undefined}
             className={`relative flex flex-1 items-center justify-center overflow-hidden p-4 sm:p-6 ${activeFile?.isImage && zoom > 1
-                ? isDragging
-                  ? "cursor-grabbing"
-                  : "cursor-grab"
-                : activeFile?.isImage
-                  ? "cursor-zoom-in"
-                  : "cursor-default"
+              ? isDragging
+                ? "cursor-grabbing"
+                : "cursor-grab"
+              : activeFile?.isImage
+                ? "cursor-zoom-in"
+                : "cursor-default"
               }`}
           >
             {/* Previous File Arrow (<) */}
@@ -724,8 +724,8 @@ export default function EvidenceLightbox({
                       type="button"
                       onClick={() => setActiveFileIndex(idx)}
                       className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition ${idx === activeFileIndex
-                          ? "bg-indigo-500/20 text-white font-semibold border border-indigo-500/40"
-                          : "text-neutral-300 hover:bg-white/5 hover:text-white"
+                        ? "bg-indigo-500/20 text-white font-semibold border border-indigo-500/40"
+                        : "text-neutral-300 hover:bg-white/5 hover:text-white"
                         }`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -839,10 +839,10 @@ export default function EvidenceLightbox({
                           </span>
                           <span
                             className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${att.status === "approved"
-                                ? "bg-emerald-500/20 text-emerald-300"
-                                : att.status === "rejected"
-                                  ? "bg-amber-500/20 text-amber-300"
-                                  : "bg-sky-500/20 text-sky-300"
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : att.status === "rejected"
+                                ? "bg-amber-500/20 text-amber-300"
+                                : "bg-sky-500/20 text-sky-300"
                               }`}
                           >
                             {att.status}

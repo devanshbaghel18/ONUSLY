@@ -60,13 +60,13 @@ function extractCardFiles(latestProof) {
         (f.size ? `${Math.round(f.size / 1024)} KB` : ""),
       isPdf: Boolean(
         f.isPdf ||
-          (f.name && f.name.toLowerCase().endsWith(".pdf")) ||
-          (f.type && f.type.includes("pdf"))
+        (f.name && f.name.toLowerCase().endsWith(".pdf")) ||
+        (f.type && f.type.includes("pdf"))
       ),
       isImage: Boolean(
         f.isImage ||
-          (f.dataUrl && f.dataUrl.startsWith("data:image/")) ||
-          (f.type && f.type.startsWith("image/"))
+        (f.dataUrl && f.dataUrl.startsWith("data:image/")) ||
+        (f.type && f.type.startsWith("image/"))
       ),
     }));
   }
