@@ -213,13 +213,45 @@ func registerAutoStart(binPath, configDir, dataDir string) error {
 	}
 	defer k.Close()
 
-	cmd := fmt.Sprintf(`"%s" run -config-dir "%s" -data-dir "%s" -socket "%s" -api-url "%s"`,
-		binPath, configDir, dataDir, pipePath, apiURL)
+	// Write a silent VBS launcher so Windows boot runs it completely without a console window
+	vbsPath := filepath.Join(filepath.Dir(binPath), "onusly-agent-silent.vbs")
+	vbsContent := fmt.Sprintf(
+		"Set WshShell = CreateObject(\"WScript.Shell\")\r\n"+
+			"WshShell.Run \"\"\"%s\"\" run -config-dir \"\"%s\"\" -data-dir \"\"%s\"\" -socket \"\"%s\"\" -api-url \"\"%s\"\"\", 0, False\r\n",
+		binPath, configDir, dataDir, pipePath, apiURL,
+	)
+	_ = os.WriteFile(vbsPath, []byte(vbsContent), 0644)
 
+	cmd := fmt.Sprintf(`wscript.exe "%s"`, vbsPath)
 	return k.SetStringValue("OnuslyDesktopAgent", cmd)
 }
 
+func stopRunningProcesses() {
+	_ = exec.Command("taskkill", "/F", "/IM", "onusly-agent.exe", "/T").Run()
+	_ = exec.Command("taskkill", "/F", "/IM", "onusly-native-host.exe", "/T").Run()
+	time.Sleep(500 * time.Millisecond)
+}
+
+func extractAssetWithRetry(name, dest string) error {
+	var err error
+	for i := 0; i < 4; i++ {
+		err = extractAsset(name, dest)
+		if err == nil {
+			return nil
+		}
+		stopRunningProcesses()
+		time.Sleep(300 * time.Millisecond)
+	}
+	return err
+}
+
 func startDetachedDaemon(binPath, configDir, dataDir string) error {
+	vbsPath := filepath.Join(filepath.Dir(binPath), "onusly-agent-silent.vbs")
+	if fi, err := os.Stat(vbsPath); err == nil && !fi.IsDir() {
+		cmd := exec.Command("wscript.exe", vbsPath)
+		return cmd.Start()
+	}
+
 	cmd := exec.Command(binPath, "run",
 		"-config-dir", configDir,
 		"-data-dir", dataDir,
@@ -253,23 +285,26 @@ func main() {
 	hostBin := filepath.Join(binDir, "onusly-native-host.exe")
 	manifestPath := filepath.Join(configDir, "com.onusly.desktop_agent.json")
 
-	// 1. Extract embedded binaries
-	if err := extractAsset("onusly-agent.exe", agentBin); err != nil {
+	// 1. Terminate any currently running daemon instances so binaries can be overwritten cleanly
+	stopRunningProcesses()
+
+	// 2. Extract embedded binaries with retry
+	if err := extractAssetWithRetry("onusly-agent.exe", agentBin); err != nil {
 		showMessageBox("ONUSLY Setup Error", "Failed to extract core desktop agent: "+err.Error(), 0x10)
 		os.Exit(1)
 	}
-	if err := extractAsset("onusly-native-host.exe", hostBin); err != nil {
+	if err := extractAssetWithRetry("onusly-native-host.exe", hostBin); err != nil {
 		showMessageBox("ONUSLY Setup Error", "Failed to extract native messaging host: "+err.Error(), 0x10)
 		os.Exit(1)
 	}
 
-	// 2. Register Native Messaging Host
+	// 3. Register Native Messaging Host
 	_ = registerNativeMessagingManifest(manifestPath, hostBin)
 
-	// 3. Register auto-start on boot
+	// 4. Register auto-start on boot (using silent runner)
 	_ = registerAutoStart(agentBin, configDir, dataDir)
 
-	// 4. Start daemon in background if not already responding
+	// 5. Start daemon in background if not already responding
 	pingResp, pingErr := queryIPC("ping", 1*time.Second)
 	if pingErr != nil || pingResp == nil || !pingResp.Success {
 		if err := startDetachedDaemon(agentBin, configDir, dataDir); err != nil {
@@ -278,7 +313,7 @@ func main() {
 		}
 	}
 
-	// 5. Query pairing code
+	// 6. Query pairing code
 	pairResp, pairErr := queryIPC("pair-request", 5*time.Second)
 	if pairErr != nil || pairResp == nil || !pairResp.Success {
 		// Open dashboard anyway so user can see their connected devices
@@ -293,10 +328,10 @@ func main() {
 	code := pairResp.PairCode
 	dashboardURL := fmt.Sprintf("http://localhost:5173/dashboard?pairCode=%s", code)
 
-	// 6. Automatically open Chrome/browser with pairing code pre-filled
+	// 7. Automatically open Chrome/browser with pairing code pre-filled
 	openBrowser(dashboardURL)
 
-	// 7. Show sleek confirmation message with the code
+	// 8. Show sleek confirmation message with the code
 	msg := fmt.Sprintf(
 		"✅ ONUSLY Desktop Protection is now ACTIVE and protecting this PC!\n\n"+
 			"🔑 Your 6-Character Pairing Code:\n\n         [ %s ]\n\n"+

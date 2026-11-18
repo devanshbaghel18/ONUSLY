@@ -183,8 +183,8 @@ func runPlatformDaemon(
 		handleLifecycleErr(errHb)
 	}
 
-	// Periodic synchronization ticker (every 60s)
-	syncTicker := time.NewTicker(60 * time.Second)
+	// Fast conditional polling (2s) ensures sub-second unlocks after goal approvals via HTTP 304
+	syncTicker := time.NewTicker(2 * time.Second)
 	defer syncTicker.Stop()
 
 	// Periodic heartbeat ticker (every 60s)

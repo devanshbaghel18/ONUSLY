@@ -77,7 +77,7 @@ func (r *Reporter) SendHeartbeat(ctx context.Context, issues []string) error {
 	var autoIssues []string
 	if r.syncer != nil {
 		cached, _ := r.syncer.GetCachedBlocklist()
-		if cached != nil && len(cached.Targets) > 0 {
+		if cached != nil {
 			blocklistVersion = cached.Version
 			enforcing = true
 		} else {

@@ -15,15 +15,11 @@ import (
 )
 
 func queryLocalAgent(req core.IPCRequest, timeout time.Duration) (*core.IPCResponse, error) {
-	pipePath := os.Getenv("ONUSLY_IPC_PATH")
-	if pipePath == "" {
-		pipePath = `\\.\pipe\OnuslyAgentIPC`
+	var candidatePipes []string
+	if envPipe := os.Getenv("ONUSLY_IPC_PATH"); envPipe != "" {
+		candidatePipes = append(candidatePipes, envPipe)
 	}
-
-	pipeNamePtr, err := syscall.UTF16PtrFromString(pipePath)
-	if err != nil {
-		return nil, fmt.Errorf("invalid pipe name %q: %w", pipePath, err)
-	}
+	candidatePipes = append(candidatePipes, `\\.\pipe\OnuslyDesktopPipe`, `\\.\pipe\OnuslyAgentIPC`)
 
 	if timeout <= 0 {
 		timeout = 3 * time.Second
@@ -32,35 +28,49 @@ func queryLocalAgent(req core.IPCRequest, timeout time.Duration) (*core.IPCRespo
 	flags := uint32(win.SECURITY_SQOS_PRESENT | win.SECURITY_IDENTIFICATION)
 	var hClient uintptr
 	var errOpen error
+	var successfulPipe string
 
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		hClient, _, errOpen = win.ProcCreateFileW.Call(
-			uintptr(unsafe.Pointer(pipeNamePtr)),
-			uintptr(win.GENERIC_READ|win.GENERIC_WRITE),
-			0,
-			0,
-			uintptr(win.OPEN_EXISTING),
-			uintptr(flags),
-			0,
-		)
-		if hClient != uintptr(syscall.InvalidHandle) && hClient != 0 {
+	for _, pipePath := range candidatePipes {
+		pipeNamePtr, err := syscall.UTF16PtrFromString(pipePath)
+		if err != nil {
+			continue
+		}
+
+		for time.Now().Before(deadline) {
+			hClient, _, errOpen = win.ProcCreateFileW.Call(
+				uintptr(unsafe.Pointer(pipeNamePtr)),
+				uintptr(win.GENERIC_READ|win.GENERIC_WRITE),
+				0,
+				0,
+				uintptr(win.OPEN_EXISTING),
+				uintptr(flags),
+				0,
+			)
+			if hClient != uintptr(syscall.InvalidHandle) && hClient != 0 {
+				successfulPipe = pipePath
+				break
+			}
+
+			errno, ok := errOpen.(syscall.Errno)
+			if ok && (errno == 2 || errno == 231) {
+				win.ProcWaitNamedPipeW.Call(uintptr(unsafe.Pointer(pipeNamePtr)), 50)
+				time.Sleep(30 * time.Millisecond)
+				continue
+			}
 			break
 		}
 
-		errno, ok := errOpen.(syscall.Errno)
-		if ok && (errno == 2 || errno == 231) {
-			win.ProcWaitNamedPipeW.Call(uintptr(unsafe.Pointer(pipeNamePtr)), 100)
-			time.Sleep(50 * time.Millisecond)
-			continue
+		if hClient != uintptr(syscall.InvalidHandle) && hClient != 0 {
+			break
 		}
-		break
 	}
 
 	if hClient == uintptr(syscall.InvalidHandle) || hClient == 0 {
-		return nil, fmt.Errorf("desktop agent unreachable on %s: %w", pipePath, errOpen)
+		return nil, fmt.Errorf("desktop agent unreachable on candidate pipes (%v): %w", candidatePipes, errOpen)
 	}
 	defer win.ProcCloseHandle.Call(hClient)
+	_ = successfulPipe
 
 	reqBytes, err := json.Marshal(req)
 	if err != nil {

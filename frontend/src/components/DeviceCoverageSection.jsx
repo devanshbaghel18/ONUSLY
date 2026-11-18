@@ -24,6 +24,7 @@ import {
   toggleDesktopDNS,
   syncDesktopAgent,
   autoPairDesktopAgent,
+  reconnectDesktopAgent,
 } from "../lib/api";
 
 function formatRelativeTime(dateStr) {
@@ -131,6 +132,7 @@ export default function DeviceCoverageSection() {
   const [dnsActionLoading, setDnsActionLoading] = useState(false);
   const [syncActionLoading, setSyncActionLoading] = useState(false);
   const [autoPairLoading, setAutoPairLoading] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const [desktopActionMsg, setDesktopActionMsg] = useState({ text: "", type: "" });
 
   const loadDesktopAgent = useCallback(async () => {
@@ -289,6 +291,36 @@ export default function DeviceCoverageSection() {
     }
   };
 
+  const handleReconnectDesktop = async () => {
+    setReconnecting(true);
+    setDesktopActionMsg({ text: "", type: "" });
+    try {
+      const res = await reconnectDesktopAgent();
+      if (res && res.success) {
+        setDesktopActionMsg({
+          text: res.message || "Desktop agent successfully reconnected and protection started!",
+          type: "success",
+        });
+        if (res.status) {
+          setDesktopAgent({ available: true, loading: false, status: res.status, error: "" });
+        }
+        await loadCoverage(true);
+      } else {
+        setDesktopActionMsg({
+          text: res?.error || "Failed to start or connect to desktop agent.",
+          type: "error",
+        });
+      }
+    } catch (err) {
+      setDesktopActionMsg({
+        text: err.message || "Failed to connect to desktop agent.",
+        type: "error",
+      });
+    } finally {
+      setReconnecting(false);
+    }
+  };
+
   const handleConfirmPair = async (e) => {
     e.preventDefault();
     const cleanCode = pairCode.trim().toUpperCase();
@@ -350,11 +382,10 @@ export default function DeviceCoverageSection() {
               <h3 className="text-base font-bold text-white tracking-tight">Active Device & Browser Coverage</h3>
               {devicesList.length > 0 && (
                 <span
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
-                    allEnforcing
-                      ? "border-white/20 bg-white/10 text-white"
-                      : "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                  }`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${allEnforcing
+                    ? "border-white/20 bg-white/10 text-white"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                    }`}
                 >
                   {allEnforcing ? (
                     <>
@@ -398,11 +429,10 @@ export default function DeviceCoverageSection() {
               <div>
                 <div className="flex items-center gap-2">
                   <h4 className="text-sm font-bold text-white tracking-tight">Desktop Enforcement Shield (This PC)</h4>
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
-                    desktopAgent.status.enforcing
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                      : "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                  }`}>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${desktopAgent.status.enforcing
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                    }`}>
                     <span className={`h-1.5 w-1.5 rounded-full ${desktopAgent.status.enforcing ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
                     {desktopAgent.status.enforcing ? "Active & Enforcing" : "Degraded / Fail-Open"}
                   </span>
@@ -448,11 +478,10 @@ export default function DeviceCoverageSection() {
                 <div className="flex items-center gap-1.5">
                   <Shield size={14} className={desktopAgent.status.dnsRedirectionActive ? "text-emerald-400" : "text-neutral-400"} />
                   <span className="text-xs font-bold text-white">Machine-Wide DNS Shield</span>
-                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border ${
-                    desktopAgent.status.dnsRedirectionActive
-                      ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300 font-bold"
-                      : "border-neutral-700 bg-neutral-800 text-neutral-400"
-                  }`}>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border ${desktopAgent.status.dnsRedirectionActive
+                    ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300 font-bold"
+                    : "border-neutral-700 bg-neutral-800 text-neutral-400"
+                    }`}>
                     {desktopAgent.status.dnsRedirectionActive ? "127.0.0.1 ACTIVE" : "UPSTREAM"}
                   </span>
                 </div>
@@ -478,19 +507,18 @@ export default function DeviceCoverageSection() {
                   type="button"
                   onClick={() => handleToggleDNS(desktopAgent.status.dnsRedirectionActive)}
                   disabled={dnsActionLoading}
-                  className={`btn-premium inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
-                    desktopAgent.status.dnsRedirectionActive
-                      ? "border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                      : "bg-white text-black hover:bg-neutral-200"
-                  }`}
+                  className={`btn-premium inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-50 ${desktopAgent.status.dnsRedirectionActive
+                    ? "border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                    : "bg-white text-black hover:bg-neutral-200"
+                    }`}
                 >
                   <Power size={12} />
                   <span>
                     {dnsActionLoading
                       ? "Applying..."
                       : desktopAgent.status.dnsRedirectionActive
-                      ? "Deactivate Shield"
-                      : "Activate Shield"}
+                        ? "Deactivate Shield"
+                        : "Activate Shield"}
                   </span>
                 </button>
               </div>
@@ -522,7 +550,7 @@ export default function DeviceCoverageSection() {
             <div className="rounded-lg border border-neutral-800/80 bg-neutral-900/40 px-3 py-2 text-[11px] text-neutral-400 flex items-start gap-2">
               <span className="text-amber-400 font-bold shrink-0">💡 Note:</span>
               <span>
-                <strong>Machine-Wide DNS</strong> blocks full distraction domains (Instagram, Twitter, etc.) on Chrome, Edge & apps automatically. 
+                <strong>Machine-Wide DNS</strong> blocks full distraction domains (Instagram, Twitter, etc.) on Chrome, Edge & apps automatically.
                 Sub-path targets like <strong>YouTube Shorts</strong> require the ONUSLY extension loaded in that browser so regular YouTube videos remain accessible.
               </span>
             </div>
@@ -530,13 +558,12 @@ export default function DeviceCoverageSection() {
 
           {/* Action notification */}
           {desktopActionMsg.text && (
-            <div className={`p-2.5 rounded-lg text-xs font-medium flex items-center gap-2 border ${
-              desktopActionMsg.type === "success"
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                : desktopActionMsg.type === "warning"
+            <div className={`p-2.5 rounded-lg text-xs font-medium flex items-center gap-2 border ${desktopActionMsg.type === "success"
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+              : desktopActionMsg.type === "warning"
                 ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
                 : "border-red-500/30 bg-red-500/10 text-red-200"
-            }`}>
+              }`}>
               {desktopActionMsg.type === "success" ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
               <span>{desktopActionMsg.text}</span>
             </div>
@@ -570,45 +597,64 @@ export default function DeviceCoverageSection() {
         </a>
       </div>
 
-      {/* Quick Pair Desktop Agent Input */}
-      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-            <KeyRound size={14} className="text-white" />
-            Pair ONUSLY Desktop Agent
-          </h4>
-          <p className="text-[11px] text-[#A1A1AA] mt-0.5">
-            Enter the 6-character code displayed by the desktop agent to securely authorize all browsers on that machine.
-          </p>
+      {/* 1-Click Desktop Agent Protection & Reconnect Control */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 border border-white/10 text-white shrink-0">
+            <Laptop size={20} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-bold text-white flex items-center gap-1.5 font-heading">
+                Desktop Enforcement Daemon
+              </h4>
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+                desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
+                  ? "border-white/20 bg-white/10 text-white"
+                  : "border-neutral-700 bg-neutral-800 text-neutral-400"
+              }`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
+                    ? "bg-white animate-pulse"
+                    : "bg-neutral-500"
+                }`} />
+                {desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected) ? "Active & Enforcing" : "Stopped / Inactive"}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#A1A1AA] mt-0.5 font-body">
+              {desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
+                ? "Protection is active in the background. Distraction apps and websites are blocked."
+                : "Daemon stopped or closed. Click Reconnect to automatically start protection in the background."}
+            </p>
+          </div>
         </div>
 
-        <form onSubmit={handleConfirmPair} className="flex items-center gap-2">
-          <input
-            type="text"
-            maxLength={6}
-            value={pairCode}
-            onChange={(e) => setPairCode(e.target.value.toUpperCase())}
-            placeholder="e.g. U8GCM4"
-            className="w-32 uppercase tracking-widest text-center font-mono rounded-lg border border-white/15 bg-black/60 px-3 py-1.5 text-xs font-bold text-white placeholder-neutral-600 focus:border-white focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={pairingLoading || pairCode.trim().length !== 6}
-            className="btn-premium inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-1.5 text-xs font-bold text-black hover:bg-neutral-200 transition disabled:opacity-40"
-          >
-            {pairingLoading ? <RefreshCw size={12} className="animate-spin text-black" /> : <CheckCircle2 size={12} />}
-            <span>Pair Device</span>
-          </button>
-        </form>
+        <button
+          type="button"
+          onClick={handleReconnectDesktop}
+          disabled={reconnecting}
+          className="btn-premium inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold text-black bg-white hover:bg-neutral-200 transition disabled:opacity-50 shrink-0 shadow-md"
+        >
+          {reconnecting ? (
+            <>
+              <RefreshCw size={13} className="animate-spin text-black" />
+              <span>Starting Daemon...</span>
+            </>
+          ) : (
+            <>
+              <Power size={13} />
+              <span>Reconnect & Start Agent</span>
+            </>
+          )}
+        </button>
       </div>
 
       {pairingMsg.text && (
         <div
-          className={`p-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 border ${
-            pairingMsg.type === "success"
-              ? "border-white/20 bg-white/10 text-white"
-              : "border-red-500/20 bg-red-500/10 text-red-300"
-          }`}
+          className={`p-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 border ${pairingMsg.type === "success"
+            ? "border-white/20 bg-white/10 text-white"
+            : "border-red-500/20 bg-red-500/10 text-red-300"
+            }`}
         >
           {pairingMsg.type === "success" ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
           <span>{pairingMsg.text}</span>

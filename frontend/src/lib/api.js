@@ -457,6 +457,10 @@ export async function autoPairDesktopAgent() {
   return request("/enforcement/desktop/pair", { method: "POST" });
 }
 
+export async function reconnectDesktopAgent() {
+  return request("/enforcement/desktop/reconnect", { method: "POST" });
+}
+
 
 
 

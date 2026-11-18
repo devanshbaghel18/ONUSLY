@@ -506,6 +506,10 @@ func main() {
 		"POST /enforcement/desktop/pair",
 		enforcementHandler.AutoPairDesktop,
 	)
+	goalRoutes.HandleFunc(
+		"POST /enforcement/desktop/reconnect",
+		enforcementHandler.ReconnectDesktop,
+	)
 
 	// Proof Document & Media Upload Handler (supports multi-file PDF, Image, Document uploads up to 32MB)
 	goalRoutes.HandleFunc("POST /uploads", func(w http.ResponseWriter, r *http.Request) {
