@@ -189,7 +189,7 @@ export default function DeviceCoverageSection() {
       }
     };
     fetchInitial();
-    const interval = setInterval(fetchInitial, 20000);
+    const interval = setInterval(fetchInitial, 8000);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -371,283 +371,134 @@ export default function DeviceCoverageSection() {
 
   return (
     <div className="card-stat rounded-2xl p-6 shadow-sm border border-white/[0.08] transition-all space-y-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white shadow-sm">
+      {/* Header with Title, Status Badges, and Action Toolbar */}
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white shadow-sm shrink-0 mt-1 sm:mt-0">
             <Server size={22} />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-base font-bold text-white tracking-tight">Active Device & Browser Coverage</h3>
-              {devicesList.length > 0 && (
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${allEnforcing
-                    ? "border-white/20 bg-white/10 text-white"
-                    : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+
+              {/* Connected Devices Fleet Badge */}
+              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${allEnforcing ? "border-white/20 bg-white/10 text-white" : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                }`}>
+                {allEnforcing ? (
+                  <>
+                    <ShieldCheck size={12} className="text-white" />
+                    <span>{activeDevices.length} Connected • All Enforcing</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={12} className="text-amber-400" />
+                    <span>{activeDevices.length} Connected • Issues Detected</span>
+                  </>
+                )}
+              </span>
+
+              {/* Desktop Daemon Status Pill */}
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                : "border-neutral-700 bg-neutral-800 text-neutral-400"
+                }`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
+                  ? "bg-emerald-400 animate-pulse"
+                  : "bg-neutral-500"
+                  }`} />
+                <span>Desktop Daemon: {desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected) ? "Active & Enforcing" : "Stopped / Inactive"}</span>
+              </span>
+
+              {/* Machine-Wide DNS Shield Toggle Pill */}
+              {desktopAgent.available && desktopAgent.status && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleDNS(desktopAgent.status.dnsRedirectionActive)}
+                  disabled={dnsActionLoading}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold border transition hover:opacity-80 disabled:opacity-50 ${desktopAgent.status.dnsRedirectionActive
+                    ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300 font-bold"
+                    : "border-white/10 bg-white/5 text-neutral-400 hover:text-white"
                     }`}
+                  title="Click to toggle machine-wide loopback DNS shield"
                 >
-                  {allEnforcing ? (
-                    <>
-                      <ShieldCheck size={11} className="text-white" />
-                      All Enforcing
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle size={11} className="text-amber-400" />
-                      Issues Detected
-                    </>
-                  )}
-                </span>
+                  <Shield size={10} className={desktopAgent.status.dnsRedirectionActive ? "text-emerald-400" : "text-neutral-400"} />
+                  <span>DNS Shield: {desktopAgent.status.dnsRedirectionActive ? "127.0.0.1 Active" : "Upstream"}</span>
+                </button>
               )}
             </div>
-            <p className="text-xs text-[#A1A1AA] mt-0.5">
+
+            <p className="text-xs text-[#A1A1AA] mt-1">
               Live heartbeat telemetry across registered desktop agents, mobile clients, and connected browsers.
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => loadCoverage(true)}
-          disabled={refreshing}
-          className="btn-premium self-start sm:self-auto flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition disabled:opacity-50"
-        >
-          <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
-          <span>Refresh</span>
-        </button>
+        {/* Action Buttons Toolbar */}
+        <div className="flex flex-wrap items-center gap-2 self-start xl:self-center shrink-0">
+          <button
+            type="button"
+            onClick={handleReconnectDesktop}
+            disabled={reconnecting}
+            className="btn-premium inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold text-black bg-white hover:bg-neutral-200 transition disabled:opacity-50 shrink-0 shadow-md active:scale-95"
+            title="Start or reconnect the background desktop enforcement daemon"
+          >
+            {reconnecting ? (
+              <>
+                <RefreshCw size={13} className="animate-spin text-black" />
+                <span>Starting Daemon...</span>
+              </>
+            ) : (
+              <>
+                <Power size={13} />
+                <span>Reconnect & Start Agent</span>
+              </>
+            )}
+          </button>
+
+          <a
+            href="/downloads/OnuslySetup.exe"
+            download="OnuslySetup.exe"
+            className="btn-premium inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-neutral-200 hover:text-white hover:bg-white/10 transition shadow-sm active:scale-95 shrink-0"
+            title="Download ONUSLY for Windows installer (.exe)"
+          >
+            <Download size={13} />
+            <span>Download Installer (.exe)</span>
+          </a>
+
+          <a
+            href="/downloads/ONUSLY_Shield_Toggle.exe"
+            download="ONUSLY_Shield_Toggle.exe"
+            className="btn-premium inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-neutral-200 hover:text-white hover:bg-white/10 transition shadow-sm active:scale-95 shrink-0"
+            title="Download the 1-click Windows DNS switcher executable"
+          >
+            <Download size={13} />
+            <span>1-Click Switcher (.exe)</span>
+          </a>
+
+          <button
+            type="button"
+            onClick={() => loadCoverage(true)}
+            disabled={refreshing}
+            className="btn-premium flex items-center justify-center rounded-xl border border-white/10 bg-white/5 p-2 text-neutral-300 hover:text-white hover:bg-white/10 transition disabled:opacity-50 shrink-0"
+            title="Refresh device telemetry"
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+          </button>
+        </div>
       </div>
 
-      {/* Desktop Agent Live Machine Control Panel */}
-      {desktopAgent.available && desktopAgent.status && (
-        <div className="rounded-2xl border border-white/15 bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-5 shadow-2xl space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.08] pb-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 border border-white/20 text-white shadow-inner">
-                <Laptop size={20} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-bold text-white tracking-tight">Desktop Enforcement Shield (This PC)</h4>
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${desktopAgent.status.enforcing
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                    : "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                    }`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${desktopAgent.status.enforcing ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
-                    {desktopAgent.status.enforcing ? "Active & Enforcing" : "Degraded / Fail-Open"}
-                  </span>
-                </div>
-                <p className="text-[11px] text-[#A1A1AA] mt-0.5">
-                  Platform: <span className="text-white font-medium capitalize">{desktopAgent.status.platform}</span> • Device ID: <span className="font-mono text-neutral-300">{desktopAgent.status.deviceId?.slice(0, 8)}...</span> • Version: <span className="text-white">{desktopAgent.status.version || "1.0.0"}</span>
-                </p>
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleSyncDesktop}
-                disabled={syncActionLoading}
-                className="btn-premium inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:text-white hover:bg-white/10 transition disabled:opacity-50"
-                title="Force desktop agent to reload authoritative blocklist immediately"
-              >
-                <RefreshCw size={12} className={syncActionLoading ? "animate-spin" : ""} />
-                <span>{syncActionLoading ? "Syncing..." : "Sync Policy"}</span>
-              </button>
-
-              {!desktopAgent.status.connected && (
-                <button
-                  type="button"
-                  onClick={handleAutoPairDesktop}
-                  disabled={autoPairLoading}
-                  className="btn-premium inline-flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-1.5 text-xs font-bold text-black hover:bg-neutral-200 transition disabled:opacity-50"
-                >
-                  <KeyRound size={12} />
-                  <span>{autoPairLoading ? "Pairing..." : "1-Click Link Agent"}</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Machine Controls Row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Machine-Wide DNS Shield Toggle */}
-            <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-1.5">
-                  <Shield size={14} className={desktopAgent.status.dnsRedirectionActive ? "text-emerald-400" : "text-neutral-400"} />
-                  <span className="text-xs font-bold text-white">Machine-Wide DNS Shield</span>
-                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border ${desktopAgent.status.dnsRedirectionActive
-                    ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300 font-bold"
-                    : "border-neutral-700 bg-neutral-800 text-neutral-400"
-                    }`}>
-                    {desktopAgent.status.dnsRedirectionActive ? "127.0.0.1 ACTIVE" : "UPSTREAM"}
-                  </span>
-                </div>
-                <p className="text-[11px] text-neutral-400">
-                  {desktopAgent.status.dnsRedirectionActive
-                    ? "Blocking distraction domains across Chrome, Edge, Brave, Firefox & apps."
-                    : "DNS redirection inactive. Use the 1-click switcher to enforce across all browsers."}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <a
-                  href="/downloads/ONUSLY_Shield_Toggle.exe"
-                  download="ONUSLY_Shield_Toggle.exe"
-                  className="btn-premium inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition"
-                  title="Download the 1-click Windows switcher executable (click 'Yes/Allow' in Windows prompt)"
-                >
-                  <Download size={12} />
-                  <span>1-Click Switcher (.exe)</span>
-                </a>
-
-                <button
-                  type="button"
-                  onClick={() => handleToggleDNS(desktopAgent.status.dnsRedirectionActive)}
-                  disabled={dnsActionLoading}
-                  className={`btn-premium inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition disabled:opacity-50 ${desktopAgent.status.dnsRedirectionActive
-                    ? "border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                    : "bg-white text-black hover:bg-neutral-200"
-                    }`}
-                >
-                  <Power size={12} />
-                  <span>
-                    {dnsActionLoading
-                      ? "Applying..."
-                      : desktopAgent.status.dnsRedirectionActive
-                        ? "Deactivate Shield"
-                        : "Activate Shield"}
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {/* Live Filter Telemetry Card */}
-            <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 flex items-center justify-around gap-2 text-center">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">Active Targets</p>
-                <p className="text-base font-bold text-white mt-0.5">{desktopAgent.status.targetsCount || 0}</p>
-              </div>
-              <div className="h-7 w-[1px] bg-white/10" />
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">DNS Blocked</p>
-                <p className="text-base font-bold text-emerald-400 mt-0.5">{desktopAgent.status.dnsQueriesBlocked || 0}</p>
-              </div>
-              <div className="h-7 w-[1px] bg-white/10" />
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">DNS Forwarded</p>
-                <p className="text-base font-bold text-neutral-300 mt-0.5">{desktopAgent.status.dnsQueriesForwarded || 0}</p>
-              </div>
-              <div className="h-7 w-[1px] bg-white/10" />
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">Process Monitor</p>
-                <p className="text-base font-bold text-white mt-0.5">{desktopAgent.status.appsMonitoredCount || 0}</p>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-neutral-800/80 bg-neutral-900/40 px-3 py-2 text-[11px] text-neutral-400 flex items-start gap-2">
-              <span className="text-amber-400 font-bold shrink-0">💡 Note:</span>
-              <span>
-                <strong>Machine-Wide DNS</strong> blocks full distraction domains (Instagram, Twitter, etc.) on Chrome, Edge & apps automatically.
-                Sub-path targets like <strong>YouTube Shorts</strong> require the ONUSLY extension loaded in that browser so regular YouTube videos remain accessible.
-              </span>
-            </div>
-          </div>
-
-          {/* Action notification */}
-          {desktopActionMsg.text && (
-            <div className={`p-2.5 rounded-lg text-xs font-medium flex items-center gap-2 border ${desktopActionMsg.type === "success"
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-              : desktopActionMsg.type === "warning"
-                ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
-                : "border-red-500/30 bg-red-500/10 text-red-200"
-              }`}>
-              {desktopActionMsg.type === "success" ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
-              <span>{desktopActionMsg.text}</span>
-            </div>
-          )}
+      {/* Action Notification Messages */}
+      {desktopActionMsg.text && (
+        <div className={`p-2.5 rounded-xl text-xs font-medium flex items-center gap-2 border ${desktopActionMsg.type === "success"
+          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+          : desktopActionMsg.type === "warning"
+            ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
+            : "border-red-500/30 bg-red-500/10 text-red-200"
+          }`}>
+          {desktopActionMsg.type === "success" ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+          <span>{desktopActionMsg.text}</span>
         </div>
       )}
-
-      {/* 1-Click Windows Protection Installer Banner */}
-      <div className="rounded-xl border border-white/10 bg-gradient-to-r from-purple-950/30 via-black to-black p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0">
-            <ShieldCheck size={20} className="text-purple-400" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-bold text-white">ONUSLY for Windows</h4>
-              <span className="text-[10px] bg-purple-500/20 text-purple-300 font-mono px-1.5 py-0.5 rounded border border-purple-500/30">v1.0.0</span>
-            </div>
-            <p className="text-[11px] text-[#A1A1AA] mt-0.5">
-              1-Click installer. Blocks Steam, games, and native distracting apps directly at the Windows OS level.
-            </p>
-          </div>
-        </div>
-        <a
-          href="/downloads/OnuslySetup.exe"
-          download="OnuslySetup.exe"
-          className="btn-premium inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition active:scale-95 shrink-0 shadow-md"
-        >
-          <Download size={14} />
-          <span>Download Installer (.exe)</span>
-        </a>
-      </div>
-
-      {/* 1-Click Desktop Agent Protection & Reconnect Control */}
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 border border-white/10 text-white shrink-0">
-            <Laptop size={20} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-bold text-white flex items-center gap-1.5 font-heading">
-                Desktop Enforcement Daemon
-              </h4>
-              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
-                desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
-                  ? "border-white/20 bg-white/10 text-white"
-                  : "border-neutral-700 bg-neutral-800 text-neutral-400"
-              }`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${
-                  desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
-                    ? "bg-white animate-pulse"
-                    : "bg-neutral-500"
-                }`} />
-                {desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected) ? "Active & Enforcing" : "Stopped / Inactive"}
-              </span>
-            </div>
-            <p className="text-[11px] text-[#A1A1AA] mt-0.5 font-body">
-              {desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
-                ? "Protection is active in the background. Distraction apps and websites are blocked."
-                : "Daemon stopped or closed. Click Reconnect to automatically start protection in the background."}
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleReconnectDesktop}
-          disabled={reconnecting}
-          className="btn-premium inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold text-black bg-white hover:bg-neutral-200 transition disabled:opacity-50 shrink-0 shadow-md"
-        >
-          {reconnecting ? (
-            <>
-              <RefreshCw size={13} className="animate-spin text-black" />
-              <span>Starting Daemon...</span>
-            </>
-          ) : (
-            <>
-              <Power size={13} />
-              <span>Reconnect & Start Agent</span>
-            </>
-          )}
-        </button>
-      </div>
 
       {pairingMsg.text && (
         <div
@@ -667,11 +518,11 @@ export default function DeviceCoverageSection() {
           <RefreshCw size={18} className="animate-spin mx-auto mb-2 opacity-50" />
           Loading connected devices...
         </div>
-      ) : devicesList.length === 0 ? (
+      ) : activeDevices.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-xs text-neutral-400">
           <p className="font-semibold text-neutral-300">No active devices registered yet</p>
           <p className="mt-1 text-[11px] text-neutral-500">
-            Install ONUSLY Desktop on Linux/Windows or sign into the Android app to begin automated synchronized enforcement.
+            Install ONUSLY Desktop on Linux/Windows or sign into the browser extension to begin automated synchronized enforcement.
           </p>
         </div>
       ) : (
@@ -690,8 +541,7 @@ export default function DeviceCoverageSection() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
-              {devicesList.map((d) => {
-                const isRevoked = (d.status || "").toUpperCase() === "REVOKED";
+              {activeDevices.map((d) => {
                 return (
                   <tr key={d.deviceId} className="hover:bg-white/[0.02] transition">
                     <td className="py-3 font-medium text-white flex items-center gap-2">
@@ -723,21 +573,18 @@ export default function DeviceCoverageSection() {
                       {getLifecycleBadge(d)}
                     </td>
                     <td className="py-3 text-right">
-                      {isRevoked ? (
-                        <span className="text-[11px] text-neutral-500 font-medium">Decommissioned</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRevokeError("");
-                            setDeviceToRevoke(d);
-                          }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/20 hover:text-red-300 transition"
-                        >
-                          <Trash2 size={12} />
-                          <span>Revoke</span>
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRevokeError("");
+                          setDeviceToRevoke(d);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400 hover:bg-red-500/20 hover:text-red-300 transition"
+                        title="Revoke device authorization"
+                      >
+                        <Trash2 size={12} />
+                        <span>Revoke</span>
+                      </button>
                     </td>
                   </tr>
                 );

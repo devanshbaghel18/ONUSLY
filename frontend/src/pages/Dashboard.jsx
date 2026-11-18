@@ -171,9 +171,9 @@ export default function Dashboard() {
       dashboardFilter === "pinned"
         ? goals.filter((g) => pinnedSet.has(g.id))
         : [
-            ...goals.filter((g) => pinnedSet.has(g.id)),
-            ...activeLockouts.filter((g) => !pinnedSet.has(g.id)),
-          ];
+          ...goals.filter((g) => pinnedSet.has(g.id)),
+          ...activeLockouts.filter((g) => !pinnedSet.has(g.id)),
+        ];
 
     // Deduplicate: If multiple instances share the same routine title,
     // display only ONE card on the dashboard (preferring active/pending over completed).
@@ -207,11 +207,10 @@ export default function Dashboard() {
                 </span>
               </h1>
               <div
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold tracking-wide transition-all ${
-                  isConnected
-                    ? "border-white/30 bg-white/10 text-white glow-pill-white"
-                    : "border-neutral-700 bg-neutral-900 text-neutral-500"
-                }`}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold tracking-wide transition-all ${isConnected
+                  ? "border-white/30 bg-white/10 text-white glow-pill-white"
+                  : "border-neutral-700 bg-neutral-900 text-neutral-500"
+                  }`}
                 title={isConnected ? "Real-Time WebSocket Connected" : "Connecting to real-time gateway..."}
               >
                 <span className="relative flex h-2 w-2">
@@ -219,9 +218,8 @@ export default function Dashboard() {
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-60" />
                   )}
                   <span
-                    className={`relative inline-flex h-2 w-2 rounded-full ${
-                      isConnected ? "bg-white" : "bg-neutral-600"
-                    }`}
+                    className={`relative inline-flex h-2 w-2 rounded-full ${isConnected ? "bg-white" : "bg-neutral-600"
+                      }`}
                   />
                 </span>
                 <span>{isConnected ? "Live Sync Active" : "Connecting..."}</span>
@@ -404,22 +402,20 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={() => setDashboardFilter("all_active")}
-                  className={`rounded-lg px-3.5 py-1.5 transition-all duration-200 ${
-                    dashboardFilter === "all_active"
-                      ? "bg-white text-black font-extrabold shadow-md"
-                      : "text-[#A1A1AA] hover:text-white"
-                  }`}
+                  className={`rounded-lg px-3.5 py-1.5 transition-all duration-200 ${dashboardFilter === "all_active"
+                    ? "bg-white text-black font-extrabold shadow-md"
+                    : "text-[#A1A1AA] hover:text-white"
+                    }`}
                 >
                   Active ({activeLockouts.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setDashboardFilter("pinned")}
-                  className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 transition-all duration-200 ${
-                    dashboardFilter === "pinned"
-                      ? "bg-white text-black font-extrabold shadow-md"
-                      : "text-[#A1A1AA] hover:text-white"
-                  }`}
+                  className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 transition-all duration-200 ${dashboardFilter === "pinned"
+                    ? "bg-white text-black font-extrabold shadow-md"
+                    : "text-[#A1A1AA] hover:text-white"
+                    }`}
                 >
                   <Pin size={12} className={dashboardFilter === "pinned" ? "fill-black" : ""} />
                   <span>Pinned ({pinnedGoals.length}/{MAX_PINNED_GOALS})</span>
@@ -531,11 +527,10 @@ export default function Dashboard() {
                 return (
                   <div
                     key={g.id}
-                    className={`card-glass relative flex flex-col justify-between rounded-2xl p-6 shadow-md transition-all duration-300 group ${
-                      isPinned
-                        ? "border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.04)]"
-                        : "border-white/[0.08]"
-                    }`}
+                    className={`card-glass relative flex flex-col justify-between rounded-2xl p-6 shadow-md transition-all duration-300 group ${isPinned
+                      ? "border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.04)]"
+                      : "border-white/[0.08]"
+                      }`}
                   >
                     <div>
                       {/* Top status badges & Pin Toggle Button */}
@@ -570,11 +565,10 @@ export default function Dashboard() {
                         <button
                           type="button"
                           onClick={() => handleTogglePin(g.id)}
-                          className={`btn-premium flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
-                            isPinned
-                              ? "border-white bg-white text-black font-bold shadow-sm"
-                              : "border-white/10 bg-white/5 text-[#A1A1AA] hover:text-white hover:border-white/20 hover:bg-white/10"
-                          }`}
+                          className={`btn-premium flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${isPinned
+                            ? "border-white bg-white text-black font-bold shadow-sm"
+                            : "border-white/10 bg-white/5 text-[#A1A1AA] hover:text-white hover:border-white/20 hover:bg-white/10"
+                            }`}
                           title={
                             isPinned
                               ? "Unpin from dashboard"
@@ -611,13 +605,12 @@ export default function Dashboard() {
                       </div>
                       <div className="h-2 w-full overflow-hidden rounded-full bg-[#121214] border border-white/10 p-[1px]">
                         <div
-                          className={`h-full rounded-full transition-all duration-500 ease-out ${
-                            isCompleted
-                              ? "bg-white shadow-[0_0_12px_rgba(255,255,255,0.3)]"
-                              : isPendingReview
+                          className={`h-full rounded-full transition-all duration-500 ease-out ${isCompleted
+                            ? "bg-white shadow-[0_0_12px_rgba(255,255,255,0.3)]"
+                            : isPendingReview
                               ? "bg-gradient-to-r from-neutral-400 to-neutral-300"
                               : "bg-gradient-to-r from-neutral-600 to-white"
-                          }`}
+                            }`}
                           style={{ width: `${progressPct}%` }}
                         />
                       </div>
@@ -636,11 +629,10 @@ export default function Dashboard() {
                             type="button"
                             disabled={repeatingGoalId === g.id || !isCompleted}
                             onClick={() => handleRepeatGoal(g)}
-                            className={`btn-premium inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
-                              isCompleted
-                                ? "border-white/15 bg-white/5 text-white hover:border-white/30 hover:bg-white/10"
-                                : "border-white/5 bg-white/[0.02] text-neutral-600 cursor-not-allowed opacity-50"
-                            }`}
+                            className={`btn-premium inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${isCompleted
+                              ? "border-white/15 bg-white/5 text-white hover:border-white/30 hover:bg-white/10"
+                              : "border-white/5 bg-white/[0.02] text-neutral-600 cursor-not-allowed opacity-50"
+                              }`}
                             title={
                               isCompleted
                                 ? "Start another cycle of this lock without re-filling the form"
