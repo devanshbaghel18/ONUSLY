@@ -435,7 +435,6 @@ func main() {
 		approvalHandler.GetSubmissions,
 	)
 
-
 	goalRoutes.HandleFunc(
 		"GET /approvals/inbox",
 		approvalHandler.GetInbox,
@@ -458,10 +457,6 @@ func main() {
 	)
 	goalRoutes.HandleFunc(
 		"POST /auth/revoke-all",
-		authHandler.RevokeAllSessions,
-	)
-	goalRoutes.HandleFunc(
-		"POST /auth/logout-all",
 		authHandler.RevokeAllSessions,
 	)
 
@@ -649,7 +644,6 @@ func main() {
 	mux.Handle("/enforcement/", protectedRoutes)
 	mux.Handle("/uploads", protectedRoutes)
 	mux.Handle("POST /auth/revoke-all", protectedRoutes)
-	mux.Handle("POST /auth/logout-all", protectedRoutes)
 
 	addr, err := validateAndResolveBindAddress(os.Getenv("HOST"), os.Getenv("PORT"))
 	if err != nil {
@@ -661,7 +655,7 @@ func main() {
 	// 2. Request body size ceiling (50MB) to allow document & high-resolution proof uploads
 	// 3. Strict origin-whitelisted CORS
 	rootHandler := middleware.SecurityHeaders(
-		middleware.MaxBytesLimiter(50*1024*1024)(
+		middleware.MaxBytesLimiter(50 * 1024 * 1024)(
 			cors(cfg.AllowedOrigins)(mux),
 		),
 	)
