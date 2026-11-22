@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { GoogleLogin, useGoogleOAuth } from "@react-oauth/google";
-import { ArrowUpRight, ArrowDown, LockKeyhole, FileCheck2, KeyRound, X } from "lucide-react";
+import { LockKeyhole, FileCheck2, KeyRound, X } from "lucide-react";
 import Brand from "../components/Brand";
 import LockMechanism from "../components/LockMechanism";
-import lockPhoto from "../assets/lock-assembly.webp";
+import LockFilm from "../components/LockFilm";
 
 import { isAuthenticated, setAuth } from "../lib/auth";
 import { loginWithGoogle } from "../lib/api";
@@ -18,7 +18,6 @@ const phases = [
 export default function Auth() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState(0);
-  const [inspect, setInspect] = useState(false);
   const dialog = useRef(null);
   const { scriptLoadedSuccessfully } = useGoogleOAuth();
   const [notice, setNotice] = useState("");
@@ -64,31 +63,9 @@ export default function Auth() {
     dialog.current.showModal();
   }
 
-  function tilt(event) {
-    if (event.pointerType !== "mouse" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const box = event.currentTarget.getBoundingClientRect();
-    event.currentTarget.style.setProperty("--yaw", ((event.clientX - box.left) / box.width - .5) * 11 + "deg");
-    event.currentTarget.style.setProperty("--pitch", (.5 - (event.clientY - box.top) / box.height) * 8 + "deg");
-  }
-
   return (
     <main className="lock-entry" id="top">
-      <header className="entry-header"><a href="#top" aria-label="ONUSLY home"><Brand /></a>
-        <nav><a href="#mechanism">How it works</a><button onClick={openSignIn}>Sign in <ArrowUpRight size={16} /></button></nav>
-      </header>
-      <section className="entry-hero">
-        <div className="hero-copy">
-          <span className="instrument-label"><i /> Accountability app locker</span>
-          <h1>Focus under<br /><em>lock.</em></h1>
-          <p>Lock your distractions behind a commitment. Get your apps back when someone you trust verifies the work.</p>
-          <div className="entry-actions"><button className="signal-button" onClick={openSignIn}>Create a lock <ArrowUpRight size={19} /></button>
-            <a href="#mechanism">Explore the lock <ArrowDown size={15} /></a></div>
-        </div>
-        <figure className="hero-figure" onPointerMove={tilt} onPointerLeave={e => { e.currentTarget.style.removeProperty("--yaw"); e.currentTarget.style.removeProperty("--pitch"); }}>
-          {inspect ? <LockMechanism demoApps interactive /> : <img src={lockPhoto} alt="Three app icons held under glass by a steel latch and orange locking pin" fetchPriority="high" />}
-          <figcaption><button aria-pressed={inspect} onClick={() => setInspect(value => !value)}>{inspect ? "Show photograph" : "Inspect in 3D"} <ArrowUpRight size={14} /></button></figcaption>
-        </figure>
-      </section>
+      <LockFilm onSignIn={openSignIn} />
       <section className="explore" id="mechanism" aria-labelledby="explore-heading">
         <div className="explore-content">
           <span className="instrument-label"><i /> Try a sample commitment</span>
