@@ -1,3 +1,4 @@
+import Brand from "./Brand";
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { LogOut, AtSign, Check, Copy, X, Menu } from "lucide-react";
@@ -175,7 +176,7 @@ export default function AppLayout({ children }) {
     location.pathname === "/communities";
 
   return (
-    <div className={`relative ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} bg-[#0D0D0E] text-[#FFFFFF] antialiased selection:bg-white/20 selection:text-white`}>
+    <div className={`lock-workspace relative ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} bg-[#0D0D0E] text-[#FFFFFF] antialiased selection:bg-white/20 selection:text-white`}>
       {/* Ambient Top Glow Mesh */}
       <div className="ambient-mesh" />
 
@@ -195,7 +196,7 @@ export default function AppLayout({ children }) {
       <div className={`relative z-10 flex ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} flex-col`}>
         {/* Floating Centered Pill Navbar with Auto-Hide Slide-Up */}
         <header
-          className={`fixed top-3 sm:top-5 left-0 right-0 z-40 mx-auto w-[98%] 2xl:w-[96%] max-w-[1720px] px-1 sm:px-4 transition-all duration-300 ease-in-out ${
+          className={`workspace-nav fixed top-3 sm:top-5 left-0 right-0 z-40 mx-auto w-[98%] 2xl:w-[96%] max-w-[1720px] px-1 sm:px-4 transition-all duration-300 ease-in-out ${
             isVisible
               ? "translate-y-0 opacity-100"
               : "-translate-y-28 opacity-0 pointer-events-none"
@@ -208,7 +209,7 @@ export default function AppLayout({ children }) {
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
-                className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-neutral-300 transition-colors hover:border-white hover:text-white md:hidden"
+                className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-neutral-300 transition-colors hover:border-white hover:text-white xl:hidden"
                 aria-label="Open Navigation Menu"
               >
                 <Menu size={18} />
@@ -218,16 +219,12 @@ export default function AppLayout({ children }) {
                 to="/dashboard"
                 className="flex items-center pl-1 sm:pl-2 pr-2 sm:pr-4 py-1 transition-all hover:opacity-90 hover:scale-[1.02] shrink-0"
               >
-                <img
-                  src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
-                  alt="ONUSLY"
-                  className="h-6 sm:h-7 md:h-8 lg:h-9 w-auto object-contain"
-                />
+                <Brand />
               </Link>
             </div>
 
             {/* Center: Navigation Links (Desktop / Tablet only, completely hidden on mobile, NO scrollbar slider) */}
-            <nav className="hidden md:flex items-center gap-2 lg:gap-3 overflow-hidden no-scrollbar py-0.5">
+            <nav className="hidden xl:flex items-center gap-2 lg:gap-3 overflow-hidden no-scrollbar py-0.5">
               {navLinks.map((link) => {
                 const isActive =
                   location.pathname === link.path ||
@@ -236,6 +233,7 @@ export default function AppLayout({ children }) {
 
                 return (
                   <Link
+                    aria-current={isActive ? "page" : undefined}
                     key={link.name}
                     to={link.path}
                     className={`whitespace-nowrap rounded-full px-4 sm:px-5 lg:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${

@@ -332,10 +332,10 @@ export default function Goals() {
         <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-center">
           <div>
             <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
-              Lockout Goals
+              My goals
             </h1>
             <p className="mt-1 text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
-              Active focus tasks and distraction constraints. Click + to start a new lock.
+              Manage your commitments, restricted apps, and proof.
             </p>
           </div>
 

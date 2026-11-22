@@ -1,5 +1,4 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
 import Goals from './pages/Goals';
@@ -11,23 +10,6 @@ import GlobalChatNotifier from './components/GlobalChatNotifier';
 import ErrorBoundary from './components/ErrorBoundary';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
-function CursorGlow() {
-  const [pos, setPos] = useState({ x: -100, y: -100 });
-
-  useEffect(() => {
-    const handleMouseMove = (e) => setPos({ x: e.clientX, y: e.clientY });
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, []);
-
-  return (
-    <div
-      className="pointer-events-none fixed top-0 left-0 z-50 h-[220px] w-[220px] rounded-full bg-white/[0.02] blur-[60px] transition-transform duration-75 ease-out"
-      style={{ transform: `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%)` }}
-    />
-  );
-}
-
 function App() {
   const clientId =
     import.meta.env.VITE_GOOGLE_CLIENT_ID ||
@@ -36,7 +18,6 @@ function App() {
   return (
     <ErrorBoundary>
       <GoogleOAuthProvider clientId={clientId}>
-        <CursorGlow />
         <Router>
           <GlobalChatNotifier />
           <Routes>

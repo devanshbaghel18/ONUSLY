@@ -1,3 +1,4 @@
+import Brand from "./Brand";
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -95,11 +96,7 @@ export default function Sidebar({ isOpen, onClose }) {
               className="flex items-center pl-1"
               onClick={onClose}
             >
-              <img
-                src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
-                alt="ONUSLY"
-                className="h-6 w-auto object-contain"
-              />
+              <Brand />
             </Link>
             <button
               type="button"

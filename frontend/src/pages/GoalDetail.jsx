@@ -1,3 +1,4 @@
+import LockMechanism from "../components/LockMechanism";
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import {
@@ -878,9 +879,11 @@ export default function GoalDetail() {
                 {/* View / Edit Mode */}
                 {!isEditingGoal || !isOwner ? (
                   <div className="pt-6">
-                    <h1 className="text-2xl font-bold tracking-tight text-[#FFFFFF] sm:text-3xl">
-                      {goal.title}
-                    </h1>
+                    <div className="goal-identity"><div><span className="instrument-label">Commitment</span>
+                      <h1>{goal.title}</h1></div>
+                      {Boolean(goal.blockedApps?.length || goal.blockedDomains?.length || goal.applicationTargets?.length) &&
+                        <LockMechanism released={goal.status === "completed"} reviewing={goal.status === "proof_submitted"} />}
+                    </div>
 
                     <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                       <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] mb-2">
