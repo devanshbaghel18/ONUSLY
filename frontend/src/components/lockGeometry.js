@@ -1,3 +1,5 @@
+import { drawDecal } from "./appTokens";
+
 const TAU = 2 * Math.PI;
 const steel = [134, 145, 152];
 const graphite = [47, 53, 58];
@@ -57,11 +59,22 @@ function aperture(release) {
   });
 }
 
+function previewTokens(release) {
+  return [-.65, 0, .65].flatMap((center, index) => {
+    const lift = release * (.30 + index * .18);
+    const x = center * (1 + release * .16);
+    const y = .05 + release * .22;
+    const faces = box(x - .26, y, .21 + lift, .52, .52, .10, steel);
+    faces[1].decal = index;
+    return faces;
+  });
+}
+
 const hingeX = -1.19;
 const bar = box(hingeX, -.47, .27, 2.38, .38, .16, steel);
 const slider = box(-.17, -.50, .43, .58, .44, .14, orange);
 
-export function paintLock(ctx, width, height, yaw, pitch, release, review) {
+export function paintLock(ctx, width, height, yaw, pitch, release, review, demoApps = false) {
   const cy = Math.cos(yaw), sy = Math.sin(yaw);
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
   const scale = Math.min(width, height) / 3.55;
@@ -81,12 +94,12 @@ export function paintLock(ctx, width, height, yaw, pitch, release, review) {
   }));
 
   ctx.clearRect(0, 0, width, height);
-  const faces = [...housing, ...aperture(release), ...mechanism].map(face => {
+  const faces = [...housing, ...aperture(release), ...(demoApps ? previewTokens(release) : []), ...mechanism].map(face => {
     const vertices = face.vertices.map(rotate);
-    return { vertices, material: face.material, depth: vertices.reduce((sum, v) => sum + v[2], 0) / vertices.length };
+    return { vertices, material: face.material, decal: face.decal, depth: vertices.reduce((sum, v) => sum + v[2], 0) / vertices.length };
   }).sort((a,b) => a.depth - b.depth);
 
-  for (const { vertices, material } of faces) {
+  for (const { vertices, material, decal } of faces) {
     const [a,b,c] = vertices;
     const ux = b[0]-a[0], uy = b[1]-a[1], uz = b[2]-a[2];
     const vx = c[0]-a[0], vy = c[1]-a[1], vz = c[2]-a[2];
@@ -94,15 +107,25 @@ export function paintLock(ctx, width, height, yaw, pitch, release, review) {
     if (nz <= 0) continue;
     const intensity = .50 + .66 * Math.max(0, (-.45*nx + .38*ny + .80*nz) / Math.hypot(nx,ny,nz));
     const tint = material.map(channel => Math.min(255, Math.round(channel * intensity)));
-    ctx.fillStyle = ctx.strokeStyle = 'rgb(' + tint.join(',') + ')';
-    ctx.lineWidth = .7;
-    ctx.beginPath();
-    for (const [x,y,z] of vertices) {
-      const zoom = 7 / (7 - z);
-      ctx.lineTo(width * .50 + x * scale * zoom, height * .51 - y * scale * zoom);
+    const color = 'rgb(' + tint.join(',') + ')';
+    ctx.fillStyle = ctx.strokeStyle = color;
+    if (material === steel) {
+      const sheen = ctx.createLinearGradient(width*.19,height*.16,width*.88,height*.82);
+      for (const [position, gain] of [[0,.62],[.22,1.15],[.37,.8],[.52,1.52],[.58,1.12],[.77,.7],[1,1.36]]) {
+        sheen.addColorStop(position, 'rgb(' + tint.map(v => Math.round(v*gain)).join(',') + ')');
+      }
+      ctx.fillStyle = sheen;
     }
+    ctx.lineWidth = .55;
+    const corners = vertices.map(([x,y,z]) => {
+      const zoom = 7 / (7 - z);
+      return [width*.50 + x*scale*zoom, height*.51 - y*scale*zoom];
+    });
+    ctx.beginPath();
+    for (const [x,y] of corners) ctx.lineTo(x,y);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    if (decal !== undefined) drawDecal(ctx, decal, corners);
   }
 }

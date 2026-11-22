@@ -6,14 +6,14 @@ import Brand from "../components/Brand";
 import LockMechanism from "../components/LockMechanism";
 import lockPhoto from "../assets/lock-assembly.webp";
 
-const phases = [
-  { name: "Engage", icon: LockKeyhole, title: "Choose what stays locked.", body: "Commit to a task, select the apps and sites that distract you, and assign someone you trust to review your work." },
-  { name: "Submit", icon: FileCheck2, title: "Put your work on record.", body: "Send your evidence to your witness. Your restrictions stay in place while they review it." },
-  { name: "Release", icon: KeyRound, title: "Your witness turns the key.", body: "Approval releases this commitment’s restrictions. If your witness asks for changes, revise your work and submit again." },
-];
-
 import { isAuthenticated, setAuth } from "../lib/auth";
 import { loginWithGoogle } from "../lib/api";
+
+const phases = [
+  { name: "Engage", icon: LockKeyhole, title: "Three apps locked.", body: "Discord, Instagram and Steam stay locked while you finish the mix.", evidence: "Awaiting your submission", state: "Lock engaged" },
+  { name: "Submit", icon: FileCheck2, title: "The mix is with Maya.", body: "Your witness can listen to the recording. All three apps stay locked during review.", evidence: "final-mix.wav · Submitted", state: "Under review" },
+  { name: "Release", icon: KeyRound, title: "Maya approved the mix.", body: "This commitment is complete. The latch lifts and its three restrictions are released.", evidence: "final-mix.wav · Approved", state: "Released" },
+];
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -85,16 +85,23 @@ export default function Auth() {
             <a href="#mechanism">Explore the lock <ArrowDown size={15} /></a></div>
         </div>
         <figure className="hero-figure" onPointerMove={tilt} onPointerLeave={e => { e.currentTarget.style.removeProperty("--yaw"); e.currentTarget.style.removeProperty("--pitch"); }}>
-          {inspect ? <LockMechanism interactive /> : <img src={lockPhoto} alt="Three app icons held under glass by a steel latch and orange locking pin" fetchPriority="high" />}
+          {inspect ? <LockMechanism demoApps interactive /> : <img src={lockPhoto} alt="Three app icons held under glass by a steel latch and orange locking pin" fetchPriority="high" />}
           <figcaption><button aria-pressed={inspect} onClick={() => setInspect(value => !value)}>{inspect ? "Show photograph" : "Inspect in 3D"} <ArrowUpRight size={14} /></button></figcaption>
         </figure>
       </section>
       <section className="explore" id="mechanism" aria-labelledby="explore-heading">
-        <div className="explore-content"><span className="instrument-label">Interactive preview</span><h2 id="explore-heading">Inside the lock</h2>
-          <div className="phase-controls">{phases.map(({name, icon: Icon}, i) => <button key={name} aria-pressed={i === phase} onClick={() => setPhase(i)}><Icon size={15} />{name}</button>)}</div>
-          <div aria-live="polite"><h3>{phases[phase].title}</h3><p>{phases[phase].body}</p></div>
+        <div className="explore-content">
+          <span className="instrument-label"><i /> Try a sample commitment</span>
+          <h2 id="explore-heading">Finish the<br /><em>album mix.</em></h2>
+          <div className="phase-controls" aria-label="Preview stages">{phases.map(({name, icon: Icon}, i) => <button key={name} aria-pressed={i === phase} onClick={() => setPhase(i)}><Icon size={15} />{name}</button>)}</div>
+          <div className="sample-decision" aria-live="polite"><h3>{phases[phase].title}</h3><p>{phases[phase].body}</p></div>
+          <dl className="sample-receipt"><div><dt>Witness</dt><dd>@maya</dd></div><div><dt>Evidence</dt><dd>{phases[phase].evidence}</dd></div></dl>
         </div>
-        <div className="explore-model"><LockMechanism released={phase === 2} reviewing={phase === 1} interactive /><p>Drag or use arrow keys to rotate</p></div>
+        <figure className="explore-model" data-phase={phase}>
+          <div className="model-status"><i />{phases[phase].state}</div>
+          <LockMechanism released={phase === 2} reviewing={phase === 1} demoApps interactive />
+          <figcaption>Drag to rotate <span>← →</span></figcaption>
+        </figure>
       </section>
       <dialog ref={dialog} className="signin-dialog" aria-labelledby="signin-title" onClick={e => { if (e.target === dialog.current) dialog.current.close(); }}>
         <div className="signin-inner"><button className="dialog-close" aria-label="Close sign in" onClick={() => dialog.current.close()}><X /></button>

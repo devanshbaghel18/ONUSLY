@@ -4,7 +4,7 @@ import { paintLock } from "./lockGeometry";
 
 const initialView = { yaw: -.36, pitch: .54 };
 
-export default function LockMechanism({ released = false, reviewing = false, interactive = false }) {
+export default function LockMechanism({ released = false, reviewing = false, interactive = false, demoApps = false }) {
   const canvas = useRef(null);
   const view = useRef({ ...initialView, release: Number(released), review: Number(reviewing) });
   const redraw = useRef(null);
@@ -42,7 +42,7 @@ export default function LockMechanism({ released = false, reviewing = false, int
           moving = true;
         }
       }
-      paintLock(ctx, width, height, scene.yaw, scene.pitch, scene.release, scene.review);
+      paintLock(ctx, width, height, scene.yaw, scene.pitch, scene.release, scene.review, demoApps);
       if (moving) requestDraw();
     }
 
@@ -55,7 +55,7 @@ export default function LockMechanism({ released = false, reviewing = false, int
       if (frame !== null) cancelAnimationFrame(frame);
       redraw.current = null;
     };
-  }, [released, reviewing]);
+  }, [released, reviewing, demoApps]);
 
   function rotate(dx, dy) {
     view.current.yaw += dx;
