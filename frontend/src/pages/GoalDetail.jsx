@@ -882,7 +882,7 @@ export default function GoalDetail() {
                     <div className="goal-identity"><div><span className="instrument-label">Commitment</span>
                       <h1>{goal.title}</h1></div>
                       {Boolean(goal.blockedApps?.length || goal.blockedDomains?.length || goal.applicationTargets?.length) &&
-                        <LockMechanism released={goal.status === "completed"} reviewing={goal.status === "proof_submitted"} />}
+                        <LockMechanism released={goal.status === "completed"} reviewing={goal.status === "proof_submitted"} interactive />}
                     </div>
 
                     <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">

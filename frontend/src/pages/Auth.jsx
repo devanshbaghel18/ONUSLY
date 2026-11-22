@@ -18,6 +18,7 @@ import { loginWithGoogle } from "../lib/api";
 export default function Auth() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState(0);
+  const [inspect, setInspect] = useState(false);
   const dialog = useRef(null);
   const { scriptLoadedSuccessfully } = useGoogleOAuth();
   const [notice, setNotice] = useState("");
@@ -84,8 +85,8 @@ export default function Auth() {
             <a href="#mechanism">Explore the lock <ArrowDown size={15} /></a></div>
         </div>
         <figure className="hero-figure" onPointerMove={tilt} onPointerLeave={e => { e.currentTarget.style.removeProperty("--yaw"); e.currentTarget.style.removeProperty("--pitch"); }}>
-          <img src={lockPhoto} alt="Three app icons held under glass by a steel latch and orange locking pin" fetchPriority="high" />
-          <figcaption><span className="status-light" /> Lock engaged</figcaption>
+          {inspect ? <LockMechanism interactive /> : <img src={lockPhoto} alt="Three app icons held under glass by a steel latch and orange locking pin" fetchPriority="high" />}
+          <figcaption><button aria-pressed={inspect} onClick={() => setInspect(value => !value)}>{inspect ? "Show photograph" : "Inspect in 3D"} <ArrowUpRight size={14} /></button></figcaption>
         </figure>
       </section>
       <section className="explore" id="mechanism" aria-labelledby="explore-heading">
@@ -93,7 +94,7 @@ export default function Auth() {
           <div className="phase-controls">{phases.map(({name, icon: Icon}, i) => <button key={name} aria-pressed={i === phase} onClick={() => setPhase(i)}><Icon size={15} />{name}</button>)}</div>
           <div aria-live="polite"><h3>{phases[phase].title}</h3><p>{phases[phase].body}</p></div>
         </div>
-        <LockMechanism released={phase === 2} reviewing={phase === 1} />
+        <div className="explore-model"><LockMechanism released={phase === 2} reviewing={phase === 1} interactive /><p>Drag or use arrow keys to rotate</p></div>
       </section>
       <dialog ref={dialog} className="signin-dialog" aria-labelledby="signin-title" onClick={e => { if (e.target === dialog.current) dialog.current.close(); }}>
         <div className="signin-inner"><button className="dialog-close" aria-label="Close sign in" onClick={() => dialog.current.close()}><X /></button>

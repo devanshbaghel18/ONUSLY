@@ -329,11 +329,10 @@ export default function Goals() {
     <AppLayout>
       <div className="mx-auto w-full max-w-[1720px] space-y-7">
         {/* Top Header */}
-        <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-center">
+        <div className="work-masthead">
           <div>
-            <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
-              My goals
-            </h1>
+            <span className="instrument-label"><i /> Commitments</span>
+            <h1>My goals<span>.</span></h1>
             <p className="mt-1 text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
               Manage your commitments, restricted apps, and proof.
             </p>
@@ -415,7 +414,8 @@ export default function Goals() {
                 return (
                   <div
                     key={g.id}
-                    className={`card-glass group relative flex flex-col justify-between rounded-2xl p-6 transition-all duration-300 shadow-md ${
+                    data-lock-state={g.status}
+                    className={`lock-record card-glass group relative flex flex-col justify-between rounded-2xl p-6 transition-all duration-300 shadow-md ${
                       isPinned
                         ? "border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.04)]"
                         : "border-white/[0.08]"

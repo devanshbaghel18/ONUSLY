@@ -51,23 +51,23 @@ export default function Sidebar({ isOpen, onClose }) {
 
   const navItems = [
     {
-      name: "Dashboard",
+      name: "Lock desk",
       path: "/dashboard",
       icon: LayoutDashboard,
     },
     {
-      name: "My Goals",
+      name: "My goals",
       path: "/goals",
       icon: Target,
     },
     {
-      name: "Approval Center",
+      name: "Review inbox",
       path: "/approvals",
       icon: CheckSquare,
       badge: pendingCount,
     },
     {
-      name: "Community & Friends",
+      name: "Conversations",
       path: "/community-friends",
       icon: Users,
     },
@@ -85,6 +85,8 @@ export default function Sidebar({ isOpen, onClose }) {
 
       {/* Hamburger Drawer */}
       <aside
+        inert={!isOpen}
+        aria-label="Workspace navigation"
         className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col justify-between border-r border-white/10 bg-[#0E0E12]/95 backdrop-blur-2xl p-5 shadow-2xl transition-transform duration-300 ease-in-out ${isOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
@@ -101,6 +103,7 @@ export default function Sidebar({ isOpen, onClose }) {
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close navigation menu"
               className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-neutral-400 transition-colors hover:border-white hover:text-white"
             >
               <X size={18} />

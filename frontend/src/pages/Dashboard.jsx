@@ -1,3 +1,4 @@
+import LockMechanism from "../components/LockMechanism";
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import AppLayout from "../components/AppLayout";
@@ -192,16 +193,31 @@ export default function Dashboard() {
     return Array.from(uniqueMap.values());
   }, [dashboardFilter, pinnedIds, goals, activeLockouts]);
 
+  const featuredLock = [unlockBanner && goals.find(goal => goal.id === unlockBanner.goalId), ...pendingApprovals, ...goals]
+    .find(goal => goal && (goal.blockedApps?.length || goal.blockedDomains?.length || goal.applicationTargets?.length));
+  const featuredStatus = {
+    active: "Commitment active",
+    proof_submitted: "Proof under review",
+    rejected: "Revision requested",
+    completed: "Commitment complete",
+  }[featuredLock?.status];
   return (
     <AppLayout>
       <div className="mx-auto w-full max-w-[1720px] space-y-8">
         <section className="desk-header">
-          <div><span className="instrument-label"><i /> {user?.name?.split(" ")[0] || "Personal"}’s workspace</span>
-            <h1>Your lock desk<span>.</span></h1>
+          <div className="desk-copy"><span className="instrument-label"><i /> {user?.name ? `${user.name.split(" ")[0]}’s workspace` : "Your workspace"}</span>
+            <h1>Your lock<br />desk<span>.</span></h1>
             <button className="signal-button" onClick={() => setShowCreateModal(true)}><Plus size={18} /> Create a lock</button>
+            <dl className="desk-counts">{[["Active goals", activeGoals.length], ["In review", pendingApprovals.length], ["Completed", completedGoals.length]].map(([label,count]) => <div key={label}><dt>{label}</dt><dd>{loading || error ? "—" : count}</dd></div>)}</dl>
           </div>
-          <dl className="desk-counts">{[["Active goals", activeGoals.length], ["In review", pendingApprovals.length], ["Completed", completedGoals.length]].map(([label,count]) => <div key={label}><dt>{label}</dt><dd>{loading || error ? "—" : count}</dd></div>)}</dl>
+          <div className="desk-object">
+            <LockMechanism released={featuredLock?.status === "completed"} reviewing={featuredLock?.status === "proof_submitted"} interactive />
+            {featuredLock ? <Link className="desk-object-caption" to={`/goals/${featuredLock.id}`}>
+              <span className="instrument-label">{featuredStatus}</span><strong>{featuredLock.title}</strong><ChevronRight size={17} />
+            </Link> : <p className="desk-object-caption">Lock preview · Drag to rotate</p>}
+          </div>
         </section>
+
         {/* Real-Time Celebratory Unlock Banner */}
         {unlockBanner && (
           <div className="relative overflow-hidden rounded-2xl border border-white/20 bg-white/[0.06] backdrop-blur-xl p-5 shadow-[0_12px_35px_rgba(0,0,0,0.6),0_0_24px_rgba(255,255,255,0.06)] animate-scale-in">
@@ -336,7 +352,7 @@ export default function Dashboard() {
             <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-[#141418]/60 backdrop-blur-xl">
               <Loader2 size={26} className="animate-spin text-white" />
             </div>
-          ) : dashboardGoals.length === 0 ? (
+          ) : error ? null : dashboardGoals.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/10 bg-[#141418]/40 backdrop-blur-xl p-12 text-center">
               {dashboardFilter === "pinned" ? (
                 <>
@@ -362,7 +378,7 @@ export default function Dashboard() {
                   </div>
                   <p className="text-base font-bold text-white">No active locks right now</p>
                   <p className="mt-1.5 text-xs text-[#A1A1AA] max-w-md mx-auto leading-relaxed">
-                    All goals are completed! Start an accountability lock or repeat a routine from past goals.
+                    Start an accountability lock or repeat a routine from past goals.
                   </p>
                   <div className="mt-5 flex items-center justify-center gap-3">
                     <button
@@ -394,7 +410,8 @@ export default function Dashboard() {
                 return (
                   <div
                     key={g.id}
-                    className={`card-glass relative flex flex-col justify-between rounded-2xl p-6 shadow-md transition-all duration-300 group ${isPinned
+                    data-lock-state={g.status}
+                    className={`lock-record card-glass relative flex flex-col justify-between rounded-2xl p-6 shadow-md transition-all duration-300 group ${isPinned
                       ? "border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.04)]"
                       : "border-white/[0.08]"
                       }`}

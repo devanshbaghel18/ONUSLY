@@ -17,10 +17,6 @@ export default function AppLayout({ children }) {
   // Mobile drawer open state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Scroll direction state for smart auto-hide slide-up
-  const [isVisible, setIsVisible] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
-
   // Handle customization modal state
   const [showHandleModal, setShowHandleModal] = useState(false);
   const [customHandle, setCustomHandle] = useState("");
@@ -40,25 +36,6 @@ export default function AppLayout({ children }) {
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-
-      if (currentScrollY < 30) {
-        setIsVisible(true);
-      } else if (currentScrollY > lastScrollY && currentScrollY > 60) {
-        setIsVisible(false);
-      } else if (currentScrollY < lastScrollY) {
-        setIsVisible(true);
-      }
-
-      setLastScrollY(currentScrollY);
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [lastScrollY]);
 
   const handleLogout = () => {
     clearAuth();
@@ -157,14 +134,14 @@ export default function AppLayout({ children }) {
   }, [location.pathname]);
 
   const navLinks = [
-    { name: "Dashboard", path: "/dashboard" },
-    { name: "My Goals", path: "/goals" },
+    { name: "Lock desk", path: "/dashboard" },
+    { name: "My goals", path: "/goals" },
     {
-      name: "Approval Center",
+      name: "Review inbox",
       path: "/approvals",
       badge: pendingApprovalsCount,
     },
-    { name: "Community & Friends", path: "/community-friends" },
+    { name: "Conversations", path: "/community-friends" },
   ];
 
   const displayHandle = user?.handle
@@ -177,32 +154,13 @@ export default function AppLayout({ children }) {
 
   return (
     <div className={`lock-workspace relative ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} bg-[#0D0D0E] text-[#FFFFFF] antialiased selection:bg-white/20 selection:text-white`}>
-      {/* Ambient Top Glow Mesh */}
-      <div className="ambient-mesh" />
-
-      {/* Subtle monochrome micro dot grid */}
-      <div
-        className="pointer-events-none fixed inset-0 opacity-[0.035]"
-        style={{
-          backgroundImage: "radial-gradient(#ffffff 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-        }}
-      />
-
       {/* Mobile Navigation Drawer */}
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       {/* Main Container */}
       <div className={`relative z-10 flex ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} flex-col`}>
-        {/* Floating Centered Pill Navbar with Auto-Hide Slide-Up */}
-        <header
-          className={`workspace-nav fixed top-3 sm:top-5 left-0 right-0 z-40 mx-auto w-[98%] 2xl:w-[96%] max-w-[1720px] px-1 sm:px-4 transition-all duration-300 ease-in-out ${
-            isVisible
-              ? "translate-y-0 opacity-100"
-              : "-translate-y-28 opacity-0 pointer-events-none"
-          }`}
-        >
-          <div className="flex items-center justify-between rounded-full border border-white/[0.12] bg-[#141416]/85 px-4 sm:px-8 lg:px-10 py-2.5 sm:py-3 lg:py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.85),inset_0_1px_0_0_rgba(255,255,255,0.1)] backdrop-blur-2xl transition-all">
+        <header className="workspace-nav">
+          <div className="workspace-nav-inner">
             {/* Left: Mobile Menu Trigger + ONUSLY Brand */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               {/* Mobile Hamburger Drawer Button */}
@@ -210,7 +168,8 @@ export default function AppLayout({ children }) {
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
                 className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-neutral-300 transition-colors hover:border-white hover:text-white xl:hidden"
-                aria-label="Open Navigation Menu"
+                aria-label="Open navigation menu"
+                aria-expanded={isSidebarOpen}
               >
                 <Menu size={18} />
               </button>
@@ -284,10 +243,10 @@ export default function AppLayout({ children }) {
 
         {/* Page Content with adjusted top padding for the taller floating navbar */}
         <main
-          className={`flex-1 px-3 sm:px-6 lg:px-8 animate-fade-in flex flex-col min-h-0 ${
+          className={`workspace-content flex-1 px-3 sm:px-6 lg:px-8 flex flex-col min-h-0 ${
             isChatPage
-              ? "pt-20 sm:pt-24 pb-2 sm:pb-3 overflow-hidden"
-              : "pt-28 sm:pt-32 md:pt-36 pb-12"
+              ? "pb-2 sm:pb-3 overflow-hidden"
+              : "pb-12"
           }`}
         >
           {children}

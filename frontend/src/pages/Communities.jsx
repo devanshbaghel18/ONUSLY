@@ -2157,20 +2157,11 @@ export default function Communities() {
   return (
     <AppLayout>
       <div className="mx-auto w-full max-w-[1720px] flex-1 flex flex-col min-h-0 h-full">
-        {/* Top Header & Actions */}
-        <div className="shrink-0 flex flex-col justify-between gap-3 border-b border-white/[0.08] pb-3 sm:flex-row sm:items-center">
+        <div className="work-masthead chat-masthead">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2.5">
-              <span>Chats</span>
-              <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-xs font-semibold text-white">
-                {unifiedConversations.length}
-              </span>
-            </h1>
-            <p className="mt-0.5 text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
-              WhatsApp-style messaging with accountability partners & joined community groups.
-            </p>
+            <h1>Conversations<span>.</span></h1>
+            <p>Friends and accountability groups</p>
           </div>
-
           {/* Quick Action Buttons */}
           <div className="flex items-center gap-2">
             <button
