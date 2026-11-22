@@ -421,26 +421,26 @@ export default function Dashboard() {
                       <div className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2">
                           {isCompleted ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white glow-pill-white">
-                              <CheckCircle2 size={11} className="text-white" />
+                            <span className="inline-flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-mono font-bold tracking-wider text-emerald-400 uppercase">
+                              <CheckCircle2 size={11} className="text-emerald-400" />
                               Unlocked & Verified
                             </span>
                           ) : isPendingReview ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300 glow-pill-white">
-                              <Clock size={11} className="text-neutral-400" />
-                              Pending Verification
+                            <span className="inline-flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-mono font-bold tracking-wider text-amber-300 uppercase">
+                              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                              Witness Review
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300">
-                              <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                              Active Lockout
+                            <span className="inline-flex items-center gap-1.5 rounded border border-[#ff7843]/30 bg-[#ff7843]/10 px-2.5 py-0.5 text-[10px] font-mono font-bold tracking-wider text-[#ff9769] uppercase">
+                              <span className="h-1.5 w-1.5 rounded-full bg-[#ff7843] animate-pulse" />
+                              Lock Engaged
                             </span>
                           )}
 
                           {isPinned && (
-                            <span className="flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white">
-                              <Pin size={10} className="fill-white" />
-                              <span>Pinned Routine</span>
+                            <span className="flex items-center gap-1 rounded border border-[#384654] bg-[#1a2128] px-2 py-0.5 text-[10px] font-mono text-neutral-300">
+                              <Pin size={10} className="fill-neutral-300" />
+                              <span>PINNED</span>
                             </span>
                           )}
                         </div>
@@ -449,7 +449,7 @@ export default function Dashboard() {
                         <button
                           type="button"
                           onClick={() => handleTogglePin(g.id)}
-                          className={`btn-premium flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${isPinned
+                          className={`btn-premium flex items-center gap-1 rounded border px-2.5 py-1 text-[11px] font-semibold transition ${isPinned
                             ? "border-white bg-white text-black font-bold shadow-sm"
                             : "border-white/10 bg-white/5 text-[#A1A1AA] hover:text-white hover:border-white/20 hover:bg-white/10"
                             }`}
@@ -479,31 +479,31 @@ export default function Dashboard() {
                       )}
                     </div>
 
-                    {/* Progress Bar & Actions */}
-                    <div className="mt-6 space-y-3">
-                      <div className="flex items-center justify-between text-[11px] font-semibold">
-                        <span className="text-[#A1A1AA]">Status</span>
-                        <span className="text-white font-bold">
-                          {isCompleted ? "Completed & Released" : isPendingReview ? "Proof Submitted" : "In Progress"}
+                    {/* Analog Segmented Mechanical Gauge */}
+                    <div className="mt-6 space-y-2.5">
+                      <div className="flex items-center justify-between text-[11px] font-mono tracking-wider uppercase text-neutral-400">
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-neutral-500">PHASE //</span>
+                          <span className={isCompleted ? "text-emerald-400 font-bold" : isPendingReview ? "text-amber-300 font-bold" : "text-white font-bold"}>
+                            {isCompleted ? "RELEASED" : isPendingReview ? "WITNESS REVIEW" : "LOCKED"}
+                          </span>
+                        </span>
+                        <span className="text-neutral-400 font-bold">
+                          {isCompleted ? "100%" : isPendingReview ? "50%" : "0%"}
                         </span>
                       </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-[#121214] border border-white/10 p-[1px]">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ease-out ${isCompleted
-                            ? "bg-white shadow-[0_0_12px_rgba(255,255,255,0.3)]"
-                            : isPendingReview
-                              ? "bg-gradient-to-r from-neutral-400 to-neutral-300"
-                              : "bg-gradient-to-r from-neutral-600 to-white"
-                            }`}
-                          style={{ width: `${progressPct}%` }}
-                        />
+                      <div className="machined-gauge" data-state={g.status}>
+                        <div className="machined-gauge-tick" data-active="true" />
+                        <div className="machined-gauge-tick" data-active={isPendingReview || isCompleted ? "true" : "false"} />
+                        <div className="machined-gauge-tick" data-active={isCompleted ? "true" : "false"} />
+                        <div className="machined-gauge-tick" data-active={isCompleted ? "true" : "false"} />
                       </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">
                         <div className="flex items-center gap-3">
                           <Link
                             to={`/goals/${g.id}`}
-                            className="text-xs font-semibold text-white hover:underline transition-all"
+                            className="text-xs font-semibold text-neutral-300 hover:text-white transition-all"
                           >
                             Goal Details →
                           </Link>
@@ -513,7 +513,7 @@ export default function Dashboard() {
                             type="button"
                             disabled={repeatingGoalId === g.id || !isCompleted}
                             onClick={() => handleRepeatGoal(g)}
-                            className={`btn-premium inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${isCompleted
+                            className={`btn-premium inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-[11px] font-semibold transition ${isCompleted
                               ? "border-white/15 bg-white/5 text-white hover:border-white/30 hover:bg-white/10"
                               : "border-white/5 bg-white/[0.02] text-neutral-600 cursor-not-allowed opacity-50"
                               }`}
@@ -533,23 +533,23 @@ export default function Dashboard() {
                         </div>
 
                         {isCompleted ? (
-                          <span className="text-xs font-semibold text-white flex items-center gap-1">
+                          <span className="text-xs font-mono font-semibold text-emerald-400 flex items-center gap-1">
                             <CheckCircle2 size={13} />
-                            Approved
+                            RELEASED
                           </span>
                         ) : g.status === "proof_submitted" ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                          <span className="inline-flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-mono font-semibold text-amber-300">
                             <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                            In Review
+                            IN REVIEW
                           </span>
                         ) : (
                           <button
                             type="button"
                             onClick={() => setShareGoal(g)}
-                            className="btn-premium inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white hover:bg-white/10 hover:border-white/30 transition"
-                            title={g.status === "rejected" ? "Resubmit revised verification proof" : "Submit proof for verification"}
+                            className="inline-flex items-center gap-1.5 rounded border border-[#ff7843]/40 bg-[#ff7843] px-3.5 py-1 text-xs font-bold text-black hover:bg-[#ff956b] transition shadow-sm"
+                            title="Submit proof for verification"
                           >
-                            <span>{g.status === "rejected" ? "Resubmit Proof" : "Submit Proof"}</span>
+                            <span>Submit Proof</span>
                             <span aria-hidden="true">↗</span>
                           </button>
                         )}

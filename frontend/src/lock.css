@@ -60,40 +60,44 @@
 @media(prefers-reduced-motion:reduce){html {scroll-behavior:auto}.lock-entry *, .hero-figure img {animation:none!important;transition:none!important}.hero-figure img {transform:none}}
 
 /* Shared workspace surfaces borrow the same grid and materials as the lock. */
-.lock-workspace { background:#121519; }
-.workspace-nav > div { background:#181c20f5; border-color:#393f46; }
+.lock-workspace { background:#0a0c0f; }
+.workspace-nav > div { background:#12161bf5; border-color:#2a333d; }
 .lock-workspace .card-glass,.lock-workspace .card-stat {
-  border-radius:6px; background:#191e23; border-color:#373e46; box-shadow:none;
+  border-radius:8px;
+  background:#13181e;
+  border:1px solid #252e38;
+  border-top:1px solid #384654;
+  box-shadow:0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
 }
-.lock-workspace .modal-backdrop > div { border-radius:7px; border-color:#45505b; }
+.lock-workspace .modal-backdrop > div { border-radius:8px; border-color:#384654; }
 .lock-workspace .btn-glow:hover { background:#ff9b72; }
 .work-masthead {
   display:flex; justify-content:space-between; align-items:end; flex-wrap:wrap; gap:16px;
-  padding:clamp(22px,4vw,52px); margin-bottom:24px; border:1px solid #3b434b; border-radius:6px;
-  background:repeating-linear-gradient(90deg,#252b3180 0 1px,transparent 1px 32px),#1a2025;
+  padding:clamp(22px,4vw,52px); margin-bottom:24px; border:1px solid #2a343f; border-top:1px solid #3d4a57; border-radius:8px;
+  background:repeating-linear-gradient(90deg,#1c232a80 0 1px,transparent 1px 32px),#12161b;
 }
 .work-masthead h1 {
   font:800 clamp(44px,6vw,96px)/.93 Inter,Arial,sans-serif; letter-spacing:-.075em; margin:12px 0;
 }
 .work-masthead h1 span { color:var(--signal); }
-.work-masthead p { color:#c1c7cb; font-size:14px; }
+.work-masthead p { color:#9ba3af; font-size:14px; }
 .chat-masthead { flex:none; padding:14px 18px; margin-bottom:12px; }
 .chat-masthead h1 { font-size:clamp(28px,4vw,52px); margin:0 0 6px; }
 .chat-masthead p { font-size:12px; }
-.desk-header { display:grid; grid-template-columns:1fr 1fr; align-items:stretch; padding:0; overflow:hidden; gap:0; }
+.desk-header { display:grid; grid-template-columns:1fr 1fr; align-items:stretch; padding:0; overflow:hidden; gap:0; border:1px solid #2c3642; border-radius:8px; }
 .desk-copy { padding:clamp(24px,4vw,62px); }
 .desk-counts { margin-top:32px; }
 .desk-object {
   position:relative; min-width:0; display:grid; grid-template-rows:1fr auto;
-  background:radial-gradient(ellipse at center,#333e47,transparent 68%),repeating-linear-gradient(90deg,#262e36 0 1px,transparent 1px 27px),#1a2027;
-  color:#f2eee7; padding:12px 18px;
+  background:radial-gradient(ellipse at center,#27333d,transparent 68%),repeating-linear-gradient(90deg,#1c232a 0 1px,transparent 1px 27px),#111519;
+  color:#f2eee7; padding:12px 18px; border-inline-start:1px solid #26303b;
 }
 .mechanism-stage { position:relative; min-width:0; width:100%; height:100%; min-height:110px; }
 .mechanism-stage canvas { width:100%; height:100%; display:block; position:absolute; inset:0; }
 .mechanism-stage canvas[data-interactive] { cursor:grab; touch-action:pan-y; }
 .mechanism-stage canvas[data-interactive]:active { cursor:grabbing; }
 .desk-object-caption {
-  padding:12px 8px; border-top:1px solid #6f7880; overflow-wrap:anywhere;
+  padding:12px 8px; border-top:1px solid #384654; overflow-wrap:anywhere;
   display:flex; flex-wrap:wrap; align-items:center; gap:6px 13px; font-size:13px;
 }
 .desk-object-caption .instrument-label { color:#ffa680; }
@@ -106,13 +110,13 @@
 .goal-identity .mechanism-stage { background:radial-gradient(ellipse at center,#34444f,transparent 70%); }
 @media(max-width:760px) {
   .desk-header { grid-template-columns:1fr; }
-  .desk-object { min-height:265px; }
+  .desk-object { min-height:265px; border-inline-start:0; border-top:1px solid #26303b; }
   .work-masthead h1 { font-size:44px; }
   .chat-masthead h1 { font-size:29px; }
 }
 .workspace-nav {
   position:sticky; top:0; z-index:40; flex:none;
-  border-bottom:1px solid #373f47; background:#15191df2;
+  border-bottom:1px solid #26303b; background:#0e1216f2;
 }
 .workspace-nav .workspace-nav-inner {
   display:flex; justify-content:space-between; align-items:center; gap:8px;
@@ -121,12 +125,54 @@
 }
 .workspace-content { padding-top:clamp(14px,2.2vw,36px); }
 .workspace-nav .btn-premium { border-radius:5px; }
-.lock-record { border-inline-start:3px solid #66717a; }
+.lock-record {
+  border-inline-start:4px solid #4a5663;
+  background:#13181e;
+  border-radius:8px;
+  border-top:1px solid #2e3945;
+  border-bottom:1px solid #1c232a;
+  border-inline-end:1px solid #1c232a;
+  transition:all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
 .lock-record[data-lock-state=active] { border-inline-start-color:var(--signal); }
 .lock-record[data-lock-state=proof_submitted] { border-inline-start-color:#e8be72; }
-.lock-record[data-lock-state=rejected] { border-inline-start-color:#f28a96; }
-.lock-record[data-lock-state=completed] { border-inline-start-color:#76bfa0; }
-.lock-record:hover { background:#222933; }
+.lock-record[data-lock-state=completed] { border-inline-start-color:#10b981; }
+.lock-record:hover {
+  background:#171d24;
+  border-top-color:#485768;
+  transform:translateY(-1px);
+}
+
+/* Precision Analog Segmented Gauge */
+.machined-gauge {
+  display:flex;
+  gap:3px;
+  height:6px;
+  width:100%;
+  padding:1px;
+  background:#090b0e;
+  border:1px solid #252d36;
+  border-radius:3px;
+}
+.machined-gauge-tick {
+  flex:1;
+  border-radius:1px;
+  background:#1c232a;
+  transition:background 0.3s ease;
+}
+.machined-gauge-tick[data-active=true] {
+  background:var(--signal);
+  box-shadow:0 0 6px rgba(255,120,67,0.4);
+}
+.machined-gauge[data-state=completed] .machined-gauge-tick[data-active=true] {
+  background:#10b981;
+  box-shadow:0 0 6px rgba(16,185,129,0.4);
+}
+.machined-gauge[data-state=proof_submitted] .machined-gauge-tick[data-active=true] {
+  background:#e8be72;
+  box-shadow:0 0 6px rgba(232,190,114,0.4);
+}
+
 @media(max-width:600px) {
   .workspace-nav .onus-brand { font-size:clamp(15px,4vw,21px); }
   .workspace-nav .workspace-nav-inner { min-height:59px; gap:3px; }

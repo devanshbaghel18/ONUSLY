@@ -773,26 +773,24 @@ export default function GoalDetail() {
               {/* =====================================================
                   1. GOAL OVERVIEW & EDIT CARD
               ===================================================== */}
-              <div className="card-glass relative overflow-hidden rounded-[28px] border border-white/10 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] sm:p-8">
+              <div className="card-glass relative overflow-hidden rounded-lg border border-[#2a343f] p-6 shadow-xl sm:p-8">
                 {/* Status & Action Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
                   <div className="flex items-center gap-3">
-                    <span className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${
+                    <span className={`flex items-center gap-1.5 rounded border px-2.5 py-1 text-xs font-mono font-bold uppercase tracking-wider ${
                       goal.status === "completed"
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                        : goal.status === "rejected"
-                        ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                         : goal.status === "proof_submitted"
-                        ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
-                        : "border-white/20 bg-white/10 text-white"
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                        : "border-[#ff7843]/30 bg-[#ff7843]/10 text-[#ff9769]"
                     }`}>
-                      <span className={`h-2 w-2 rounded-full ${
-                        goal.status === "completed" ? "bg-emerald-400" : goal.status === "rejected" ? "bg-amber-400" : "bg-white animate-pulse"
+                      <span className={`h-1.5 w-1.5 rounded-full ${
+                        goal.status === "completed" ? "bg-emerald-400" : goal.status === "proof_submitted" ? "bg-amber-400 animate-pulse" : "bg-[#ff7843] animate-pulse"
                       }`} />
-                      {goal.status === "proof_submitted" ? "Pending Review" : (goal.status || "active")}
+                      {goal.status === "completed" ? "RELEASED" : goal.status === "proof_submitted" ? "IN REVIEW" : "LOCKED"}
                     </span>
 
-                    <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-[#B5B5B5]">
+                    <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-mono text-neutral-400">
                       <Calendar size={13} />
                       Created {formatDate(goal.createdAt)}
                     </span>
@@ -800,9 +798,9 @@ export default function GoalDetail() {
 
                   <div className="flex items-center gap-2">
                     {!isOwner && (
-                      <span className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-neutral-300">
+                      <span className="flex items-center gap-1.5 rounded border border-[#384654] bg-[#1a2128] px-3 py-1 text-xs font-mono font-semibold text-neutral-300">
                         <ShieldCheck size={12} className="text-white" />
-                        Partner Review
+                        WITNESS REVIEW
                       </span>
                     )}
 
@@ -810,9 +808,9 @@ export default function GoalDetail() {
                       <button
                         type="button"
                         onClick={() => setIsEditingGoal(true)}
-                        className="btn-premium flex items-center gap-2 rounded-xl border border-white/20 bg-[#222222] px-3.5 py-2 text-xs font-semibold text-white transition hover:border-white hover:bg-[#2C2C2C]"
+                        className="btn-premium flex items-center gap-2 rounded border border-[#384654] bg-[#1a2128] px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[#252f3a]"
                       >
-                        <Edit3 size={14} className="text-[#B5B5B5]" />
+                        <Edit3 size={13} className="text-neutral-300" />
                         <span>Edit Goal</span>
                       </button>
                     )}
@@ -821,10 +819,10 @@ export default function GoalDetail() {
                       <button
                         type="button"
                         onClick={handleDelete}
-                        className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#292929] px-3 py-2 text-xs font-semibold text-neutral-400 transition hover:bg-white/10 hover:border-white/20"
+                        className="flex items-center gap-2 rounded border border-white/10 bg-[#161a1f] px-3 py-1.5 text-xs font-semibold text-neutral-400 transition hover:bg-white/10 hover:text-white"
                         title="Delete Goal"
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={13} />
                         <span className="hidden sm:inline">Delete</span>
                       </button>
                     )}
@@ -980,29 +978,29 @@ export default function GoalDetail() {
               {/* =====================================================
                   2. DISTRACTION APPS & IN-CHAT VERIFICATION STRATEGY
               ===================================================== */}
-              <div className="card-glass rounded-[28px] border border-white/10 p-6 shadow-xl sm:p-8">
+              <div className="card-glass rounded-lg border border-[#2a343f] p-6 shadow-xl sm:p-8">
                 <div className="mb-6 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
                   <div>
                     <div className="flex items-center gap-2.5">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 border border-white/20 text-white">
-                        <Lock size={18} />
+                      <div className="flex h-8 w-8 items-center justify-center rounded border border-[#384654] bg-[#1a2128] text-white">
+                        <Lock size={16} />
                       </div>
                       <h2 className="text-xl font-bold tracking-tight text-white">
                         Distraction Shield & App Blockers
                       </h2>
                     </div>
-                    <p className="mt-1 text-xs text-[#A1A1AA]">
-                      Apps locked while this goal constraint is active.
+                    <p className="mt-1 text-xs text-neutral-400 font-mono">
+                      Target restrictions enforced on local devices while locked.
                     </p>
                   </div>
 
-                  <span className="self-start sm:self-auto rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-neutral-300">
-                    Status: <strong className="text-white">{goal.status === "completed" ? "Unlocked" : "Active Lock"}</strong>
+                  <span className="self-start sm:self-auto rounded border border-[#384654] bg-[#1a2128] px-3 py-1 text-xs font-mono text-neutral-300">
+                    STATUS: <strong className="text-white uppercase">{goal.status === "completed" ? "RELEASED" : "ACTIVE LOCK"}</strong>
                   </span>
                 </div>
 
                 {/* Blocked Apps & Domains Display */}
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="rounded-lg border border-[#232c36] bg-[#101418] p-5">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3] mb-3">
                     Target Apps & Domains Blocked For This Goal
                   </h4>

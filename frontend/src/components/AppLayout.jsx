@@ -195,15 +195,15 @@ export default function AppLayout({ children }) {
                     aria-current={isActive ? "page" : undefined}
                     key={link.name}
                     to={link.path}
-                    className={`whitespace-nowrap rounded-full px-4 sm:px-5 lg:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                    className={`whitespace-nowrap rounded-md px-3.5 sm:px-4 lg:px-5 py-2 text-xs font-semibold transition-all duration-150 flex items-center gap-2 ${
                       isActive
-                        ? "bg-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.06)] border border-white/20"
-                        : "text-[#888888] hover:text-white hover:bg-white/5"
+                        ? "bg-[#1f2732] text-white border border-[#384656] shadow-sm"
+                        : "text-neutral-400 hover:text-white hover:bg-white/5"
                     }`}
                   >
                     <span>{link.name}</span>
                     {link.badge > 0 && (
-                      <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-500/20 px-1.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
+                      <span className="flex h-4 min-w-[18px] items-center justify-center rounded bg-amber-500/20 px-1 text-[10px] font-mono font-bold text-amber-300 border border-amber-500/30">
                         {link.badge}
                       </span>
                     )}
@@ -213,18 +213,18 @@ export default function AppLayout({ children }) {
             </nav>
 
             {/* Right: Notifications, User Name Badge & Sign Out */}
-            <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               {/* In-App Notifications Feed */}
               <NotificationFeed />
 
-              {/* Clickable Username Pill (responsive on mobile, no overflow, no white background) */}
+              {/* Clickable Username Pill */}
               <button
                 type="button"
                 onClick={openHandleModal}
-                className="btn-premium flex items-center gap-1.5 sm:gap-2 rounded-full border border-[#333333] bg-[#1E1E1E] px-3 sm:px-5 lg:px-6 py-2 sm:py-2.5 lg:py-3 text-xs sm:text-sm font-semibold text-neutral-200 transition-all hover:border-white/50 hover:bg-[#252525] shadow-sm max-w-[130px] sm:max-w-[200px] md:max-w-none"
+                className="btn-premium flex items-center gap-1.5 rounded border border-[#2e3947] bg-[#141920] px-3 sm:px-4 py-2 text-xs font-semibold text-neutral-200 transition-all hover:border-[#445468] hover:bg-[#1a212b] shadow-sm max-w-[130px] sm:max-w-[200px] md:max-w-none"
                 title="Click to customize your ONUSLY Tag / Handle"
               >
-                <AtSign size={14} className="text-neutral-300 shrink-0" />
+                <AtSign size={13} className="text-neutral-400 shrink-0" />
                 <span className="font-mono tracking-tight truncate">{displayHandle}</span>
               </button>
 
@@ -232,10 +232,10 @@ export default function AppLayout({ children }) {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="btn-premium flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-[#888888] transition-colors hover:border-white/40 hover:text-white shrink-0"
+                className="btn-premium flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded border border-[#28323e] bg-[#141920] text-neutral-400 transition-colors hover:border-[#445468] hover:text-white shrink-0"
                 title="Sign Out"
               >
-                <LogOut size={17} />
+                <LogOut size={15} />
               </button>
             </div>
           </div>

@@ -146,11 +146,17 @@ export default function ApprovalCard({
   const isRejected = status === "rejected";
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#121217] p-6 transition-all duration-200 hover:border-white/20 hover:shadow-xl hover:shadow-black/40">
+    <div className={`group relative overflow-hidden rounded-lg border p-6 transition-all duration-200 shadow-md ${
+      isPending
+        ? "border-l-4 border-l-[#ff7843] border-t-[#384654] border-r-[#242e38] border-b-[#1c232a] bg-[#13181e]"
+        : isApproved
+          ? "border-l-4 border-l-[#10b981] border-t-[#384654] border-r-[#242e38] border-b-[#1c232a] bg-[#13181e]"
+          : "border-l-4 border-l-[#ef4444] border-t-[#384654] border-r-[#242e38] border-b-[#1c232a] bg-[#13181e]"
+    }`}>
       {/* Header Row: Owner info & Status badge */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent text-sm font-bold text-indigo-300">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#384654] bg-[#1c242c] text-sm font-mono font-bold text-neutral-200 shadow-inner">
             {initials}
           </div>
           <div>
@@ -159,14 +165,14 @@ export default function ApprovalCard({
                 {ownerName || ownerHandle || ownerEmail || "Partner"}
               </h3>
               {(ownerHandle || ownerEmail) && (
-                <span className="text-xs text-neutral-400">
+                <span className="text-xs text-neutral-400 font-mono">
                   {ownerHandle
                     ? `@${ownerHandle.replace(/^@/, "")}`
                     : ownerEmail}
                 </span>
               )}
             </div>
-            <p className="text-xs text-neutral-500">
+            <p className="text-xs text-neutral-500 font-mono">
               Submitted {relativeTime || "recently"}
             </p>
           </div>
@@ -175,19 +181,19 @@ export default function ApprovalCard({
         {/* Status Pill */}
         <div className="flex items-center gap-2">
           {isPending && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+            <span className="inline-flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-mono font-bold tracking-wider text-amber-300 uppercase">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
               Pending Review
             </span>
           )}
           {isApproved && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+            <span className="inline-flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-mono font-bold tracking-wider text-emerald-300 uppercase">
               <CheckCircle2 size={13} className="text-emerald-400" />
               Approved & Unlocked
             </span>
           )}
           {isRejected && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-300">
+            <span className="inline-flex items-center gap-1.5 rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-mono font-bold tracking-wider text-rose-300 uppercase">
               <XCircle size={13} className="text-rose-400" />
               Rejected
             </span>
@@ -382,31 +388,31 @@ export default function ApprovalCard({
 
       {/* Action Footer */}
       {isPending && (
-        <div className="mt-5 flex flex-col gap-2 pt-4 border-t border-white/5 sm:flex-row sm:items-center sm:justify-end">
+        <div className="mt-5 flex flex-col gap-2 pt-4 border-t border-white/[0.08] sm:flex-row sm:items-center sm:justify-end">
           {latestProof && (
             <button
               type="button"
               onClick={() => onInspectPhoto && onInspectPhoto(latestProof, item)}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-xs font-semibold text-neutral-300 transition-all hover:bg-white/10 hover:text-white active:scale-[0.98]"
+              className="inline-flex items-center justify-center gap-1.5 rounded border border-[#384654] bg-[#1a2128] px-3.5 py-2 text-xs font-semibold text-neutral-200 transition-all hover:bg-[#252f3a] hover:text-white"
             >
-              <Eye size={15} />
+              <Eye size={14} />
               Inspect Proof
             </button>
           )}
           <button
             type="button"
             onClick={() => onReject && onReject(item)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-xs font-semibold text-rose-300 transition-all hover:bg-rose-500/20 hover:border-rose-500/40 active:scale-[0.98]"
+            className="inline-flex items-center justify-center gap-1.5 rounded border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-300 transition-all hover:bg-rose-500/20 hover:border-rose-500/50"
           >
-            <XCircle size={15} />
+            <XCircle size={14} />
             Reject Proof
           </button>
           <button
             type="button"
             onClick={() => onApprove && onApprove(item)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-600 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-emerald-950/40 transition-all hover:bg-emerald-500 active:scale-[0.98]"
+            className="inline-flex items-center justify-center gap-1.5 rounded border border-emerald-500/40 bg-emerald-600 px-5 py-2 text-xs font-bold text-white shadow-md shadow-emerald-950/40 transition-all hover:bg-emerald-500"
           >
-            <CheckCircle2 size={15} />
+            <CheckCircle2 size={14} />
             Approve & Unlock
           </button>
         </div>

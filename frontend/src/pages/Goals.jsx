@@ -433,23 +433,19 @@ export default function Goals() {
 
                         <div className="flex items-center gap-1.5 shrink-0">
                           {isCompleted ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white glow-pill-white">
-                              <Unlock size={11} />
-                              Unlocked
+                            <span className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-mono font-bold tracking-wider text-emerald-400 uppercase">
+                              <Unlock size={10} />
+                              UNLOCKED
                             </span>
                           ) : isProofSubmitted ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300 glow-pill-white">
-                              Pending
-                            </span>
-                          ) : g.status === "rejected" ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-300">
-                              <Lock size={11} className="text-amber-400" />
-                              Rejected
+                            <span className="inline-flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-mono font-bold tracking-wider text-amber-300 uppercase">
+                              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                              IN REVIEW
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300">
-                              <Lock size={11} className="text-neutral-400" />
-                              Active
+                            <span className="inline-flex items-center gap-1.5 rounded border border-[#ff7843]/30 bg-[#ff7843]/10 px-2 py-0.5 text-[10px] font-mono font-bold tracking-wider text-[#ff9769] uppercase">
+                              <span className="h-1.5 w-1.5 rounded-full bg-[#ff7843] animate-pulse" />
+                              LOCKED
                             </span>
                           )}
 
@@ -461,7 +457,7 @@ export default function Goals() {
                               e.stopPropagation();
                               handleTogglePin(g.id);
                             }}
-                            className={`btn-premium flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-semibold transition ${
+                            className={`btn-premium flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-semibold transition ${
                               isPinned
                                 ? "border-white bg-white text-black font-bold shadow-sm"
                                 : "border-white/10 bg-white/5 text-[#A1A1AA] hover:text-white hover:border-white/20 hover:bg-white/10"

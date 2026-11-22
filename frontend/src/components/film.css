@@ -1,4 +1,4 @@
-.film-track {height:280svh;position:relative;background:#080908}
+.film-track {height:190svh;position:relative;background:#080908}
 .film-stage {position:sticky;top:0;height:100svh;min-height:530px;isolation:isolate;display:flex;flex-direction:column;justify-content:space-between;padding:0 clamp(22px,5vw,92px);color:#f5f0e7}
 .film-screen,.film-layer,.film-screen:after {position:absolute;inset:0}
 .film-screen {z-index:-1;overflow:hidden}
