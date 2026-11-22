@@ -154,16 +154,16 @@ export default function NotificationFeed() {
         onClick={handleToggle}
         aria-label="Notifications"
         aria-expanded={isOpen}
-        className={`btn-premium relative flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded-full border transition-all ${
+        className={`relative flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded border transition-all ${
           isOpen
-            ? "border-white bg-[#252525] text-white shadow-inner"
-            : "border-white/10 bg-[#16161A] text-neutral-300 hover:border-white hover:text-white"
+            ? "border-[#ff7843] bg-[#1c2430] text-[#ff7843] shadow-inner"
+            : "border-[#26313d] bg-[#12161c] text-neutral-300 hover:border-[#384654] hover:text-white"
         }`}
         title="Notifications"
       >
         <Bell size={17} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black shadow-[0_0_10px_rgba(255,255,255,0.5)] animate-pulse">
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded bg-[#ff7843] px-1 font-mono text-[9px] font-bold text-black shadow-[0_0_8px_rgba(255,120,67,0.6)] animate-pulse">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -171,15 +171,15 @@ export default function NotificationFeed() {
 
       {/* Notification Dropdown Panel */}
       {isOpen && (
-        <div className="absolute right-0 top-12 sm:top-14 z-50 w-80 sm:w-96 rounded-2xl border border-white/10 bg-[#141418]/98 p-0 shadow-[0_25px_60px_rgba(0,0,0,0.9)] backdrop-blur-2xl animate-scale-in">
+        <div className="absolute right-0 top-12 sm:top-14 z-50 w-80 sm:w-96 rounded-lg border border-[#2b3542] bg-[#12161c] p-0 shadow-[0_25px_60px_rgba(0,0,0,0.95)] backdrop-blur-2xl animate-scale-in">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
+          <div className="flex items-center justify-between border-b border-[#26313d] px-4 py-3 bg-[#0e1216]">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-neutral-200">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-neutral-300">
                 Notifications
               </span>
               {unreadCount > 0 && (
-                <span className="rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-[10px] font-bold text-white">
+                <span className="rounded border border-[#ff7843]/40 bg-[#ff7843]/15 px-2 py-0.5 font-mono text-[9px] font-bold text-[#ff9769]">
                   {unreadCount} new
                 </span>
               )}
@@ -191,17 +191,17 @@ export default function NotificationFeed() {
                   type="button"
                   onClick={handleMarkAllRead}
                   disabled={markingAll}
-                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-neutral-400 hover:text-white hover:bg-[#252525] transition-colors"
+                  className="flex items-center gap-1 rounded border border-[#26313d] bg-[#161c23] px-2 py-1 font-mono text-[10px] font-semibold text-neutral-300 hover:text-white hover:border-[#384654] transition-colors"
                   title="Mark all as read"
                 >
-                  <CheckCheck size={13} />
+                  <CheckCheck size={12} />
                   <span>Mark all read</span>
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="text-neutral-500 hover:text-neutral-300 p-1 rounded-md hover:bg-[#252525]"
+                className="text-neutral-500 hover:text-neutral-300 p-1 rounded hover:bg-[#1c2430]"
                 aria-label="Close"
               >
                 <X size={14} />
@@ -210,13 +210,13 @@ export default function NotificationFeed() {
           </div>
 
           {/* List */}
-          <div className="max-h-[380px] overflow-y-auto divide-y divide-[#202020] custom-scrollbar">
+          <div className="max-h-[380px] overflow-y-auto divide-y divide-[#222933] custom-scrollbar">
             {notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#202020] text-neutral-500 mb-2">
-                  <Bell size={18} />
+                <div className="flex h-9 w-9 items-center justify-center rounded border border-[#26313d] bg-[#161c23] text-neutral-500 mb-2">
+                  <Bell size={16} />
                 </div>
-                <p className="text-xs font-bold text-neutral-300">All caught up!</p>
+                <p className="font-mono text-xs font-bold text-neutral-300 uppercase tracking-wider">All caught up!</p>
                 <p className="text-[11px] text-neutral-500 mt-1 max-w-[220px]">
                   You&apos;ll be notified when proof is submitted or approved.
                 </p>
@@ -233,18 +233,18 @@ export default function NotificationFeed() {
                   <div
                     key={n.id}
                     onClick={() => handleItemClick(n)}
-                    className={`group relative flex items-start gap-3 p-3.5 transition-colors cursor-pointer hover:bg-[#1F1F1F] ${
-                      !n.read ? "bg-[#1A1A1A]/90" : "bg-transparent opacity-85"
+                    className={`group relative flex items-start gap-3 p-3.5 transition-colors cursor-pointer hover:bg-[#161c23] ${
+                      !n.read ? "bg-[#182028]/80 border-l-2 border-[#ff7843]" : "bg-transparent opacity-85"
                     }`}
                   >
                     {/* Icon */}
-                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white shadow-sm">
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[#2b3542] bg-[#10141a] shadow-sm">
                       {isApproved ? (
-                        <Unlock size={14} />
+                        <Unlock size={13} className="text-[#10b981]" />
                       ) : isProof ? (
-                        <FileText size={14} />
+                        <FileText size={13} className="text-[#ff7843]" />
                       ) : (
-                        <AlertCircle size={14} />
+                        <AlertCircle size={13} className="text-[#ff7843]" />
                       )}
                     </div>
 
@@ -258,7 +258,7 @@ export default function NotificationFeed() {
                         >
                           {n.title || (isProof ? "New Proof" : "Decision Update")}
                         </p>
-                        <span className="shrink-0 text-[10px] font-medium text-neutral-500">
+                        <span className="shrink-0 font-mono text-[9px] text-neutral-500">
                           {formatRelativeTime(n.createdAt)}
                         </span>
                       </div>
@@ -269,7 +269,7 @@ export default function NotificationFeed() {
 
                     {/* Unread indicator dot */}
                     {!n.read && (
-                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]" />
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ff7843] shadow-[0_0_6px_rgba(255,120,67,0.8)]" />
                     )}
                   </div>
                 );
