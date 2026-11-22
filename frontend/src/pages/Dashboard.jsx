@@ -114,7 +114,7 @@ export default function Dashboard() {
       setPinNotice(res.error);
       setTimeout(() => setPinNotice(""), 4500);
     } else if (res.pinned) {
-      setPinNotice(`📌 Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
+      setPinNotice(`Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
       setTimeout(() => setPinNotice(""), 3000);
     } else {
       setPinNotice(`Goal unpinned from dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
@@ -127,7 +127,7 @@ export default function Dashboard() {
 
     // Guard: Prevent creating duplicate active locks for a routine already running
     if (g.status !== "completed") {
-      setRepeatNotice(`⚠️ "${g.title}" is currently active! Complete or unlock the current lock before repeating.`);
+      setRepeatNotice(`"${g.title}" is currently active. Complete or unlock the current lock before repeating.`);
       setTimeout(() => setRepeatNotice(""), 5000);
       return;
     }
@@ -144,7 +144,7 @@ export default function Dashboard() {
 
       setGoals((prev) => [newGoal, ...prev]);
       notifyExtensionSync();
-      setRepeatNotice(`🔁 Routine Repeated: New active lock started for "${newGoal.title}"! Target apps & sites are now blocked.`);
+      setRepeatNotice(`Routine Repeated: New active lock started for "${newGoal.title}". Target apps & sites are now blocked.`);
       setTimeout(() => setRepeatNotice(""), 6000);
     } catch (err) {
       console.error("Failed to repeat routine:", err);
@@ -269,8 +269,9 @@ export default function Dashboard() {
               <div className="flex items-center gap-2.5">
                 <h2 className="text-xl font-black tracking-tight text-white">Your Focus Lockouts</h2>
                 {pinnedIds.length > 0 && (
-                  <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white tracking-wide glow-pill-white">
-                    📌 {pinnedIds.length}/{MAX_PINNED_GOALS} Pinned
+                  <span className="inline-flex items-center gap-1 rounded border border-[#2b3542] bg-[#161c23] px-2 py-0.5 text-[10px] font-mono font-bold text-neutral-300">
+                    <Pin size={10} className="text-[#ff7843]" />
+                    <span>{pinnedIds.length}/{MAX_PINNED_GOALS} PINNED</span>
                   </span>
                 )}
               </div>

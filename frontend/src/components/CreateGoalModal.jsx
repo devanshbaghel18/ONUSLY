@@ -488,15 +488,17 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
                         const clean = normalizeDesktopAppTarget(customInput.trim());
                         if (isProtectedProcess(clean)) {
                           return (
-                            <span className="text-amber-400 font-sans">
-                              ⚠️ "{clean}" is a protected system process and cannot be restricted.
+                            <span className="inline-flex items-center gap-1 text-amber-400 font-mono text-[10px]">
+                              <AlertCircle size={11} className="shrink-0" />
+                              <span>"{clean}" is a protected system process and cannot be restricted.</span>
                             </span>
                           );
                         }
                         if (/[/\\&|;><$`*?~!(){}[\]'"\n\r\t]/.test(clean)) {
                           return (
-                            <span className="text-amber-400 font-sans">
-                              ⚠️ Invalid characters: shell characters and paths are not allowed.
+                            <span className="inline-flex items-center gap-1 text-amber-400 font-mono text-[10px]">
+                              <AlertCircle size={11} className="shrink-0" />
+                              <span>Invalid characters: shell characters and paths are not allowed.</span>
                             </span>
                           );
                         }

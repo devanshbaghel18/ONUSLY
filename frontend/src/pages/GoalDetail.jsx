@@ -119,7 +119,7 @@ export default function GoalDetail() {
       setError(res.error);
       setTimeout(() => setError(""), 4500);
     } else if (res.pinned) {
-      setSuccessNotice(`📌 Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
+      setSuccessNotice(`Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
       setTimeout(() => setSuccessNotice(""), 3000);
     } else {
       setSuccessNotice(`Goal unpinned from dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
@@ -139,7 +139,7 @@ export default function GoalDetail() {
     if (!goal || !isOwner) return;
 
     if (goal.status !== "completed") {
-      setError(`⚠️ "${goal.title}" is currently active! Complete or unlock the current lock before repeating.`);
+      setError(`"${goal.title}" is currently active. Complete or unlock the current lock before repeating.`);
       setTimeout(() => setError(""), 5000);
       return;
     }
@@ -154,7 +154,7 @@ export default function GoalDetail() {
       }
 
       notifyExtensionSync();
-      setSuccessNotice(`🔁 Routine Repeated: New lock activated for "${newGoal.title}"!`);
+      setSuccessNotice(`Routine Repeated: New lock activated for "${newGoal.title}".`);
       setTimeout(() => {
         navigate(`/goals/${newGoal.id}`);
       }, 1000);
@@ -499,7 +499,7 @@ export default function GoalDetail() {
 
       setDecisionSuccess(
         status === "approved"
-          ? "🎉 Proof approved successfully! The goal is unlocked and constraints released."
+          ? "Proof approved successfully. The goal is unlocked and constraints released."
           : "Proof rejected. Target restrictions remain strictly enforced on all client devices."
       );
 
@@ -683,7 +683,7 @@ export default function GoalDetail() {
                 title="Copy direct verification link for your assigned approver"
               >
                 <Share2 size={12} className="text-white" />
-                <span>{copiedReviewLink ? "Link Copied! ✓" : "Share Link"}</span>
+                <span>{copiedReviewLink ? "Link Copied" : "Share Link"}</span>
               </button>
             )}
             <span
@@ -726,7 +726,7 @@ export default function GoalDetail() {
                 onClick={() => setUnlockBanner(null)}
                 className="rounded-lg p-1 text-neutral-400 hover:bg-white/5 hover:text-white transition"
               >
-                ✕
+                <X size={15} />
               </button>
             </div>
           </div>

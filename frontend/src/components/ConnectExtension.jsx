@@ -10,6 +10,9 @@ import {
   Download,
   X,
   FolderArchive,
+  Lock,
+  Settings,
+  Zap,
 } from "lucide-react";
 import { getToken, getUser } from "../lib/auth";
 import { getBlocklist, API_BASE_URL } from "../lib/api";
@@ -309,7 +312,7 @@ export default function ConnectExtension() {
       // Notify extension sync so all open tabs and background workers align
       notifyExtensionSync();
 
-      setMessage(`✅ Extension connected! Enforcing ${finalCount} active target(s). Distractions will be blocked immediately.`);
+      setMessage(`Extension connected. Enforcing ${finalCount} active target(s). Distractions will be blocked immediately.`);
       setMessageType("success");
       setTimeout(() => setMessage(""), 6000);
     } else {
@@ -319,7 +322,7 @@ export default function ConnectExtension() {
       setExtInfo(null);
       setLoading(false);
 
-      setMessage("⚠️ Extension not responding. If installed, open chrome://extensions, click 🔄 Reload on the ONUSLY extension card, refresh this page (F5), and click Connect Extension again.");
+      setMessage("Extension not responding. If installed, open chrome://extensions, click Reload on the ONUSLY extension card, refresh this page (F5), and click Connect Extension again.");
       setMessageType("error");
     }
   }, [extensionId, userId]);
@@ -355,7 +358,7 @@ export default function ConnectExtension() {
 
       saveStoredConnection(userId, updated);
       setExtInfo(updated);
-      setMessage(`✅ Blocklist re-synchronized (${count} active target(s) locked).`);
+      setMessage(`Blocklist re-synchronized (${count} active target(s) locked).`);
       setMessageType("success");
       setTimeout(() => setMessage(""), 5000);
     } catch (err) {
@@ -383,7 +386,7 @@ export default function ConnectExtension() {
     }
 
     if (hasActiveGoals) {
-      setMessage("⚠️ Cannot disconnect extension while goals are in progress! Complete or verify your active goals first.");
+      setMessage("Cannot disconnect extension while goals are in progress! Complete or verify your active goals first.");
       setMessageType("error");
       setTimeout(() => setMessage(""), 5000);
       return;
@@ -492,7 +495,7 @@ export default function ConnectExtension() {
               >
                 {(extInfo?.targetsCount || 0) > 0 ? (
                   <>
-                    <span>🔒</span>
+                    <Lock size={12} className="text-amber-400" />
                     <span>Locked (Active Goals)</span>
                   </>
                 ) : (
@@ -533,7 +536,7 @@ export default function ConnectExtension() {
             className="rounded-xl border border-white/10 p-2.5 text-xs text-neutral-400 hover:text-white hover:bg-white/5 transition"
             title="Configure Extension Connection & Pairing Token"
           >
-            ⚙️
+            <Settings size={14} />
           </button>
         </div>
       </div>
@@ -588,7 +591,7 @@ export default function ConnectExtension() {
               <div>
                 <p className="font-semibold text-neutral-200">Alternative: Pair via Extension Popup</p>
                 <p className="text-[11px] text-neutral-400 mt-0.5">
-                  Click the ONUSLY extension icon in your browser toolbar, then click <strong>"⚡ Quick Connect via Tab"</strong> or paste the token below.
+                  Click the ONUSLY extension icon in your browser toolbar, then click <strong>"Quick Connect via Tab"</strong> or paste the token below.
                 </p>
               </div>
               <button
@@ -603,9 +606,9 @@ export default function ConnectExtension() {
           </div>
 
           <div className="text-[11px] text-neutral-400 bg-neutral-950/40 p-2.5 rounded-lg border border-neutral-800/80 space-y-1">
-            <p className="font-bold text-neutral-300">💡 Installation / Reloading Guide:</p>
+            <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-neutral-300">INSTALLATION & RELOAD GUIDE:</p>
             <p>1. Open <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">chrome://extensions</code> and enable <strong>Developer mode</strong>.</p>
-            <p>2. If loaded unpacked, click the 🔄 <strong>Reload</strong> button on the ONUSLY card whenever code updates.</p>
+            <p>2. If loaded unpacked, click the <strong>Reload</strong> button on the ONUSLY card whenever code updates.</p>
             <p>3. Refresh this dashboard page (F5) and click <strong>Connect Extension</strong>.</p>
           </div>
         </div>

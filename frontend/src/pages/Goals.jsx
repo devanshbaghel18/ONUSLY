@@ -61,7 +61,7 @@ export default function Goals() {
       setError(res.error);
       setTimeout(() => setError(""), 4500);
     } else if (res.pinned) {
-      setSuccessNotice(`📌 Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
+      setSuccessNotice(`Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
       setTimeout(() => setSuccessNotice(""), 3000);
     } else {
       setSuccessNotice(`Goal unpinned from dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
@@ -73,7 +73,7 @@ export default function Goals() {
     if (!g) return;
 
     if (g.status !== "completed") {
-      setError(`⚠️ "${g.title}" is currently active! Complete or unlock the current lock before repeating.`);
+      setError(`"${g.title}" is currently active. Complete or unlock the current lock before repeating.`);
       setTimeout(() => setError(""), 5000);
       return;
     }
@@ -89,7 +89,7 @@ export default function Goals() {
 
       setGoals((prev) => [newGoal, ...prev]);
       notifyExtensionSync();
-      setSuccessNotice(`🔁 Routine Repeated: New lock started for "${newGoal.title}"! Apps & sites are blocked.`);
+      setSuccessNotice(`Routine Repeated: New lock started for "${newGoal.title}". Apps & sites are blocked.`);
       setTimeout(() => setSuccessNotice(""), 6000);
     } catch (err) {
       console.error("Failed to repeat routine:", err);
@@ -119,7 +119,7 @@ export default function Goals() {
         prev.map((g) => (g.id === payload.goalId ? { ...g, status: "completed" } : g))
       );
       notifyExtensionSync();
-      setSuccessNotice(`🎉 Real-time: "${payload.title || "Goal"}" was approved and unlocked!`);
+      setSuccessNotice(`Real-time: "${payload.title || "Goal"}" was approved and unlocked.`);
       setTimeout(() => setSuccessNotice(""), 6000);
       getGoals().then((data) => setGoals(data)).catch(() => {});
     }
@@ -127,7 +127,7 @@ export default function Goals() {
     if (event?.type === "goal.rejected") {
       const payload = event.payload || {};
       setGoals((prev) =>
-        prev.map((g) => (g.id === payload.goalId ? { ...g, status: "rejected" } : g))
+        prev.map((g) => (g.id === payload.goalId ? { ...g, status: "active" } : g))
       );
       notifyExtensionSync();
       getGoals().then((data) => setGoals(data)).catch(() => {});

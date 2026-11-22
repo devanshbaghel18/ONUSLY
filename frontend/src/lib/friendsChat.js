@@ -157,7 +157,7 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
 
     // Also update friend's last message preview and reset unread count
-    const previewText = newMsg.isProof ? `📸 Proof: ${newMsg.goalTitle || "Goal"}` : newMsg.text;
+    const previewText = newMsg.isProof ? `[Proof] ${newMsg.goalTitle || "Goal"}` : newMsg.text;
     const friends = getStoredFriends();
     const updatedFriends = friends.map((f) =>
       f.id === friendId
@@ -220,7 +220,7 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
         handle: cleanHandle,
         email: normalizedEmail,
         status: "Active Partner",
-        lastMessage: isProof ? `📸 Proof: ${goalTitle || "Goal"}` : (text || "Connected"),
+        lastMessage: isProof ? `[Proof] ${goalTitle || "Goal"}` : (text || "Connected"),
         lastMessageTime: time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         unreadCount: isCurrentlyActive ? 0 : 1,
       };
@@ -297,7 +297,7 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
 
 
     // Update friend's last message preview and unread count
-    const previewText = newMsg.isProof ? `📸 Proof: ${newMsg.goalTitle || "Goal"}` : newMsg.text;
+    const previewText = newMsg.isProof ? `[Proof] ${newMsg.goalTitle || "Goal"}` : newMsg.text;
     const updatedFriends = friends.map((f) =>
       f.id === friend.id
         ? {
@@ -393,7 +393,7 @@ export function deleteChatMessageForMe(friendId, messageId) {
       f.id === friendId
         ? {
             ...f,
-            lastMessage: lastMsg ? (lastMsg.isProof ? `📸 Proof: ${lastMsg.goalTitle || "Goal"}` : lastMsg.text) : "",
+            lastMessage: lastMsg ? (lastMsg.isProof ? `[Proof] ${lastMsg.goalTitle || "Goal"}` : lastMsg.text) : "",
             lastMessageTime: lastMsg ? lastMsg.time : "",
           }
         : f
@@ -441,7 +441,7 @@ export function deleteChatMessageGlobally(messageId) {
         const remaining = allChats[f.id] || [];
         const lastMsg = remaining.length > 0 ? remaining[remaining.length - 1] : null;
         if (lastMsg) {
-          const preview = lastMsg.isProof ? `📸 Proof: ${lastMsg.goalTitle || "Goal"}` : lastMsg.text;
+          const preview = lastMsg.isProof ? `[Proof] ${lastMsg.goalTitle || "Goal"}` : lastMsg.text;
           return {
             ...f,
             lastMessage: preview,

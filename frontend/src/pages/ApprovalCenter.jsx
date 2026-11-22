@@ -11,6 +11,7 @@ import {
   Shield,
   Target,
   Sparkles,
+  X,
 } from "lucide-react";
 import { getApproverInbox, decideApproval } from "../lib/api";
 import { notifyExtensionSync } from "../lib/extensionSync";
@@ -98,7 +99,7 @@ export default function ApprovalCenter() {
 
       if (event?.type === "proof.submitted") {
         const title = event.payload?.title || "a goal";
-        showNotice(`🔔 New proof submitted for "${title}". Updated live!`);
+        showNotice(`New proof submitted for "${title}". Updated live.`);
       }
     }
   });
@@ -182,10 +183,10 @@ export default function ApprovalCenter() {
 
     if (status === "approved") {
       notifyExtensionSync();
-      showNotice(`✅ Goal "${item.title}" approved! Targets unlocked.`);
+      showNotice(`Goal "${item.title}" approved. Targets unlocked.`);
     } else {
       notifyExtensionSync();
-      showNotice(`⚠️ Proof for "${item.title}" rejected. Feedback saved.`);
+      showNotice(`Proof for "${item.title}" rejected. Feedback saved.`);
     }
   };
 
@@ -194,13 +195,13 @@ export default function ApprovalCenter() {
       <div className="mx-auto w-full max-w-[1420px]">
         {/* Notice toast */}
         {notice && (
-          <div className="mb-6 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-300 transition-all">
+          <div className="mb-6 flex items-center justify-between rounded border border-[#2b3542] bg-[#12161c] px-4 py-2.5 text-xs font-mono text-neutral-200 shadow-md">
             <span>{notice}</span>
             <button
               onClick={() => setNotice("")}
-              className="text-emerald-400 hover:text-white"
+              className="text-neutral-400 hover:text-white transition p-0.5"
             >
-              ✕
+              <X size={13} />
             </button>
           </div>
         )}
