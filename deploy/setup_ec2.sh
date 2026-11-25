@@ -480,6 +480,41 @@ else
   exit 1
 fi
 
+if [ -f /etc/nginx/nginx.conf ] && ! grep -q "conf\.d/\*\.conf" /etc/nginx/nginx.conf; then
+  echo "[!] /etc/nginx/nginx.conf missing 'include /etc/nginx/conf.d/*.conf;'; restoring clean main Nginx config..."
+  cp -p /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.bak.${TIMESTAMP}"
+  cat << 'EOF' > /etc/nginx/nginx.conf
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log notice;
+pid /run/nginx.pid;
+
+include /usr/share/nginx/modules/*.conf;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+
+    sendfile on;
+    tcp_nopush on;
+    keepalive_timeout 65;
+    types_hash_max_size 4096;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    include /etc/nginx/conf.d/*.conf;
+}
+EOF
+fi
+
 if [ -f "$NGINX_CONF_DEST" ]; then
   cp -p "$NGINX_CONF_DEST" "${NGINX_CONF_DEST}.bak.${TIMESTAMP}"
 fi
