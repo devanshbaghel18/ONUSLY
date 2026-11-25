@@ -77,7 +77,12 @@ probe_http() {
   local url="$1"
   local max_time="$2"
   shift 2
-  curl -sS -o /dev/null -w "%{http_code} %{time_total}" --max-time "$max_time" "$@" "$url" 2>/dev/null || echo "000 0.000"
+  local out
+  if out="$(curl -sS -o /dev/null -w "%{http_code} %{time_total}" --max-time "$max_time" "$@" "$url" 2>/dev/null)"; then
+    echo "$out"
+  else
+    echo "000 0.000"
+  fi
 }
 
 restart_service_guarded() {
