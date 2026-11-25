@@ -56,6 +56,21 @@ func TestConfigValidate(t *testing.T) {
 			wantError: true,
 		},
 		{
+			name:      "production without allowed origins fails",
+			cfg:       Config{JWTSecret: "8f7c9e1b2a4d3f5e6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f", Env: "production", DynamoTable: "Onusly"},
+			wantError: true,
+		},
+		{
+			name:      "production with localhost redirect URL fails",
+			cfg:       Config{JWTSecret: "8f7c9e1b2a4d3f5e6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f", Env: "production", DynamoTable: "Onusly", AllowedOrigins: []string{"https://onusly.app"}, GoogleRedirectURL: "http://localhost:8080/auth/google/callback"},
+			wantError: true,
+		},
+		{
+			name:      "production with localhost frontend URL fails",
+			cfg:       Config{JWTSecret: "8f7c9e1b2a4d3f5e6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f", Env: "production", DynamoTable: "Onusly", AllowedOrigins: []string{"https://onusly.app"}, FrontendURL: "http://localhost:5173"},
+			wantError: true,
+		},
+		{
 			name:      "staging with production DynamoDB table fails",
 			cfg:       Config{JWTSecret: "8f7c9e1b2a4d3f5e6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f", Env: "staging", DynamoTable: "Onusly"},
 			wantError: true,

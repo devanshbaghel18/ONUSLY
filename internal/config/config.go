@@ -12,6 +12,8 @@ import (
 type Config struct {
 	GoogleClientID     string
 	GoogleClientSecret string
+	GoogleRedirectURL  string
+	FrontendURL        string
 	JWTSecret          string
 	Env                string
 	AllowedOrigins     []string
@@ -68,9 +70,29 @@ func Load() Config {
 		dynamoTable = "Onusly"
 	}
 
+	googleRedirectURL := strings.TrimSpace(os.Getenv("GOOGLE_REDIRECT_URL"))
+	if googleRedirectURL == "" {
+		if env == "production" {
+			googleRedirectURL = "https://api.onusly.com/auth/google/callback"
+		} else {
+			googleRedirectURL = "http://localhost:8080/auth/google/callback"
+		}
+	}
+
+	frontendURL := strings.TrimSpace(os.Getenv("FRONTEND_URL"))
+	if frontendURL == "" {
+		if env == "production" {
+			frontendURL = "https://onusly.app"
+		} else {
+			frontendURL = "http://localhost:5173"
+		}
+	}
+
 	cfg := Config{
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		GoogleRedirectURL:  googleRedirectURL,
+		FrontendURL:        frontendURL,
 		JWTSecret:          os.Getenv("JWT_SECRET"),
 		Env:                env,
 		AllowedOrigins:     allowedOrigins,
@@ -115,10 +137,19 @@ func (c Config) Validate() error {
 		if strings.Contains(tableLower, "staging") || strings.Contains(tableLower, "test") {
 			return errors.New("critical configuration error: production environment cannot use staging/test DynamoDB table: " + c.DynamoTable)
 		}
+		if len(c.AllowedOrigins) == 0 {
+			return errors.New("critical configuration error: production environment must configure ALLOWED_ORIGINS")
+		}
 		for _, o := range c.AllowedOrigins {
 			if strings.Contains(o, "localhost") || strings.Contains(o, "127.0.0.1") {
 				return errors.New("critical configuration error: production environment cannot allow localhost origin: " + o)
 			}
+		}
+		if strings.Contains(c.GoogleRedirectURL, "localhost") || strings.Contains(c.GoogleRedirectURL, "127.0.0.1") {
+			return errors.New("critical configuration error: production environment cannot use localhost GOOGLE_REDIRECT_URL: " + c.GoogleRedirectURL)
+		}
+		if strings.Contains(c.FrontendURL, "localhost") || strings.Contains(c.FrontendURL, "127.0.0.1") {
+			return errors.New("critical configuration error: production environment cannot use localhost FRONTEND_URL: " + c.FrontendURL)
 		}
 	} else if envLower == "staging" {
 		if len(jwtSec) < 32 {

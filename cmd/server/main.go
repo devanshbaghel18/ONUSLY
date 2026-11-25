@@ -13,9 +13,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/google/uuid"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/approval"
@@ -40,6 +43,93 @@ func health(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok",
+	})
+}
+
+type tableDescriber interface {
+	DescribeTable(ctx context.Context, params *dynamodb.DescribeTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
+}
+
+func isLoopbackClient(r *http.Request) bool {
+	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+		first := strings.TrimSpace(strings.Split(xff, ",")[0])
+		if ip := net.ParseIP(first); ip == nil || !ip.IsLoopback() {
+			return false
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(strings.TrimSpace(host))
+	return ip != nil && ip.IsLoopback()
+}
+
+func warmDynamo(ctx context.Context, describer tableDescriber, tableName string) error {
+	if describer == nil {
+		return errors.New("dynamodb client is nil")
+	}
+	warmCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, err := describer.DescribeTable(warmCtx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	return err
+}
+
+// newWarmHealthHandler returns a loopback-only readiness/keep-warm handler that
+// exercises the DynamoDB connection pool via DescribeTable with a bounded cache TTL.
+func newWarmHealthHandler(describer tableDescriber, tableName string, cacheTTL time.Duration) http.HandlerFunc {
+	var mu sync.Mutex
+	var lastChecked time.Time
+	var lastHealthy bool
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isLoopbackClient(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		now := time.Now()
+		mu.Lock()
+		if !lastChecked.IsZero() && cacheTTL > 0 && now.Sub(lastChecked) < cacheTTL {
+			healthy := lastHealthy
+			mu.Unlock()
+			writeWarmHealthResponse(w, healthy, true)
+			return
+		}
+		mu.Unlock()
+
+		err := warmDynamo(r.Context(), describer, tableName)
+		if err != nil {
+			log.Printf("[Warmup] DynamoDB DescribeTable failed for table %q: %v", tableName, err)
+		}
+
+		mu.Lock()
+		lastChecked = time.Now()
+		lastHealthy = err == nil
+		healthy := lastHealthy
+		mu.Unlock()
+
+		writeWarmHealthResponse(w, healthy, false)
+	}
+}
+
+func writeWarmHealthResponse(w http.ResponseWriter, healthy, cached bool) {
+	w.Header().Set("Content-Type", "application/json")
+	if !healthy {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":   "degraded",
+			"dynamodb": "unreachable",
+			"cached":   cached,
+		})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":   "ok",
+		"dynamodb": "warm",
+		"cached":   cached,
 	})
 }
 
@@ -155,6 +245,14 @@ func main() {
 
 	// DynamoDB
 	db := shared.NewDynamoClient()
+	go func() {
+		start := time.Now()
+		if err := warmDynamo(context.Background(), db, tableName); err != nil {
+			log.Printf("[Warmup] Initial DynamoDB connection warmup failed (%v): %v", time.Since(start).Round(time.Millisecond), err)
+		} else {
+			log.Printf("[Warmup] Initial DynamoDB connection pool warmed in %v (table=%s)", time.Since(start).Round(time.Millisecond), tableName)
+		}
+	}()
 
 	// Auth repository, service & handler
 	authRepo := auth.NewRepositoryWithTable(db, tableName)
@@ -168,6 +266,7 @@ func main() {
 
 	// Public routes
 	mux.HandleFunc("GET /health", health)
+	mux.HandleFunc("GET /health/warm", newWarmHealthHandler(db, tableName, 60*time.Second))
 	mux.HandleFunc("GET /metrics", metrics.DefaultRegistry.Handler())
 	mux.Handle("POST /auth/google", authLimiter.Limit(http.HandlerFunc(authHandler.GoogleLogin)))
 	mux.Handle("GET /auth/google/callback", authLimiter.Limit(http.HandlerFunc(authHandler.GoogleCallback)))
@@ -203,7 +302,7 @@ func main() {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.Header().Del("X-Frame-Options")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://*.onusly.com;")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://onusly.com https://*.onusly.com https://onusly.app https://*.onusly.app;")
 		uploadFileServer.ServeHTTP(w, r)
 	})))
 

@@ -17,7 +17,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		// Allow embedded preview of uploaded verification proof documents in dashboard iframes
 		if strings.HasPrefix(r.URL.Path, "/uploads/") {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://*.onusly.com;")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://onusly.com https://*.onusly.com https://onusly.app https://*.onusly.app;")
 		} else {
 			w.Header().Set("X-Frame-Options", "DENY")
 			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws: wss: http: https:; frame-ancestors 'none';")

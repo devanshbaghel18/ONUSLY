@@ -39,10 +39,14 @@ func (s *Service) SetSessionDisconnecter(d SessionDisconnecter) {
 }
 
 func (s *Service) HandleCallback(ctx context.Context, code string) (string, error) {
+	redirectURL := strings.TrimSpace(s.cfg.GoogleRedirectURL)
+	if redirectURL == "" {
+		redirectURL = "http://localhost:8080/auth/google/callback"
+	}
 	conf := &oauth2.Config{
 		ClientID:     s.cfg.GoogleClientID,
 		ClientSecret: s.cfg.GoogleClientSecret,
-		RedirectURL:  "http://localhost:8080/auth/google/callback",
+		RedirectURL:  redirectURL,
 		Scopes:       []string{"email", "profile"},
 		Endpoint:     google.Endpoint,
 	}
