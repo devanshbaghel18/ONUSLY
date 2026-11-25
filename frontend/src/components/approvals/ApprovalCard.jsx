@@ -1,4 +1,3 @@
-import React from "react";
 import {
   Lock,
   Unlock,
@@ -123,7 +122,6 @@ export default function ApprovalCard({
   onReject,
 }) {
   const {
-    goalId,
     ownerName,
     ownerHandle,
     ownerEmail,

@@ -12,7 +12,6 @@ import {
   FolderArchive,
   Lock,
   Settings,
-  Zap,
 } from "lucide-react";
 import { getToken, getUser } from "../lib/auth";
 import { getBlocklist, API_BASE_URL } from "../lib/api";

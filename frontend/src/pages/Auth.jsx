@@ -5,6 +5,12 @@ import { LockKeyhole, FileCheck2, KeyRound, X } from "lucide-react";
 import Brand from "../components/Brand";
 import LockMechanism from "../components/LockMechanism";
 import LockFilm from "../components/LockFilm";
+import LandingEnforcers from "../components/landing/LandingEnforcers";
+import LandingProtocol from "../components/landing/LandingProtocol";
+import LandingCatalog from "../components/landing/LandingCatalog";
+import LandingGuarantees from "../components/landing/LandingGuarantees";
+import LandingFAQ from "../components/landing/LandingFAQ";
+import LandingFooter from "../components/landing/LandingFooter";
 
 import { isAuthenticated, setAuth } from "../lib/auth";
 import { loginWithGoogle } from "../lib/api";
@@ -80,6 +86,15 @@ export default function Auth() {
           <figcaption>Drag to rotate <span>← →</span></figcaption>
         </figure>
       </section>
+
+      {/* Expanded Architectural Sections */}
+      <LandingEnforcers onSignIn={openSignIn} />
+      <LandingProtocol onSignIn={openSignIn} />
+      <LandingCatalog onSignIn={openSignIn} />
+      <LandingGuarantees />
+      <LandingFAQ />
+      <LandingFooter onSignIn={openSignIn} />
+
       <dialog ref={dialog} className="signin-dialog" aria-labelledby="signin-title" onClick={e => { if (e.target === dialog.current) dialog.current.close(); }}>
         <div className="signin-inner"><button className="dialog-close" aria-label="Close sign in" onClick={() => dialog.current.close()}><X /></button>
           <Brand /><h2 id="signin-title">Access your locks.</h2><p>Continue with Google to create or review a commitment.</p>

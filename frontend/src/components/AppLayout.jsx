@@ -1,11 +1,12 @@
 import Brand from "./Brand";
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LogOut, AtSign, Check, Copy, X, Menu } from "lucide-react";
+import { LogOut, AtSign, Check, Copy, X, Menu, Volume2, VolumeX } from "lucide-react";
 import { getUser, clearAuth, updateUserHandle } from "../lib/auth";
 import { updateHandle, getMyProfile } from "../lib/api";
 import { notifyExtensionSync } from "../lib/extensionSync";
 import { wsManager } from "../lib/websocket";
+import { isSoundEnabled, toggleSound } from "../lib/sound";
 import NotificationFeed from "./NotificationFeed";
 import Sidebar from "./Sidebar";
 
@@ -93,6 +94,12 @@ export default function AppLayout({ children }) {
   };
 
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
+  const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
+
+  const handleToggleSound = () => {
+    const nextState = toggleSound();
+    setSoundOn(nextState);
+  };
 
   useEffect(() => {
     // Notify extension on every page navigation
@@ -106,7 +113,9 @@ export default function AppLayout({ children }) {
         if (mounted && res?.total !== undefined) {
           setPendingApprovalsCount(res.total);
         }
-      } catch {}
+      } catch {
+        // Ignore transient pending count fetch errors
+      }
     };
 
     fetchPending();
@@ -214,6 +223,21 @@ export default function AppLayout({ children }) {
 
             {/* Right: Notifications, User Name Badge & Sign Out */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              {/* Sound Mute/Unmute Toggle Button */}
+              <button
+                type="button"
+                onClick={handleToggleSound}
+                className={`btn-premium flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded border transition-colors shrink-0 ${
+                  soundOn
+                    ? "border-[#28323e] bg-[#141920] text-neutral-300 hover:border-[#445468] hover:text-white"
+                    : "border-[#28323e] bg-[#141920] text-neutral-500 hover:border-[#445468] hover:text-neutral-300"
+                }`}
+                title={soundOn ? "Mute tactile lock sounds" : "Enable tactile lock sounds"}
+                aria-label={soundOn ? "Mute sounds" : "Enable sounds"}
+              >
+                {soundOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
+              </button>
+
               {/* In-App Notifications Feed */}
               <NotificationFeed />
 

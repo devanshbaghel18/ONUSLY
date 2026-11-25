@@ -1,4 +1,4 @@
-import { API_BASE_URL, syncDesktopAgent } from "./api.js";
+import { getExtensionApiBaseUrl, syncDesktopAgent } from "./api.js";
 
 /**
  * Utility to notify the ONUSLY Chrome extension to sync its blocklist.
@@ -8,11 +8,7 @@ import { API_BASE_URL, syncDesktopAgent } from "./api.js";
 export function notifyExtensionSync() {
   if (typeof window === "undefined") return;
 
-  const targetApiUrl =
-    API_BASE_URL ||
-    (typeof window !== "undefined" && window.location
-      ? `${window.location.protocol}//${window.location.hostname}:8080`
-      : "http://localhost:8080");
+  const targetApiUrl = getExtensionApiBaseUrl();
 
   const token =
     localStorage.getItem("token") ||

@@ -68,7 +68,9 @@ export function setAuth(token, user) {
   // Immediately sync extension when user authenticates
   try {
     notifyExtensionSync();
-  } catch {}
+  } catch {
+    // Ignore extension sync error in non-extension contexts
+  }
 }
 
 let authCleanupHandlers = new Set();
@@ -88,13 +90,18 @@ export function clearAuth() {
   // Asynchronously instruct backend to clear HttpOnly session cookie
   try {
     const baseUrl =
-      (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
-      (typeof window !== "undefined" && window.location ? `${window.location.protocol}//${window.location.hostname}:8080` : "http://localhost:8080");
+      typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL !== undefined
+        ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
+        : typeof import.meta !== "undefined" && import.meta.env?.DEV
+        ? "http://localhost:8080"
+        : "";
     fetch(`${baseUrl}/auth/logout`, {
       method: "POST",
       credentials: "include",
     }).catch(() => {});
-  } catch {}
+  } catch {
+    // Ignore logout beacon errors
+  }
 
   authCleanupHandlers.forEach((handler) => {
     try {

@@ -4,7 +4,6 @@ import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom"
 import {
   ArrowLeft,
   Target,
-  Users,
   Edit3,
   Check,
   AlertCircle,
@@ -15,13 +14,10 @@ import {
   Loader2,
   ShieldCheck,
   Send,
-  ExternalLink,
   ThumbsUp,
   ThumbsDown,
-  FileText,
   Share2,
   Lock,
-  MessageSquare,
   X,
   Pin,
   RotateCcw,
@@ -30,12 +26,9 @@ import {
   Smartphone,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
-import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal, getGoalEnforcementStatus, getApprovals, getSubmissions } from "../lib/api";
-import { formatEnforcementSummary, pingExtension } from "../lib/deviceTelemetry";
+import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, repeatGoal, getApprovals, getSubmissions } from "../lib/api";
 import SubmitProofModal from "../components/approvals/SubmitProofModal";
 import SubmissionTimeline from "../components/approvals/SubmissionTimeline";
-import { getStoredFriends, sendChatMessage } from "../lib/friendsChat";
-import { getStoredCommunities, sendCommunityMessage } from "../lib/communities";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { notifyExtensionSync } from "../lib/extensionSync";
 import {
@@ -47,10 +40,6 @@ import {
 
 import AppLayout from "../components/AppLayout";
 import { getUniqueDisplayTargets } from "../lib/blockedApps";
-
-function generateMsgId(prefix = "msg") {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-}
 
 const GOAL_BLOCKED_APPS_KEY = "onusly_goal_blocked_apps";
 
@@ -87,28 +76,6 @@ export default function GoalDetail() {
   const [decisionSuccess, setDecisionSuccess] = useState("");
   const [pinnedIds, setPinnedIds] = useState(() => getPinnedGoalIds());
   const [repeating, setRepeating] = useState(false);
-  const [enforcementTelemetry, setEnforcementTelemetry] = useState(null);
-  const [localExtensionActive, setLocalExtensionActive] = useState(null);
-
-  // Periodically check local extension liveness via ping so toggling off/on reflects instantly
-  useEffect(() => {
-    let ignore = false;
-
-    const checkLocalExtension = async () => {
-      const res = await pingExtension(800);
-      if (!ignore) {
-        setLocalExtensionActive(res.active);
-      }
-    };
-
-    checkLocalExtension();
-    const interval = setInterval(checkLocalExtension, 2500);
-
-    return () => {
-      ignore = true;
-      clearInterval(interval);
-    };
-  }, []);
 
   const isPinned = pinnedIds.includes(id);
 
@@ -234,158 +201,18 @@ export default function GoalDetail() {
   });
 
   // When goal status is completed on load, ensure extension blocklist is in sync
+  const goalStatus = goal?.status;
   useEffect(() => {
-    if (goal && goal.status === "completed") {
+    if (goalStatus === "completed") {
       notifyExtensionSync();
     }
-  }, [goal?.status]);
+  }, [goalStatus]);
 
   // Share for Verification Modal State
   const [showShareModal, setShowShareModal] = useState(false);
-  const [shareTarget, setShareTarget] = useState("friend");
-  const [selectedFriendId, setSelectedFriendId] = useState("");
-  const [selectedCommunityId, setSelectedCommunityId] = useState("");
-  const [sharingProof, setSharingProof] = useState(false);
-  const [shareError, setShareError] = useState("");
-  const friends = getStoredFriends();
-  const communities = getStoredCommunities();
 
   const openShareModal = () => {
     setShowShareModal(true);
-    setShareTarget(friends.length > 0 ? "friend" : "community");
-    setSelectedFriendId(friends.length > 0 ? friends[0].id : "");
-    setSelectedCommunityId(communities.length > 0 ? communities[0].id : "");
-    setShareError("");
-  };
-
-  const handleShareVerification = async () => {
-    if (!goal) return;
-    setSharingProof(true);
-    setShareError("");
-
-    const senderEmail = user?.email || "";
-    const senderHandle = user?.handle || "";
-    const senderName = user?.name || (senderHandle ? `@${senderHandle}` : "You");
-    const goalTitle = goal.title;
-    const goalId = goal.id;
-
-    try {
-      try {
-        if (goal.status === "active" || goal.status === "rejected") {
-          await updateGoal(goalId, {
-            approvalType: shareTarget === "community" ? "community" : "friend",
-            approverEmail: shareTarget === "friend" ? (friends.find((f) => f.id === selectedFriendId)?.email || friends.find((f) => f.id === selectedFriendId)?.handle) : undefined,
-          });
-        }
-      } catch (updErr) {
-        console.warn("Backend goal approver update skipped:", updErr.message);
-      }
-
-      // Submit proof on behalf of owner so goal transitions to proof_submitted and is ready for friend to approve
-      if (goal.status === "active" || goal.status === "rejected") {
-        try {
-          await submitProof(goalId, {
-            proofType: "text",
-            textExplanation: `Verification request: "${goalTitle}"`,
-          });
-        } catch (proofErr) {
-          console.warn("Auto-submit proof on share:", proofErr.message);
-        }
-      }
-
-      const targetId = shareTarget === "community" ? selectedCommunityId : selectedFriendId;
-
-      if (shareTarget === "friend" && selectedFriendId) {
-        const friend = friends.find((f) => f.id === selectedFriendId);
-        if (!friend) throw new Error("Friend not found");
-
-        const msgId = generateMsgId("msg");
-
-        send({
-          type: "chat.message",
-          payload: {
-            id: msgId,
-            recipientEmail: friend.email || "",
-            recipientHandle: friend.handle || "",
-            senderEmail,
-            senderHandle,
-            senderName,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: user?.id || "",
-          },
-        });
-
-        sendChatMessage(
-          selectedFriendId,
-          {
-            id: msgId,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: user?.id || "",
-          },
-          "me"
-        );
-
-        setSuccessNotice(`Verification request sent to ${friend.name}! Opening chat...`);
-      } else if (shareTarget === "community" && selectedCommunityId) {
-        const comm = communities.find((c) => c.id === selectedCommunityId);
-        if (!comm) throw new Error("Community not found");
-
-        const msgId = generateMsgId("comm-msg");
-
-        send({
-          type: "community.message",
-          payload: {
-            id: msgId,
-            communityId: comm.id,
-            communityName: comm.name || "Community",
-            communityCode: comm.code || "",
-            senderName,
-            senderEmail,
-            senderHandle,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: user?.id || "",
-          },
-        });
-
-        sendCommunityMessage(comm.id, {
-          id: msgId,
-          senderName: "You",
-          senderHandle,
-          text: `Please verify my goal: "${goalTitle}"`,
-          isProof: true,
-          goalId,
-          goalTitle,
-          ownerId: user?.id || "",
-        });
-
-        setSuccessNotice(`Verification request shared in ${comm.name}! Opening chat...`);
-      }
-
-      setShowShareModal(false);
-
-      setTimeout(() => {
-        navigate("/community-friends", {
-          state: {
-            view: shareTarget === "community" ? "communities" : "friends",
-            targetId,
-          },
-        });
-      }, 600);
-    } catch (err) {
-      console.error("Failed to share verification:", err);
-      setShareError(err.message || "Failed to share");
-    } finally {
-      setSharingProof(false);
-    }
   };
 
   // Edit Goal Title/Description state
@@ -453,14 +280,6 @@ export default function GoalDetail() {
         console.warn("Could not load approvals:", err.message);
       });
 
-    getGoalEnforcementStatus(id)
-      .then((data) => {
-        if (!ignore) setEnforcementTelemetry(data);
-      })
-      .catch((err) => {
-        console.warn("Could not load enforcement telemetry:", err.message);
-      });
-
     return () => {
       ignore = true;
     };
@@ -514,7 +333,9 @@ export default function GoalDetail() {
       try {
         const d = await getSubmissions(id);
         if (d) setSubmissionDossier(d);
-      } catch (_) {}
+      } catch {
+        // Ignore transient submission dossier refresh failure
+      }
       setDecisionComments((prev) => {
         const next = { ...prev };
         delete next[proofId];
@@ -1116,8 +937,6 @@ export default function GoalDetail() {
                       <SubmissionTimeline
                         attempts={submissionDossier.attempts}
                         auditLog={submissionDossier.auditLog || []}
-                        accountabilityMetrics={submissionDossier.accountabilityMetrics}
-                        isOwner={isOwner}
                         approverEmail={goal?.approverEmail}
                       />
                     ) : (

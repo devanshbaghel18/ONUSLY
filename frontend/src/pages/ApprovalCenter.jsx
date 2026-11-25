@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import AppLayout from "../components/AppLayout";
 import { useWebSocket } from "../hooks/useWebSocket";
 import {
-  Loader2,
   AlertCircle,
   RefreshCw,
   Search,
@@ -10,7 +9,6 @@ import {
   XCircle,
   Shield,
   Target,
-  Sparkles,
   X,
 } from "lucide-react";
 import { getApproverInbox, decideApproval } from "../lib/api";
@@ -28,7 +26,6 @@ const TABS = [
 
 export default function ApprovalCenter() {
   const [items, setItems] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -43,6 +40,11 @@ export default function ApprovalCenter() {
     item: null,
   });
 
+  const showNotice = useCallback((msg, duration = 4000) => {
+    setNotice(msg);
+    setTimeout(() => setNotice(""), duration);
+  }, []);
+
   const fetchInbox = useCallback(async (tab = activeTab, isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true);
     else setLoading(true);
@@ -54,7 +56,6 @@ export default function ApprovalCenter() {
       const fetchedTotal = typeof data?.total === "number" ? data.total : fetchedItems.length;
 
       setItems(fetchedItems);
-      setTotalCount(fetchedTotal);
 
       // If viewing pending, update pendingCount directly
       if (tab === "pending") {
@@ -78,10 +79,14 @@ export default function ApprovalCenter() {
   }, [activeTab]);
 
   useEffect(() => {
-    let mounted = true;
-    fetchInbox(activeTab);
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) {
+        fetchInbox(activeTab);
+      }
+    });
     return () => {
-      mounted = false;
+      cancelled = true;
     };
   }, [activeTab, fetchInbox]);
 
@@ -103,11 +108,6 @@ export default function ApprovalCenter() {
       }
     }
   });
-
-  const showNotice = (msg, duration = 4000) => {
-    setNotice(msg);
-    setTimeout(() => setNotice(""), duration);
-  };
 
   // Filter items client-side by search query
   const filteredItems = useMemo(() => {

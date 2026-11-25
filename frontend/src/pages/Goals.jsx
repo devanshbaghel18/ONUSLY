@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import AppLayout from "../components/AppLayout";
 import {
   Target,
-  Lock,
   Unlock,
   Trash2,
   ChevronRight,
@@ -11,27 +10,18 @@ import {
   CheckCircle2,
   AlertCircle,
   Plus,
-  MessageSquare,
   Share2,
-  Users,
-  X,
-  Send,
   Pin,
   RotateCcw,
   Laptop,
   Globe,
   Smartphone,
 } from "lucide-react";
-import { getGoals, deleteGoal, submitProof, updateGoal, repeatGoal } from "../lib/api";
+import { getGoals, deleteGoal, repeatGoal } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { getStoredFriends } from "../lib/friendsChat";
-import { getStoredCommunities } from "../lib/communities";
 import CreateGoalModal from "../components/CreateGoalModal";
 import SubmitProofModal from "../components/approvals/SubmitProofModal";
 import { getGoalBlockedApps, getUniqueDisplayTargets } from "../lib/blockedApps";
-import { getUser } from "../lib/auth";
-import { sendChatMessage } from "../lib/friendsChat";
-import { sendCommunityMessage } from "../lib/communities";
 import { notifyExtensionSync } from "../lib/extensionSync";
 import {
   getPinnedGoalIds,
@@ -40,12 +30,7 @@ import {
   MAX_PINNED_GOALS,
 } from "../lib/pinnedGoals";
 
-function generateMsgId(prefix = "msg") {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-}
-
 export default function Goals() {
-  const navigate = useNavigate();
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -102,15 +87,6 @@ export default function Goals() {
 
   // Share for verification modal
   const [shareGoal, setShareGoal] = useState(null); // goal to share
-  const [shareTarget, setShareTarget] = useState("friend"); // 'friend' | 'community'
-  const [selectedFriendId, setSelectedFriendId] = useState("");
-  const [selectedCommunityId, setSelectedCommunityId] = useState("");
-  const [sharingProof, setSharingProof] = useState(false);
-  const [shareError, setShareError] = useState("");
-
-  const friends = getStoredFriends();
-  const communities = getStoredCommunities();
-  const currentUser = getUser();
 
   const { send } = useWebSocket((event) => {
     if (event?.type === "goal.unlocked") {
@@ -184,145 +160,6 @@ export default function Goals() {
     e.preventDefault();
     e.stopPropagation();
     setShareGoal(goal);
-    setShareTarget(friends.length > 0 ? "friend" : "community");
-    setSelectedFriendId(friends.length > 0 ? friends[0].id : "");
-    setSelectedCommunityId(communities.length > 0 ? communities[0].id : "");
-    setShareError("");
-  };
-
-  // Share verification link to chat
-  const handleShareVerification = async () => {
-    if (!shareGoal) return;
-    setSharingProof(true);
-    setShareError("");
-
-    const senderEmail = currentUser?.email || "";
-    const senderHandle = currentUser?.handle || "";
-    const senderName = currentUser?.name || (senderHandle ? `@${senderHandle}` : "You");
-    const goalTitle = shareGoal.title;
-    const goalId = shareGoal.id;
-
-    try {
-      // Update backend goal configuration while active so approver is recognized
-      try {
-        if (shareGoal.status === "active") {
-          await updateGoal(goalId, {
-            approvalType: shareTarget === "community" ? "community" : "friend",
-            approverEmail: shareTarget === "friend" ? (friends.find((f) => f.id === selectedFriendId)?.email || friends.find((f) => f.id === selectedFriendId)?.handle) : undefined,
-          });
-        }
-      } catch (updErr) {
-        console.warn("Backend goal approver update skipped:", updErr.message);
-      }
-
-      // Submit proof on behalf of owner so goal transitions to proof_submitted and is ready for friend to approve
-      if (shareGoal.status === "active") {
-        try {
-          await submitProof(goalId, {
-            proofType: "text",
-            textExplanation: `Verification request: "${goalTitle}"`,
-          });
-        } catch (proofErr) {
-          console.warn("Auto-submit proof on share:", proofErr.message);
-        }
-      }
-
-      const targetId = shareTarget === "community" ? selectedCommunityId : selectedFriendId;
-
-      if (shareTarget === "friend" && selectedFriendId) {
-        const friend = friends.find((f) => f.id === selectedFriendId);
-        if (!friend) throw new Error("Friend not found");
-
-        const msgId = generateMsgId("msg");
-
-        // Send via WebSocket
-        send({
-          type: "chat.message",
-          payload: {
-            id: msgId,
-            recipientEmail: friend.email || "",
-            recipientHandle: friend.handle || "",
-            senderEmail,
-            senderHandle,
-            senderName,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: currentUser?.id || "",
-          },
-        });
-
-        // Save locally
-        sendChatMessage(
-          selectedFriendId,
-          {
-            id: msgId,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: currentUser?.id || "",
-          },
-          "me"
-        );
-
-        setSuccessNotice(`Verification request sent to ${friend.name}! Opening chat...`);
-      } else if (shareTarget === "community" && selectedCommunityId) {
-        const comm = communities.find((c) => c.id === selectedCommunityId);
-        if (!comm) throw new Error("Community not found");
-
-        const msgId = generateMsgId("comm-msg");
-
-        send({
-          type: "community.message",
-          payload: {
-            id: msgId,
-            communityId: comm.id,
-            communityName: comm.name || "Community",
-            communityCode: comm.code || "",
-            senderName,
-            senderEmail,
-            senderHandle,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: currentUser?.id || "",
-          },
-        });
-
-        sendCommunityMessage(comm.id, {
-          id: msgId,
-          senderName: "You",
-          senderHandle,
-          text: `Please verify my goal: "${goalTitle}"`,
-          isProof: true,
-          goalId,
-          goalTitle,
-          ownerId: currentUser?.id || "",
-        });
-
-        setSuccessNotice(`Verification request shared in ${comm.name}! Opening chat...`);
-      }
-
-      setShareGoal(null);
-
-      // Navigate to chat thread so user can immediately drop photos/proof
-      setTimeout(() => {
-        navigate("/community-friends", {
-          state: {
-            view: shareTarget === "community" ? "communities" : "friends",
-            targetId,
-          },
-        });
-      }, 600);
-    } catch (err) {
-      console.error("Failed to share verification:", err);
-      setShareError(err.message || "Failed to share");
-    } finally {
-      setSharingProof(false);
-    }
   };
 
   return (

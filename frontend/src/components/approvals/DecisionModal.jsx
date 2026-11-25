@@ -9,9 +9,9 @@ import {
   Lock,
   Unlock,
   MessageSquare,
-  Sparkles,
 } from "lucide-react";
 import { getUniqueDisplayTargets } from "../../lib/blockedApps";
+import { playLockReleaseSound, playLockEngageSound } from "../../lib/sound";
 
 export default function DecisionModal({
   isOpen,
@@ -32,15 +32,23 @@ export default function DecisionModal({
 
   // Reset state when opening
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    let cancelled = false;
+    let focusTimer = null;
+    Promise.resolve().then(() => {
+      if (cancelled) return;
       setComment(isApprove ? "Approved verification proof." : "");
       setSubmitting(false);
       setError("");
       // Auto focus textarea on rejection
       if (!isApprove) {
-        setTimeout(() => textareaRef.current?.focus(), 50);
+        focusTimer = setTimeout(() => textareaRef.current?.focus(), 50);
       }
-    }
+    });
+    return () => {
+      cancelled = true;
+      if (focusTimer) clearTimeout(focusTimer);
+    };
   }, [isOpen, isApprove]);
 
   // Handle escape key
@@ -72,6 +80,11 @@ export default function DecisionModal({
         status: isApprove ? "approved" : "rejected",
         comment: comment.trim(),
       });
+      if (isApprove) {
+        playLockReleaseSound();
+      } else {
+        playLockEngageSound();
+      }
       onClose();
     } catch (err) {
       setError(err?.message || `Failed to submit ${type} decision. Please try again.`);

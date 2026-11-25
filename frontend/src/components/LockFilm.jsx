@@ -50,7 +50,7 @@ export default function LockFilm({ onSignIn }) {
     <div className="film-stage" ref={stage}>
       <div className="film-screen" aria-hidden="true">{scenes.map((item,index) =>
         <div className="film-layer" key={item.name}><img src={item.image} fetchPriority={index === 0 ? "high" : "auto"} alt="" /></div>)}</div>
-      <header className="film-header"><a href="#top" aria-label="ONUSLY home"><Brand /></a><nav><a href="#mechanism">Explore the lock</a><button onClick={onSignIn}>Sign in <ArrowUpRight size={16}/></button></nav></header>
+      <header className="film-header"><a href="#top" aria-label="ONUSLY home"><Brand /></a><nav><a href="#mechanism">Mechanism</a><a href="#enforcers">Enforcers</a><a href="#protocol">Protocol</a><a href="#catalog">Catalog</a><a href="#faq">FAQ</a><button onClick={onSignIn}>Sign in <ArrowUpRight size={16}/></button></nav></header>
       <div className="film-copy" key={scene}>
         <span className="instrument-label"><i/> Accountability app locker</span>
         <h1>{current.title}<br/><em>{current.accent}</em></h1>

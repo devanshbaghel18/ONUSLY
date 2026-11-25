@@ -12,7 +12,6 @@ import {
   CheckCircle2,
   Pin,
   RotateCcw,
-  Clock,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
 import { getGoals, repeatGoal } from "../lib/api";
@@ -406,7 +405,6 @@ export default function Dashboard() {
                 const isPendingReview = g.status === "proof_submitted";
                 const isCompleted = g.status === "completed";
                 const isPinned = pinnedIds.includes(g.id);
-                const progressPct = isCompleted ? 100 : isPendingReview ? 50 : 0;
 
                 return (
                   <div

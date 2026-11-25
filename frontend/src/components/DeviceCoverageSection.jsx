@@ -6,7 +6,6 @@ import {
   ShieldCheck,
   AlertTriangle,
   RefreshCw,
-  KeyRound,
   CheckCircle2,
   Server,
   Trash2,
@@ -22,8 +21,6 @@ import {
   revokeDevice,
   getDesktopAgentStatus,
   toggleDesktopDNS,
-  syncDesktopAgent,
-  autoPairDesktopAgent,
   reconnectDesktopAgent,
 } from "../lib/api";
 
@@ -120,8 +117,6 @@ export default function DeviceCoverageSection() {
   const [data, setData] = useState({ userId: "", totalCount: 0, enforcing: false, devices: [] });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [pairCode, setPairCode] = useState("");
-  const [pairingLoading, setPairingLoading] = useState(false);
   const [pairingMsg, setPairingMsg] = useState({ text: "", type: "" });
   const [deviceToRevoke, setDeviceToRevoke] = useState(null);
   const [revoking, setRevoking] = useState(false);
@@ -130,8 +125,6 @@ export default function DeviceCoverageSection() {
   // Machine Desktop Agent state
   const [desktopAgent, setDesktopAgent] = useState({ available: false, loading: true, status: null, error: "" });
   const [dnsActionLoading, setDnsActionLoading] = useState(false);
-  const [syncActionLoading, setSyncActionLoading] = useState(false);
-  const [autoPairLoading, setAutoPairLoading] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [desktopActionMsg, setDesktopActionMsg] = useState({ text: "", type: "" });
 
@@ -202,8 +195,6 @@ export default function DeviceCoverageSection() {
     const code = params.get("pairCode");
     if (code && code.trim().length === 6) {
       const clean = code.trim().toUpperCase();
-      setPairCode(clean);
-      setPairingLoading(true);
       confirmDevicePairing(clean)
         .then(() => {
           setPairingMsg({ text: "Device paired successfully! Synchronizing...", type: "success" });
@@ -211,9 +202,6 @@ export default function DeviceCoverageSection() {
         })
         .catch((err) => {
           setPairingMsg({ text: err.message || "Failed to pair device.", type: "error" });
-        })
-        .finally(() => {
-          setPairingLoading(false);
         });
     }
   }, [loadCoverage]);
@@ -251,46 +239,6 @@ export default function DeviceCoverageSection() {
     }
   };
 
-  const handleSyncDesktop = async () => {
-    setSyncActionLoading(true);
-    setDesktopActionMsg({ text: "", type: "" });
-    try {
-      const res = await syncDesktopAgent();
-      if (res && res.success) {
-        setDesktopAgent((prev) => ({ ...prev, status: res.status }));
-        setDesktopActionMsg({
-          text: `Machine policy updated successfully! ${res.status?.targetsCount || 0} active target(s) locked.`,
-          type: "success",
-        });
-        await loadCoverage(true);
-      }
-    } catch (err) {
-      setDesktopActionMsg({ text: err.message || "Failed to sync desktop policy", type: "error" });
-    } finally {
-      setSyncActionLoading(false);
-    }
-  };
-
-  const handleAutoPairDesktop = async () => {
-    setAutoPairLoading(true);
-    setDesktopActionMsg({ text: "", type: "" });
-    try {
-      const res = await autoPairDesktopAgent();
-      if (res && res.success) {
-        setDesktopAgent((prev) => ({ ...prev, status: res.status }));
-        setDesktopActionMsg({
-          text: "Desktop agent automatically paired and synchronized with this account!",
-          type: "success",
-        });
-        await loadCoverage(true);
-      }
-    } catch (err) {
-      setDesktopActionMsg({ text: err.message || "Auto-pairing failed", type: "error" });
-    } finally {
-      setAutoPairLoading(false);
-    }
-  };
-
   const handleReconnectDesktop = async () => {
     setReconnecting(true);
     setDesktopActionMsg({ text: "", type: "" });
@@ -318,28 +266,6 @@ export default function DeviceCoverageSection() {
       });
     } finally {
       setReconnecting(false);
-    }
-  };
-
-  const handleConfirmPair = async (e) => {
-    e.preventDefault();
-    const cleanCode = pairCode.trim().toUpperCase();
-    if (!cleanCode || cleanCode.length !== 6) {
-      setPairingMsg({ text: "Please enter a valid 6-character code.", type: "error" });
-      return;
-    }
-
-    setPairingLoading(true);
-    setPairingMsg({ text: "", type: "" });
-    try {
-      await confirmDevicePairing(cleanCode);
-      setPairingMsg({ text: "Device paired successfully! Synchronizing...", type: "success" });
-      setPairCode("");
-      await loadCoverage(true);
-    } catch (err) {
-      setPairingMsg({ text: err.message || "Failed to pair device.", type: "error" });
-    } finally {
-      setPairingLoading(false);
     }
   };
 

@@ -6,20 +6,16 @@ import {
   Camera,
   FileText,
   Link as LinkIcon,
-  CheckCircle2,
   AlertCircle,
   Loader2,
   Trash2,
   Users,
   Plus,
   Send,
-  Eye,
-  Layers,
 } from "lucide-react";
 import { getUser } from "../../lib/auth";
-import { submitProof, uploadProofFiles, API_BASE_URL } from "../../lib/api";
-import { getStoredFriends } from "../../lib/friendsChat";
-import { getStoredCommunities } from "../../lib/communities";
+import { submitProof, uploadProofFiles, resolveApiUrl } from "../../lib/api";
+import { playProofSubmittedSound } from "../../lib/sound";
 
 function generateMsgId(prefix = "msg") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -92,18 +88,22 @@ export default function SubmitProofModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const friends = getStoredFriends();
-  const communities = getStoredCommunities();
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (cancelled) return;
       setAttachedFiles([]);
       setTextExplanation("");
       setExternalLink("");
       setError("");
       setSubmitting(false);
-    }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   // Escape key closes modal
@@ -199,9 +199,7 @@ export default function SubmitProofModal({
           finalFiles = attachedFiles.map((f) => {
             const match = uploadedResults.find((u) => u.name === f.name);
             if (match && match.url) {
-              const fullUrl = match.url.startsWith("http")
-                ? match.url
-                : `${API_BASE_URL || "http://localhost:8080"}${match.url}`;
+              const fullUrl = resolveApiUrl(match.url);
               return {
                 ...f,
                 url: fullUrl,
@@ -302,6 +300,8 @@ export default function SubmitProofModal({
         console.warn("Background chat notification skipped:", wsErr.message);
       }
 
+      playProofSubmittedSound();
+
       if (onSuccess) {
         onSuccess(result);
       }
@@ -377,7 +377,7 @@ export default function SubmitProofModal({
             {attachedFiles.length > 0 ? (
               <div className="space-y-2 rounded border border-[#26313d] bg-[#0a0d10] p-3">
                 <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
-                  {attachedFiles.map((file, idx) => (
+                  {attachedFiles.map((file) => (
                     <div
                       key={file.id}
                       className="flex items-center justify-between gap-3 rounded border border-[#222933] bg-[#10141a] p-2.5 transition hover:border-[#384654]"
