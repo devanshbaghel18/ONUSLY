@@ -14,6 +14,7 @@ const ALLOWED_ORIGIN_PATTERNS = [
   /^http:\/\/localhost:(5173|5174|5175|4173|8080|3000)$/,
   /^http:\/\/127\.0\.0\.1:(5173|5174|5175|4173|8080|3000)$/,
   /^https:\/\/(.*\.)?onusly\.com$/,
+  /^https:\/\/(.*\.)?onusly\.app$/,
 ];
 
 /**
@@ -232,7 +233,7 @@ if (globalThis.chrome?.tabs?.onActivated) {
 // Core Message Processing Handlers
 // --------------------------------------------------------------------------
 export async function processAuthHandoff(message) {
-  const { token, user, baseUrl } = message || {};
+  const { token, user, baseUrl, dashboardUrl } = message || {};
   if (!token || typeof token !== "string") {
     return { success: false, error: "Missing or invalid token" };
   }
@@ -242,8 +243,15 @@ export async function processAuthHandoff(message) {
     return { success: false, error: "Invalid JWT token structure" };
   }
 
+  const settingsPatch = {};
   if (baseUrl && typeof baseUrl === "string") {
-    await storage.saveSettings({ baseUrl: baseUrl.trim().replace(/\/+$/, "") });
+    settingsPatch.baseUrl = baseUrl.trim().replace(/\/+$/, "");
+  }
+  if (dashboardUrl && typeof dashboardUrl === "string") {
+    settingsPatch.dashboardUrl = dashboardUrl.trim().replace(/\/+$/, "");
+  }
+  if (Object.keys(settingsPatch).length > 0) {
+    await storage.saveSettings(settingsPatch);
   }
 
   const userId = payload.sub;

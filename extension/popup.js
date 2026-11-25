@@ -231,17 +231,21 @@ async function handleQuickPair() {
       url: [
         "http://localhost:*/*",
         "http://127.0.0.1:*/*",
-        "https://*.onusly.com/*"
+        "https://onusly.com/*",
+        "https://*.onusly.com/*",
+        "https://onusly.app/*",
+        "https://*.onusly.app/*"
       ]
     });
 
     if (!tabs || tabs.length === 0) {
-      alert("No ONUSLY dashboard tab found. Please open http://localhost:5173 and log in first.");
+      alert("No ONUSLY dashboard tab found. Please open https://onusly.app (or http://localhost:5173 for local dev) and log in first.");
       return;
     }
 
     let token = null;
     let user = null;
+    let matchedTabUrl = "";
 
     // 2. Try to obtain token from open tab
     for (const tab of tabs) {
@@ -251,6 +255,7 @@ async function handleQuickPair() {
         if (response?.success && response.token) {
           token = response.token;
           user = response.user;
+          matchedTabUrl = tab.url || "";
           break;
         }
       } catch {
@@ -274,6 +279,7 @@ async function handleQuickPair() {
           });
           if (results?.[0]?.result?.token) {
             token = results[0].result.token;
+            matchedTabUrl = tab.url || "";
             try {
               user = JSON.parse(results[0].result.user);
             } catch {
@@ -292,12 +298,27 @@ async function handleQuickPair() {
       return;
     }
 
+    let resolvedBaseUrl = "http://localhost:8080";
+    let resolvedDashboardUrl = dashboardUrl;
+    if (matchedTabUrl) {
+      try {
+        const parsedTabUrl = new URL(matchedTabUrl);
+        resolvedDashboardUrl = parsedTabUrl.origin;
+        if (parsedTabUrl.protocol === "https:") {
+          resolvedBaseUrl = "https://api.onusly.com";
+        }
+      } catch {
+        // Keep defaults on malformed URL
+      }
+    }
+
     // 3. Send handoff to background worker
     const result = await chrome.runtime.sendMessage({
       type: "ONUSLY_AUTH_HANDOFF",
       token,
       user,
-      baseUrl: "http://localhost:8080",
+      baseUrl: resolvedBaseUrl,
+      dashboardUrl: resolvedDashboardUrl,
     });
 
     if (result?.success) {
@@ -326,10 +347,13 @@ async function handleConnectToken() {
   if (tokenError) tokenError.style.display = "none";
 
   try {
+    const fallbackBaseUrl = dashboardUrl.startsWith("https://")
+      ? "https://api.onusly.com"
+      : "http://localhost:8080";
     const result = await chrome.runtime.sendMessage({
       type: "ONUSLY_AUTH_HANDOFF",
       token,
-      baseUrl: "http://localhost:8080",
+      baseUrl: fallbackBaseUrl,
     });
 
     if (result?.success) {

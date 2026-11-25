@@ -41,7 +41,10 @@
     "<all_urls>",
     "http://localhost/*",
     "http://127.0.0.1/*",
-    "https://*.onusly.com/*"
+    "https://onusly.com/*",
+    "https://*.onusly.com/*",
+    "https://onusly.app/*",
+    "https://*.onusly.app/*"
   ],
   "externally_connectable": {
     "matches": [
@@ -59,7 +62,10 @@
       "http://127.0.0.1:4173/*",
       "http://127.0.0.1:8080/*",
       "http://127.0.0.1:3000/*",
-      "https://*.onusly.com/*"
+      "https://onusly.com/*",
+      "https://*.onusly.com/*",
+      "https://onusly.app/*",
+      "https://*.onusly.app/*"
     ]
   },
   "content_scripts": [
@@ -89,7 +95,10 @@
       "matches": [
         "http://localhost/*",
         "http://127.0.0.1/*",
-        "https://*.onusly.com/*"
+        "https://onusly.com/*",
+        "https://*.onusly.com/*",
+        "https://onusly.app/*",
+        "https://*.onusly.app/*"
       ],
       "js": ["src/dashboardBridge.js"],
       "run_at": "document_start"
