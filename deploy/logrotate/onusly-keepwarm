@@ -1,0 +1,10 @@
+/var/log/onusly/keepwarm.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0644 root root
+}

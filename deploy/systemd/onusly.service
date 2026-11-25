@@ -12,6 +12,7 @@ ExecStart=/opt/onusly/server
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
+OOMScoreAdjust=-200
 StandardOutput=journal
 StandardError=journal
 

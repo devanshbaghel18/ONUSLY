@@ -1,0 +1,13 @@
+[Unit]
+Description=ONUSLY 5-Minute Keep-Warm, Health Probe, and Auto-Recovery
+After=network-online.target onusly.service nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/onusly
+ExecStart=/opt/onusly/deploy/cron/onusly_keepwarm.sh
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=60

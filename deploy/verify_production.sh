@@ -188,6 +188,27 @@ if [[ "$TARGET_URL" == https://* ]]; then
 fi
 
 # ------------------------------------------------------------------------------
+# 7. Internal Warmup & Metrics Boundary Checks (must not be exposed publicly)
+# ------------------------------------------------------------------------------
+if [[ "$TARGET_URL" != *"127.0.0.1"* ]] && [[ "$TARGET_URL" != *"localhost"* ]]; then
+  echo ">>> Check 7: Internal Warmup Boundary (GET ${TARGET_URL}/health/warm)..."
+  WARM_EXT_STATUS="$(curl -s -S "${CURL_EXTRA_FLAGS[@]}" -o /dev/null -w "%{http_code}" "${TARGET_URL}/health/warm" || echo "CONN_ERR")"
+  if [ "$WARM_EXT_STATUS" = "403" ] || [ "$WARM_EXT_STATUS" = "404" ]; then
+    record_pass "Internal /health/warm Boundary" "HTTP ${WARM_EXT_STATUS} (Blocked externally as expected)"
+  else
+    record_fail "Internal /health/warm Boundary" "Expected HTTP 403/404 externally, got ${WARM_EXT_STATUS}"
+  fi
+
+  echo ">>> Check 8: Internal Metrics Boundary (GET ${TARGET_URL}/metrics)..."
+  METRICS_EXT_STATUS="$(curl -s -S "${CURL_EXTRA_FLAGS[@]}" -o /dev/null -w "%{http_code}" "${TARGET_URL}/metrics" || echo "CONN_ERR")"
+  if [ "$METRICS_EXT_STATUS" = "403" ] || [ "$METRICS_EXT_STATUS" = "404" ]; then
+    record_pass "Internal /metrics Boundary" "HTTP ${METRICS_EXT_STATUS} (Blocked externally as expected)"
+  else
+    record_fail "Internal /metrics Boundary" "Expected HTTP 403/404 externally, got ${METRICS_EXT_STATUS}"
+  fi
+fi
+
+# ------------------------------------------------------------------------------
 # Summary
 # ------------------------------------------------------------------------------
 echo "=============================================================================="

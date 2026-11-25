@@ -97,22 +97,40 @@ if [ -n "$AVAILABLE_MEM_MB" ] && [ "$AVAILABLE_MEM_MB" -lt 128 ]; then
 fi
 echo "[+] Memory verified: ${AVAILABLE_MEM_MB} MB available."
 
+TOTAL_MEM_SWAP_MB="$(free -m | awk '/^Mem:|^Swap:/ {sum += $2} END {print sum}')"
+if [ -n "$TOTAL_MEM_SWAP_MB" ] && [ "$TOTAL_MEM_SWAP_MB" -lt 2048 ] && [ ! -f /swapfile ]; then
+  if [ -n "$AVAILABLE_DISK_MB" ] && [ "$AVAILABLE_DISK_MB" -ge 4096 ]; then
+    echo "[+] Low memory detected (${TOTAL_MEM_SWAP_MB} MB RAM+Swap); provisioning 2GB /swapfile for Vite/Go builds..."
+    dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+    chmod 600 /swapfile
+    mkswap /swapfile >/dev/null
+    swapon /swapfile
+    if ! grep -q "^/swapfile " /etc/fstab 2>/dev/null; then
+      echo "/swapfile none swap sw 0 0" >> /etc/fstab
+    fi
+    echo "[+] 2GB /swapfile enabled."
+  fi
+fi
+
 # ------------------------------------------------------------------------------
 # 4. Required Package Dependencies
 # ------------------------------------------------------------------------------
 echo ">>> Checking required package dependencies..."
 MISSING_PKGS=()
-for pkg in git golang nginx openssl curl; do
+for pkg in git golang nginx openssl curl python3; do
   if ! command -v "$pkg" >/dev/null 2>&1; then
     MISSING_PKGS+=("$pkg")
   fi
 done
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  MISSING_PKGS+=("nodejs")
+fi
 
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
   echo "[+] Installing missing packages: ${MISSING_PKGS[*]}"
   dnf install -y "${MISSING_PKGS[@]}"
 else
-  echo "[+] All required packages present (git, golang, nginx, openssl, curl)."
+  echo "[+] All required packages present (git, golang, nginx, openssl, curl, python3, nodejs)."
 fi
 
 # ------------------------------------------------------------------------------
@@ -176,12 +194,19 @@ if [ ! -f "$ENV_FILE" ]; then
   cat << EOF > "$ENV_FILE"
 HOST=127.0.0.1
 PORT=8080
+ENV=production
 AWS_REGION=${TARGET_REGION}
 DYNAMODB_TABLE=Onusly
+ALLOWED_ORIGINS=https://onusly.com,https://www.onusly.com,https://onusly.app
+FRONTEND_URL=https://onusly.app
+GOOGLE_REDIRECT_URL=https://api.onusly.com/auth/google/callback
+VITE_API_BASE_URL=https://api.onusly.com
 # Production secrets (Required before service will start):
 # GOOGLE_CLIENT_ID=
 # GOOGLE_CLIENT_SECRET=
 # JWT_SECRET=
+# Optional: enable public edge keep-warm probe once DNS/TLS cutover is complete:
+# KEEPWARM_PUBLIC_URL=https://api.onusly.com/health
 EOF
   chmod 600 "$ENV_FILE"
   chown root:root "$ENV_FILE" 2>/dev/null || true
@@ -210,7 +235,32 @@ if [ -z "${JWT_SECRET:-}" ]; then
   exit 1
 fi
 
-if [ "${#JWT_SECRET}" -lt 16 ]; then
+ENV_MODE="$(echo "${ENV:-${APP_ENV:-development}}" | tr '[:upper:]' '[:lower:]')"
+if [ "$DEV_MODE" = false ]; then
+  if [ "$ENV_MODE" != "production" ]; then
+    echo "[-] ERROR: ENV in ${ENV_FILE} is '${ENV_MODE}', expected 'production'." >&2
+    exit 1
+  fi
+  if [ "${#JWT_SECRET}" -lt 32 ]; then
+    echo "[-] ERROR: Production JWT_SECRET must be at least 32 characters (found ${#JWT_SECRET})." >&2
+    exit 1
+  fi
+  if [ -z "${ALLOWED_ORIGINS:-}" ]; then
+    echo "[-] ERROR: ALLOWED_ORIGINS must be configured in ${ENV_FILE} for production." >&2
+    exit 1
+  fi
+  if echo "${ALLOWED_ORIGINS}" | grep -E -q "localhost|127\.0\.0\.1"; then
+    echo "[-] ERROR: Production ALLOWED_ORIGINS cannot include localhost or 127.0.0.1." >&2
+    exit 1
+  fi
+  if [ -z "${GOOGLE_CLIENT_ID:-}" ]; then
+    echo "[-] ERROR: GOOGLE_CLIENT_ID is empty in ${ENV_FILE}. Google Sign-In requires it." >&2
+    exit 1
+  fi
+  if [ -z "${GOOGLE_CLIENT_SECRET:-}" ]; then
+    echo "[!] WARNING: GOOGLE_CLIENT_SECRET is empty in ${ENV_FILE}; OAuth redirect callback (/auth/google/callback) will fail until set."
+  fi
+elif [ "${#JWT_SECRET}" -lt 16 ]; then
   echo "[-] ERROR: JWT_SECRET must be at least 16 characters (found ${#JWT_SECRET})." >&2
   exit 1
 fi
@@ -224,7 +274,7 @@ if [ "${DYNAMODB_TABLE:-}" != "Onusly" ]; then
   echo "[-] ERROR: DYNAMODB_TABLE in ${ENV_FILE} is '${DYNAMODB_TABLE:-}', expected 'Onusly'." >&2
   exit 1
 fi
-echo "[+] Environment configuration verified (JWT_SECRET length >= 16, Region: ${TARGET_REGION}, Table: Onusly)."
+echo "[+] Environment configuration verified (Env: ${ENV_MODE}, JWT_SECRET ok, Region: ${TARGET_REGION}, Table: Onusly)."
 
 # ------------------------------------------------------------------------------
 # 8. Strict Production TLS Certificate & Key Validation
@@ -395,14 +445,30 @@ mkdir -p /var/www/onusly/frontend/dist
 
 if command -v npm >/dev/null 2>&1 && [ -f "${APP_DIR}/frontend/package.json" ]; then
   echo ">>> Building frontend production assets..."
-  (cd "${APP_DIR}/frontend" && (npm ci 2>/dev/null || npm install) && npm run build) || echo "[!] Notice: Frontend build failed, using pre-existing dist if available"
+  VITE_API_BASE_URL_BUILD="${VITE_API_BASE_URL-https://api.onusly.com}"
+  VITE_GOOGLE_CLIENT_ID_BUILD="${VITE_GOOGLE_CLIENT_ID:-${GOOGLE_CLIENT_ID:-}}"
+  BUILD_CMD="npx vite build"
+  if [ ! -f "${APP_DIR}/frontend/public/downloads/onusly-extension.zip" ] || [ ! -f "${APP_DIR}/frontend/public/downloads/updates.xml" ]; then
+    BUILD_CMD="npm run build"
+  fi
+  if ! (cd "${APP_DIR}/frontend" && \
+    VITE_API_BASE_URL="$VITE_API_BASE_URL_BUILD" \
+    VITE_GOOGLE_CLIENT_ID="$VITE_GOOGLE_CLIENT_ID_BUILD" \
+    bash -c "(npm ci 2>/dev/null || npm install) && ${BUILD_CMD}"); then
+    echo "[-] ERROR: Frontend production build failed!" >&2
+    exit 1
+  fi
 fi
 
 if [ -d "${APP_DIR}/frontend/dist" ] && [ -n "$(ls -A "${APP_DIR}/frontend/dist" 2>/dev/null)" ]; then
+  rm -rf /var/www/onusly/frontend/dist/*
   cp -rf "${APP_DIR}/frontend/dist/"* /var/www/onusly/frontend/dist/
   chown -R nginx:nginx /var/www/onusly/frontend/dist 2>/dev/null || true
   chmod -R 755 /var/www/onusly/frontend/dist 2>/dev/null || true
   echo "[+] Synchronized frontend production build to /var/www/onusly/frontend/dist."
+else
+  echo "[-] ERROR: Frontend production bundle missing at ${APP_DIR}/frontend/dist!" >&2
+  exit 1
 fi
 
 if [ -f "$NGINX_CONF_DEST" ]; then
@@ -479,6 +545,35 @@ else
 fi
 
 # ------------------------------------------------------------------------------
+# 12b. Install & Enable 5-Minute Keep-Warm & Auto-Recovery Timer
+# ------------------------------------------------------------------------------
+echo ">>> Installing 5-minute keep-warm systemd timer and logrotate policy..."
+mkdir -p /var/log/onusly
+chmod 755 /var/log/onusly
+
+if [ -f "${APP_DIR}/deploy/cron/onusly_keepwarm.sh" ]; then
+  chmod 755 "${APP_DIR}/deploy/cron/onusly_keepwarm.sh"
+fi
+
+if [ -f "${APP_DIR}/deploy/logrotate/onusly-keepwarm" ]; then
+  cp -f "${APP_DIR}/deploy/logrotate/onusly-keepwarm" /etc/logrotate.d/onusly-keepwarm
+  chmod 644 /etc/logrotate.d/onusly-keepwarm
+fi
+
+cp -f "${APP_DIR}/deploy/systemd/onusly-keepwarm.service" /etc/systemd/system/onusly-keepwarm.service
+cp -f "${APP_DIR}/deploy/systemd/onusly-keepwarm.timer" /etc/systemd/system/onusly-keepwarm.timer
+systemctl daemon-reload
+systemctl enable onusly-keepwarm.timer >/dev/null 2>&1 || true
+systemctl restart onusly-keepwarm.timer
+
+if systemctl is-active --quiet onusly-keepwarm.timer; then
+  echo "[+] Timer 'onusly-keepwarm.timer' is active (5-minute keep-warm schedule)."
+else
+  echo "[-] ERROR: Failed to activate onusly-keepwarm.timer!" >&2
+  exit 1
+fi
+
+# ------------------------------------------------------------------------------
 # 13. Local End-to-End Health Verification
 # ------------------------------------------------------------------------------
 echo ">>> Performing local health checks..."
@@ -529,6 +624,19 @@ if [ "$REDIRECT_CODE" = "301" ]; then
 else
   echo "[!] Port 80 Redirect check returned status: ${REDIRECT_CODE}"
 fi
+
+# 13.4 Execute immediate keep-warm probe so zero cold-start remains after deployment
+if systemctl start onusly-keepwarm.service; then
+  echo "[+] Initial keep-warm probe succeeded (Go + DynamoDB + Nginx TLS warm)."
+else
+  echo "[!] WARNING: Initial keep-warm probe reported a degraded dependency (check /var/log/onusly/keepwarm.log)."
+fi
+
+# 13.5 Prune older deployment backups (retain latest 5 per artifact)
+for bak_glob in "${APP_DIR}/server.bak.*" "${ENV_FILE}.bak.*" "${NGINX_CONF_DEST}.bak.*" "${SYSTEMD_SERVICE_DEST}.bak.*"; do
+  # shellcheck disable=SC2086
+  ls -1t $bak_glob 2>/dev/null | tail -n +6 | xargs -r rm -f || true
+done
 
 echo "=============================================================================="
 echo ">>> ONUSLY Production Deployment Successful! Deployed commit: ${DEPLOYED_SHA}"
