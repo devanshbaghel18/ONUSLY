@@ -122,16 +122,25 @@ for pkg in git golang nginx openssl curl python3; do
     MISSING_PKGS+=("$pkg")
   fi
 done
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  MISSING_PKGS+=("nodejs")
-fi
 
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
-  echo "[+] Installing missing packages: ${MISSING_PKGS[*]}"
+  echo "[+] Installing missing base packages: ${MISSING_PKGS[*]}"
   dnf install -y "${MISSING_PKGS[@]}"
-else
-  echo "[+] All required packages present (git, golang, nginx, openssl, curl, python3, nodejs)."
 fi
+
+NODE_MAJOR=0
+if command -v node >/dev/null 2>&1; then
+  NODE_MAJOR="$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || echo 0)"
+fi
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1 || [ "${NODE_MAJOR:-0}" -lt 20 ]; then
+  echo "[+] Installing Node.js 22 (required by Vite 8+; detected v${NODE_MAJOR})..."
+  dnf remove -y nodejs nodejs-npm >/dev/null 2>&1 || true
+  dnf install -y --allowerasing nodejs22 nodejs22-npm
+  if [ -x /usr/bin/node-22 ]; then
+    alternatives --set node /usr/bin/node-22 2>/dev/null || true
+  fi
+fi
+echo "[+] All required packages present (git, golang, nginx, openssl, curl, python3, $(node -v 2>/dev/null || echo node))."
 
 # ------------------------------------------------------------------------------
 # 5. Deployment Region Validation (eu-north-1 Stockholm)
