@@ -44,7 +44,8 @@
     "https://onusly.com/*",
     "https://*.onusly.com/*",
     "https://onusly.app/*",
-    "https://*.onusly.app/*"
+    "https://*.onusly.app/*",
+    "https://onusly.duckdns.org/*"
   ],
   "externally_connectable": {
     "matches": [
@@ -65,7 +66,8 @@
       "https://onusly.com/*",
       "https://*.onusly.com/*",
       "https://onusly.app/*",
-      "https://*.onusly.app/*"
+      "https://*.onusly.app/*",
+      "https://onusly.duckdns.org/*"
     ]
   },
   "content_scripts": [
@@ -98,7 +100,8 @@
         "https://onusly.com/*",
         "https://*.onusly.com/*",
         "https://onusly.app/*",
-        "https://*.onusly.app/*"
+        "https://*.onusly.app/*",
+        "https://onusly.duckdns.org/*"
       ],
       "js": ["src/dashboardBridge.js"],
       "run_at": "document_start"

@@ -234,12 +234,13 @@ async function handleQuickPair() {
         "https://onusly.com/*",
         "https://*.onusly.com/*",
         "https://onusly.app/*",
-        "https://*.onusly.app/*"
+        "https://*.onusly.app/*",
+        "https://onusly.duckdns.org/*"
       ]
     });
 
     if (!tabs || tabs.length === 0) {
-      alert("No ONUSLY dashboard tab found. Please open https://onusly.app (or http://localhost:5173 for local dev) and log in first.");
+      alert("No ONUSLY dashboard tab found. Please open https://onusly.duckdns.org (or http://localhost:5173 for local dev) and log in first.");
       return;
     }
 
@@ -304,7 +305,9 @@ async function handleQuickPair() {
       try {
         const parsedTabUrl = new URL(matchedTabUrl);
         resolvedDashboardUrl = parsedTabUrl.origin;
-        if (parsedTabUrl.protocol === "https:") {
+        if (parsedTabUrl.hostname === "onusly.duckdns.org") {
+          resolvedBaseUrl = parsedTabUrl.origin;
+        } else if (parsedTabUrl.protocol === "https:") {
           resolvedBaseUrl = "https://api.onusly.com";
         }
       } catch {
@@ -347,7 +350,9 @@ async function handleConnectToken() {
   if (tokenError) tokenError.style.display = "none";
 
   try {
-    const fallbackBaseUrl = dashboardUrl.startsWith("https://")
+    const fallbackBaseUrl = dashboardUrl.startsWith("https://onusly.duckdns.org")
+      ? "https://onusly.duckdns.org"
+      : dashboardUrl.startsWith("https://")
       ? "https://api.onusly.com"
       : "http://localhost:8080";
     const result = await chrome.runtime.sendMessage({

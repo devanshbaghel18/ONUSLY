@@ -39,6 +39,7 @@ if [ "$TARGET_HOST" = "localhost" ] || [ -z "$TARGET_HOST" ]; then
   TARGET_HOST="127.0.0.1"
 fi
 TARGET_PORT="${PORT:-8080}"
+PROBE_HOST="${PUBLIC_DOMAIN:-api.onusly.com}"
 PUBLIC_URL="${KEEPWARM_PUBLIC_URL:-}"
 
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
@@ -147,16 +148,16 @@ if ! systemctl is-active --quiet nginx 2>/dev/null; then
   restart_service_guarded "nginx" "$NGINX_RESTART_STAMP" || EXIT_CODE=1
 fi
 
-read -r NGX_CODE NGX_TIME <<< "$(probe_http "https://127.0.0.1/health" 5 -k -H "Host: api.onusly.com")"
+read -r NGX_CODE NGX_TIME <<< "$(probe_http "https://127.0.0.1/health" 5 -k -H "Host: ${PROBE_HOST}")"
 if [ "$NGX_CODE" != "200" ]; then
   sleep 2
-  read -r NGX_CODE NGX_TIME <<< "$(probe_http "https://127.0.0.1/health" 5 -k -H "Host: api.onusly.com")"
+  read -r NGX_CODE NGX_TIME <<< "$(probe_http "https://127.0.0.1/health" 5 -k -H "Host: ${PROBE_HOST}")"
 fi
 
 if [ "$NGX_CODE" != "200" ]; then
   log_line "ERROR" "Nginx HTTPS proxy probe failed after retry (http=${NGX_CODE})"
   if restart_service_guarded "nginx" "$NGINX_RESTART_STAMP"; then
-    read -r NGX_CODE NGX_TIME <<< "$(probe_http "https://127.0.0.1/health" 5 -k -H "Host: api.onusly.com")"
+    read -r NGX_CODE NGX_TIME <<< "$(probe_http "https://127.0.0.1/health" 5 -k -H "Host: ${PROBE_HOST}")"
   fi
   if [ "$NGX_CODE" != "200" ]; then
     log_line "ERROR" "Nginx HTTPS proxy remains unhealthy (http=${NGX_CODE})"

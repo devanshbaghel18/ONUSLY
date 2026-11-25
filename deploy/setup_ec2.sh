@@ -288,22 +288,55 @@ echo "[+] Environment configuration verified (Env: ${ENV_MODE}, JWT_SECRET ok, R
 # ------------------------------------------------------------------------------
 # 8. Strict Production TLS Certificate & Key Validation
 # ------------------------------------------------------------------------------
-echo ">>> Validating TLS origin certificates for Cloudflare Full (strict) mode..."
+PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-api.onusly.com}"
+CERT_MODE="$(echo "${CERT_MODE:-origin}" | tr '[:upper:]' '[:lower:]')"
 mkdir -p "$SSL_DIR"
 chmod 755 "$SSL_DIR"
+mkdir -p /var/www/certbot
+
+if [ "$CERT_MODE" = "letsencrypt" ]; then
+  echo ">>> Configuring Let's Encrypt TLS certificate for ${PUBLIC_DOMAIN}..."
+  if ! command -v certbot >/dev/null 2>&1; then
+    echo "[+] Installing certbot for Let's Encrypt..."
+    dnf install -y certbot python3-certbot-nginx
+  fi
+  SSL_CERT_PATH="/etc/letsencrypt/live/${PUBLIC_DOMAIN}/fullchain.pem"
+  SSL_KEY_PATH="/etc/letsencrypt/live/${PUBLIC_DOMAIN}/privkey.pem"
+  if [ ! -f "$SSL_CERT_PATH" ] || [ ! -f "$SSL_KEY_PATH" ] || ! openssl x509 -checkend 604800 -noout -in "$SSL_CERT_PATH" >/dev/null 2>&1; then
+    echo "[+] Obtaining/renewing Let's Encrypt certificate for ${PUBLIC_DOMAIN}..."
+    CERTBOT_EMAIL_ARGS=(--register-unsafely-without-email)
+    if [ -n "${CERTBOT_EMAIL:-}" ]; then
+      CERTBOT_EMAIL_ARGS=(--email "$CERTBOT_EMAIL")
+    fi
+    NGINX_WAS_ACTIVE=false
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+      NGINX_WAS_ACTIVE=true
+      systemctl stop nginx || true
+    fi
+    certbot certonly --standalone --non-interactive --agree-tos "${CERTBOT_EMAIL_ARGS[@]}" -d "${PUBLIC_DOMAIN}"
+    if [ "$NGINX_WAS_ACTIVE" = true ]; then
+      systemctl start nginx || true
+    fi
+  fi
+  systemctl enable --now certbot-renew.timer >/dev/null 2>&1 || true
+else
+  echo ">>> Validating TLS origin certificates for Cloudflare Full (strict) mode..."
+fi
 
 CERT_VALID=false
 
 if [ -f "$SSL_CERT_PATH" ] && [ -f "$SSL_KEY_PATH" ]; then
   # 8.1 Check private key file permissions (Must be 0600 or 0400, owned by root)
-  KEY_PERMS="$(stat -c "%a" "$SSL_KEY_PATH" 2>/dev/null || stat -f "%Lp" "$SSL_KEY_PATH" 2>/dev/null)"
-  if [ "$KEY_PERMS" != "600" ] && [ "$KEY_PERMS" != "400" ]; then
-    echo "[!] Fixing permissions on ${SSL_KEY_PATH} (was ${KEY_PERMS}, setting to 0600)..."
-    chmod 600 "$SSL_KEY_PATH"
+  if [ "$CERT_MODE" != "letsencrypt" ]; then
+    KEY_PERMS="$(stat -c "%a" "$SSL_KEY_PATH" 2>/dev/null || stat -f "%Lp" "$SSL_KEY_PATH" 2>/dev/null)"
+    if [ "$KEY_PERMS" != "600" ] && [ "$KEY_PERMS" != "400" ]; then
+      echo "[!] Fixing permissions on ${SSL_KEY_PATH} (was ${KEY_PERMS}, setting to 0600)..."
+      chmod 600 "$SSL_KEY_PATH"
+    fi
+    chmod 644 "$SSL_CERT_PATH"
+    chown root:root "$SSL_KEY_PATH" 2>/dev/null || true
+    chown root:root "$SSL_CERT_PATH" 2>/dev/null || true
   fi
-  chmod 644 "$SSL_CERT_PATH"
-  chown root:root "$SSL_KEY_PATH" 2>/dev/null || true
-  chown root:root "$SSL_CERT_PATH" 2>/dev/null || true
 
   # 8.2 Verify certificate has not expired
   if openssl x509 -checkend 86400 -noout -in "$SSL_CERT_PATH" >/dev/null 2>&1; then
@@ -316,12 +349,12 @@ if [ -f "$SSL_CERT_PATH" ] && [ -f "$SSL_KEY_PATH" ]; then
     fi
   fi
 
-  # 8.3 Verify certificate covers api.onusly.com
+  # 8.3 Verify certificate covers target domain
   CERT_TEXT="$(openssl x509 -in "$SSL_CERT_PATH" -noout -text 2>/dev/null)"
-  if echo "$CERT_TEXT" | grep -E -q "api\.onusly\.com|\*\.onusly\.com"; then
-    echo "[+] Certificate domain coverage verified: matches api.onusly.com or *.onusly.com."
+  if echo "$CERT_TEXT" | grep -F -q "$PUBLIC_DOMAIN" || echo "$CERT_TEXT" | grep -E -q "api\.onusly\.com|\*\.onusly\.com"; then
+    echo "[+] Certificate domain coverage verified: matches ${PUBLIC_DOMAIN}."
   else
-    echo "[-] ERROR: Certificate does NOT cover 'api.onusly.com'!" >&2
+    echo "[-] ERROR: Certificate does NOT cover '${PUBLIC_DOMAIN}'!" >&2
     openssl x509 -in "$SSL_CERT_PATH" -noout -subject || true
     if [ "$DEV_MODE" = false ]; then
       exit 1
@@ -520,6 +553,13 @@ if [ -f "$NGINX_CONF_DEST" ]; then
 fi
 
 cp -f "${APP_DIR}/deploy/nginx/onusly.conf" "$NGINX_CONF_DEST"
+if [ "$SSL_CERT_PATH" != "/etc/ssl/onusly/api.onusly.com.pem" ] || [ "$SSL_KEY_PATH" != "/etc/ssl/onusly/api.onusly.com.key" ]; then
+  sed -i "s|/etc/ssl/onusly/api.onusly.com.pem|${SSL_CERT_PATH}|g" "$NGINX_CONF_DEST"
+  sed -i "s|/etc/ssl/onusly/api.onusly.com.key|${SSL_KEY_PATH}|g" "$NGINX_CONF_DEST"
+fi
+if [ "$PUBLIC_DOMAIN" != "api.onusly.com" ] && ! grep -F -q "$PUBLIC_DOMAIN" "$NGINX_CONF_DEST"; then
+  sed -i "s|localhost;|${PUBLIC_DOMAIN} localhost;|g" "$NGINX_CONF_DEST"
+fi
 
 if nginx -t; then
   echo "[+] Nginx configuration syntax validated successfully."
@@ -647,8 +687,8 @@ else
   exit 1
 fi
 
-# 13.2 Verify local Nginx HTTPS reverse proxy (:443 with Host: api.onusly.com)
-HEALTH_HTTPS="$(curl -k -s -o /dev/null -w "%{http_code}" -H "Host: api.onusly.com" https://127.0.0.1/health || echo "CONN_FAILED")"
+# 13.2 Verify local Nginx HTTPS reverse proxy (:443 with Host: ${PUBLIC_DOMAIN})
+HEALTH_HTTPS="$(curl -k -s -o /dev/null -w "%{http_code}" -H "Host: ${PUBLIC_DOMAIN}" https://127.0.0.1/health || echo "CONN_FAILED")"
 if [ "$HEALTH_HTTPS" = "200" ]; then
   echo "[+] Local Nginx HTTPS Proxy (https://127.0.0.1/health) -> HTTP 200 OK"
 else
@@ -662,7 +702,7 @@ else
 fi
 
 # 13.3 Verify HTTP-to-HTTPS redirect (:80)
-REDIRECT_CODE="$(curl -s -o /dev/null -w "%{http_code}" -H "Host: api.onusly.com" http://127.0.0.1/health || echo "CONN_FAILED")"
+REDIRECT_CODE="$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${PUBLIC_DOMAIN}" http://127.0.0.1/health || echo "CONN_FAILED")"
 if [ "$REDIRECT_CODE" = "301" ]; then
   echo "[+] Local Nginx Port 80 Redirect -> HTTP 301 Moved Permanently (Expected)"
 else

@@ -171,7 +171,7 @@ func TestD13_SecurityHeaders(t *testing.T) {
 	recUpload := httptest.NewRecorder()
 	handler.ServeHTTP(recUpload, reqUpload)
 	uploadCSP := recUpload.Header().Get("Content-Security-Policy")
-	for _, allowed := range []string{"https://onusly.app", "https://onusly.com", "https://*.onusly.com"} {
+	for _, allowed := range []string{"https://onusly.app", "https://onusly.com", "https://*.onusly.com", "https://onusly.duckdns.org"} {
 		if !strings.Contains(uploadCSP, allowed) {
 			t.Errorf("upload CSP missing %s, got %q", allowed, uploadCSP)
 		}

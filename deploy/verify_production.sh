@@ -137,10 +137,18 @@ rm -f "$TMP_CRX" "$TMP_CRX_HEADER"
 # ------------------------------------------------------------------------------
 # 5. CORS Preflight Check
 # ------------------------------------------------------------------------------
-echo ">>> Check 5: CORS Preflight (OPTIONS ${TARGET_URL}/enforcement/blocklist)..."
+CORS_ORIGIN="${VERIFY_ORIGIN:-}"
+if [ -z "$CORS_ORIGIN" ]; then
+  if [[ "$TARGET_URL" == *"api.onusly.com"* ]]; then
+    CORS_ORIGIN="https://onusly.app"
+  else
+    CORS_ORIGIN="$TARGET_URL"
+  fi
+fi
+echo ">>> Check 5: CORS Preflight (OPTIONS ${TARGET_URL}/enforcement/blocklist, Origin: ${CORS_ORIGIN})..."
 TMP_CORS_HEADER="$(mktemp)"
 CORS_STATUS="$(curl -s -S "${CURL_EXTRA_FLAGS[@]}" -X OPTIONS -o /dev/null -D "$TMP_CORS_HEADER" -w "%{http_code}" \
-  -H "Origin: https://onusly.app" \
+  -H "Origin: ${CORS_ORIGIN}" \
   -H "Access-Control-Request-Method: GET" \
   -H "Access-Control-Request-Headers: Authorization,Content-Type" \
   "${TARGET_URL}/enforcement/blocklist" || echo "CONN_ERR")"
