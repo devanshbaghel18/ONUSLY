@@ -20,8 +20,21 @@ func NewWebSocketPublisher(hub *Hub) *WebSocketPublisher {
 	return &WebSocketPublisher{hub: hub}
 }
 
-// PublishProofSubmitted delivers real-time proof submission notification to the approver if online.
-// It also persists and broadcasts a chat verification message so the proof request appears directly in the 1-on-1 chat.
+func deliverToParticipants(hub *Hub, ownerID, approverID string, ev Event) {
+	if ownerID != "" {
+		_ = hub.SendToUser(ownerID, ev)
+		_ = hub.SendToEmail(ownerID, ev)
+		_ = hub.SendToHandle(ownerID, ev)
+	}
+	if approverID != "" && approverID != ownerID {
+		_ = hub.SendToUser(approverID, ev)
+		_ = hub.SendToEmail(approverID, ev)
+		_ = hub.SendToHandle(approverID, ev)
+	}
+}
+
+// PublishProofSubmitted delivers real-time proof submission notification to the approver and owner if online.
+// It also persists and dispatches a chat verification message so the proof request appears directly in the 1-on-1 chat.
 func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event events.ProofSubmittedEvent) error {
 	if p.hub == nil {
 		return nil
@@ -45,16 +58,12 @@ func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event ev
 		Payload: payload,
 	}
 
-	if event.ApproverID != "" {
-		_ = p.hub.SendToUser(event.ApproverID, wsEvent)
-		_ = p.hub.SendToEmail(event.ApproverID, wsEvent)
-		_ = p.hub.SendToHandle(event.ApproverID, wsEvent)
-	}
-	// Broadcast so all connected approver clients receive live inbox update immediately
-	p.hub.Broadcast(wsEvent)
+	deliverToParticipants(p.hub, event.OwnerID, event.ApproverID, wsEvent)
 
 	// Synthesize and dispatch chat message so verification appears directly in the chat between owner and approver
-	if p.hub.msgStore != nil && event.ApproverID != "" && event.OwnerID != "" {
+	msgStore := p.hub.MessageStore()
+	resolver := p.hub.UserResolver()
+	if msgStore != nil && event.ApproverID != "" && event.OwnerID != "" {
 		ownerID := event.OwnerID
 		ownerEmail := ""
 		ownerHandle := ""
@@ -62,12 +71,12 @@ func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event ev
 		approverEmail := ""
 		approverHandle := ""
 
-		if p.hub.userResolver != nil {
-			if _, e, h, err := p.hub.userResolver.ResolveUser(ctx, event.OwnerID); err == nil {
+		if resolver != nil {
+			if _, e, h, err := resolver.ResolveUser(ctx, event.OwnerID); err == nil {
 				ownerEmail = e
 				ownerHandle = h
 			}
-			if _, e, h, err := p.hub.userResolver.ResolveUser(ctx, event.ApproverID); err == nil {
+			if _, e, h, err := resolver.ResolveUser(ctx, event.ApproverID); err == nil {
 				approverEmail = e
 				approverHandle = h
 			}
@@ -102,11 +111,9 @@ func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event ev
 			Time:            nowStr,
 		}
 
-		p.hub.mu.RLock()
-		_, isRecipientOnline := p.hub.users[approverID]
-		p.hub.mu.RUnlock()
+		isRecipientOnline := p.hub.IsUserOnline(approverID)
 
-		_ = p.hub.msgStore.SaveMessage(ctx, storedMsg, isRecipientOnline)
+		_ = msgStore.SaveMessage(ctx, storedMsg, isRecipientOnline)
 
 		chatEvent := Event{
 			Type: "chat.message",
@@ -157,12 +164,9 @@ func (p *WebSocketPublisher) PublishApprovalDecided(ctx context.Context, event e
 			},
 		}
 
-		_ = p.hub.SendToUser(event.OwnerID, unlockEvent)
-		if event.ApproverID != "" && event.ApproverID != event.OwnerID {
-			_ = p.hub.SendToUser(event.ApproverID, unlockEvent)
-		}
+		deliverToParticipants(p.hub, event.OwnerID, event.ApproverID, unlockEvent)
 
-		// Also broadcast authentic chat.message.approved event platform-wide
+		// Route goal approval chat notification strictly to the owner and approver
 		approveEvent := Event{
 			Type: "chat.message.approved",
 			Payload: map[string]interface{}{
@@ -174,7 +178,7 @@ func (p *WebSocketPublisher) PublishApprovalDecided(ctx context.Context, event e
 				"status":       "completed",
 			},
 		}
-		p.hub.Broadcast(approveEvent)
+		deliverToParticipants(p.hub, event.OwnerID, event.ApproverID, approveEvent)
 	} else if event.Status == "rejected" {
 		log.Printf("[Realtime] Dispatching goal.rejected event to owner %s for goal %s", event.OwnerID, event.GoalID)
 		rejectEvent := Event{
@@ -190,11 +194,7 @@ func (p *WebSocketPublisher) PublishApprovalDecided(ctx context.Context, event e
 			},
 		}
 
-		_ = p.hub.SendToUser(event.OwnerID, rejectEvent)
-		if event.ApproverID != "" && event.ApproverID != event.OwnerID {
-			_ = p.hub.SendToUser(event.ApproverID, rejectEvent)
-		}
-		p.hub.Broadcast(rejectEvent)
+		deliverToParticipants(p.hub, event.OwnerID, event.ApproverID, rejectEvent)
 	}
 
 	return nil

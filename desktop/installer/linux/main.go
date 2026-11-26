@@ -430,7 +430,7 @@ func runUpgrade(stagedDir string, allowDowngrade, isRoot bool, agentBin, nativeH
 			_ = os.Remove(hostBak)
 		}
 		if isRoot {
-			_ = exec.Command("systemctl", "restart", "onusly-agent").Run()
+			_ = exec.Command("systemctl", "restart", "onusly-desktop.service").Run()
 		}
 		fmt.Println("↩️ System cleanly rolled back to previous version.")
 		os.Exit(1)
@@ -455,8 +455,8 @@ func runUpgrade(stagedDir string, allowDowngrade, isRoot bool, agentBin, nativeH
 
 	// 5. Restart systemd service if running as root
 	if isRoot {
-		fmt.Println("🔄 Restarting systemd service: onusly-agent...")
-		if err := exec.Command("systemctl", "restart", "onusly-agent").Run(); err != nil {
+		fmt.Println("🔄 Restarting systemd service: onusly-desktop.service...")
+		if err := exec.Command("systemctl", "restart", "onusly-desktop.service").Run(); err != nil {
 			rollback(fmt.Sprintf("failed to restart service: %v", err))
 		}
 

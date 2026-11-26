@@ -48,14 +48,17 @@ class OnuslyApplication : Application() {
         )
         syncRepository.addSignOutListener {
             realtimeWebSocketManager.disconnect()
+            com.onusly.app.dns.DnsShieldManager.stopShield(this, clearUserEnabled = false)
         }
 
         // Startup sync if signed in
         if (authManager.isSignedIn()) {
             applicationScope.launch(Dispatchers.IO) {
                 syncRepository.syncBlocklist()
+                syncRepository.syncWellbeingHistoryIfNeeded(this@OnuslyApplication)
             }
             realtimeWebSocketManager.connect()
+            com.onusly.app.dns.DnsShieldManager.startIfEnabledAndPermitted(this)
         }
 
         // Immediate and periodic 60-second heartbeat loop while application process is alive
@@ -67,6 +70,7 @@ class OnuslyApplication : Application() {
                             com.onusly.app.service.OnuslyAccessibilityService.isServiceEnabled(this@OnuslyApplication)
                         val issues = if (!accessibilityActive) listOf("accessibility_disabled") else emptyList()
                         syncRepository.sendHeartbeat(issues)
+                        syncRepository.syncWellbeingToday(this@OnuslyApplication)
                     } catch (_: Exception) {
                     }
                 }

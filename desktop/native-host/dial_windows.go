@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	DefaultWindowsIPCPath = `\\.\pipe\OnuslyAgentIPC`
+	DefaultWindowsIPCPath  = `\\.\pipe\OnuslyDesktopPipe`
+	FallbackWindowsIPCPath = `\\.\pipe\OnuslyAgentIPC`
 )
 
 func getDefaultIPCPath() string {
@@ -22,16 +23,19 @@ func getDefaultIPCPath() string {
 }
 
 func queryAgent(pipePath string, req core.IPCRequest) core.IPCResponse {
-	if pipePath == "" || pipePath[0] == '/' {
-		pipePath = DefaultWindowsIPCPath
-	}
-
-	pipeNamePtr, err := syscall.UTF16PtrFromString(pipePath)
-	if err != nil {
-		return core.IPCResponse{
-			Success: false,
-			Error:   "invalid pipe name: " + err.Error(),
+	var candidates []string
+	if pipePath == "" || pipePath[0] == '/' || pipePath == DefaultWindowsIPCPath || pipePath == FallbackWindowsIPCPath {
+		if pipePath != "" && pipePath[0] != '/' {
+			candidates = append(candidates, pipePath)
 		}
+		if pipePath != DefaultWindowsIPCPath {
+			candidates = append(candidates, DefaultWindowsIPCPath)
+		}
+		if pipePath != FallbackWindowsIPCPath {
+			candidates = append(candidates, FallbackWindowsIPCPath)
+		}
+	} else {
+		candidates = append(candidates, pipePath)
 	}
 
 	// Connect to Windows service named pipe with SecurityIdentification SQOS
@@ -40,28 +44,41 @@ func queryAgent(pipePath string, req core.IPCRequest) core.IPCResponse {
 	var errOpen error
 
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		hClient, _, errOpen = win.ProcCreateFileW.Call(
-			uintptr(unsafe.Pointer(pipeNamePtr)),
-			uintptr(win.GENERIC_READ|win.GENERIC_WRITE),
-			0,
-			0,
-			uintptr(win.OPEN_EXISTING),
-			uintptr(flags),
-			0,
-		)
+	for _, candidate := range candidates {
+		pipeNamePtr, err := syscall.UTF16PtrFromString(candidate)
+		if err != nil {
+			continue
+		}
+		perPipeDeadline := time.Now().Add(900 * time.Millisecond)
+		if perPipeDeadline.After(deadline) {
+			perPipeDeadline = deadline
+		}
+		for time.Now().Before(perPipeDeadline) {
+			hClient, _, errOpen = win.ProcCreateFileW.Call(
+				uintptr(unsafe.Pointer(pipeNamePtr)),
+				uintptr(win.GENERIC_READ|win.GENERIC_WRITE),
+				0,
+				0,
+				uintptr(win.OPEN_EXISTING),
+				uintptr(flags),
+				0,
+			)
+			if hClient != uintptr(syscall.InvalidHandle) && hClient != 0 {
+				break
+			}
+
+			errno, ok := errOpen.(syscall.Errno)
+			if ok && (errno == 2 || errno == 231) {
+				// ERROR_FILE_NOT_FOUND or ERROR_PIPE_BUSY
+				win.ProcWaitNamedPipeW.Call(uintptr(unsafe.Pointer(pipeNamePtr)), 100)
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			break
+		}
 		if hClient != uintptr(syscall.InvalidHandle) && hClient != 0 {
 			break
 		}
-
-		errno, ok := errOpen.(syscall.Errno)
-		if ok && (errno == 2 || errno == 231) {
-			// ERROR_FILE_NOT_FOUND or ERROR_PIPE_BUSY
-			win.ProcWaitNamedPipeW.Call(uintptr(unsafe.Pointer(pipeNamePtr)), 100)
-			time.Sleep(50 * time.Millisecond)
-			continue
-		}
-		break
 	}
 
 	if hClient == uintptr(syscall.InvalidHandle) || hClient == 0 {

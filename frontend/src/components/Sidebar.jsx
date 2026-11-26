@@ -5,6 +5,7 @@ import {
   Target,
   Users,
   CheckSquare,
+  Activity,
   LogOut,
   X,
 } from "lucide-react";
@@ -53,6 +54,11 @@ export default function Sidebar({ isOpen, onClose }) {
       name: "Dashboard",
       path: "/dashboard",
       icon: LayoutDashboard,
+    },
+    {
+      name: "Digital Wellbeing",
+      path: "/wellbeing",
+      icon: Activity,
     },
     {
       name: "My Goals",

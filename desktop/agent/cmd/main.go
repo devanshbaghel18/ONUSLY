@@ -25,9 +25,15 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 )
 
+var defaultAPIURL = "https://api.onusly.com"
+
 func main() {
+	initAPI := strings.TrimSpace(os.Getenv("ONUSLY_API_URL"))
+	if initAPI == "" {
+		initAPI = defaultAPIURL
+	}
 	var (
-		apiURL        = flag.String("api-url", "http://localhost:8081", "ONUSLY backend API URL")
+		apiURL        = flag.String("api-url", initAPI, "ONUSLY backend API URL")
 		configDir     = flag.String("config-dir", getDefaultConfigDir(), "Configuration directory path")
 		dataDir       = flag.String("data-dir", getDefaultDataDir(), "Data storage directory path")
 		ipcPath       = flag.String("socket", getDefaultIPCPath(), "IPC socket or named pipe path")
@@ -178,6 +184,7 @@ func main() {
 			*apiURL,
 			*dnsListenFlag,
 			*configDir,
+			*dataDir,
 		)
 	default:
 		fmt.Printf("Unknown command: %s. Valid commands: run, pair, status, diagnostics\n", cmd)

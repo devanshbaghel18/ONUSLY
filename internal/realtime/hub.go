@@ -161,6 +161,20 @@ func (h *Hub) SetUserResolver(resolver UserResolver) {
 	h.userResolver = resolver
 }
 
+// MessageStore returns the configured MessageStore in a thread-safe manner.
+func (h *Hub) MessageStore() MessageStore {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.msgStore
+}
+
+// UserResolver returns the configured UserResolver in a thread-safe manner.
+func (h *Hub) UserResolver() UserResolver {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.userResolver
+}
+
 // Register adds a client connection under its authenticated UserID, Email, and Handle.
 func (h *Hub) Register(c *Client) {
 	h.mu.Lock()
@@ -952,7 +966,13 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 					"approverId":   c.userID,
 				},
 			}
-			h.Broadcast(approveEvent)
+			// Route privately to the goal owner and approver rather than broadcasting globally.
+			if ownerID != "" {
+				_ = h.SendToUser(ownerID, approveEvent)
+			}
+			if c.userID != "" && c.userID != ownerID {
+				_ = h.SendToUser(c.userID, approveEvent)
+			}
 		}
 
 	case "community.register":
@@ -1307,31 +1327,69 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			},
 		}
 
-		// Broadcast to all active community room listeners except the sender client
-		_ = h.SendToCommunityExcept(cleanCommID, c, outEvent)
+		// Broadcast to all active community room listeners except the sender client,
+		// and record which clients already received the event so members in the room
+		// do not get a duplicate copy from the offline/member fallback loop below.
+		alreadySent := make(map[*Client]bool)
+		if c != nil {
+			alreadySent[c] = true
+		}
+		if data, err := json.Marshal(outEvent); err == nil {
+			h.mu.RLock()
+			if roomConns, ok := h.communities[cleanCommID]; ok {
+				for client := range roomConns {
+					if exceptClient := c; client == exceptClient {
+						continue
+					}
+					select {
+					case client.send <- data:
+						alreadySent[client] = true
+					default:
+						log.Printf("[WebSocket] Buffer full for client in community %s", cleanCommID)
+					}
+				}
+			}
+			h.mu.RUnlock()
+		}
 
-		// Direct forward to all registered members who may not currently be in the room
+		// Direct forward to any registered member connections not already reached in the room.
 		cleanCHandle := strings.TrimPrefix(strings.ToLower(senderHandle), "@")
 		cleanCEmail := strings.ToLower(senderEmail)
 
 		h.mu.RLock()
 		rec = h.commRecords[cleanCommID]
-		var memberTargets []string
+		var extraClients []*Client
 		if rec != nil {
+			seenTarget := make(map[*Client]bool)
 			for target := range rec.Members {
 				cleanTarget := strings.TrimPrefix(strings.ToLower(target), "@")
-				if cleanTarget != cleanCHandle && cleanTarget != cleanCEmail {
-					memberTargets = append(memberTargets, target)
+				if cleanTarget == cleanCHandle || cleanTarget == cleanCEmail {
+					continue
+				}
+				var bucket map[*Client]bool
+				if strings.Contains(target, "@") && strings.Contains(target, ".") {
+					bucket = h.emails[strings.TrimSpace(strings.ToLower(target))]
+				} else {
+					bucket = h.handles[cleanTarget]
+				}
+				for client := range bucket {
+					if !alreadySent[client] && !seenTarget[client] {
+						seenTarget[client] = true
+						extraClients = append(extraClients, client)
+					}
 				}
 			}
 		}
 		h.mu.RUnlock()
 
-		for _, member := range memberTargets {
-			if strings.Contains(member, "@") && strings.Contains(member, ".") {
-				_ = h.SendToEmail(member, outEvent)
-			} else {
-				_ = h.SendToHandle(member, outEvent)
+		if len(extraClients) > 0 {
+			if data, err := json.Marshal(outEvent); err == nil {
+				for _, client := range extraClients {
+					select {
+					case client.send <- data:
+					default:
+					}
+				}
 			}
 		}
 

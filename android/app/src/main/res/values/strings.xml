@@ -6,6 +6,11 @@
     <string name="accessibility_enable_button">Enable in Settings</string>
     <string name="accessibility_enabled_title">Blocking is Active</string>
     <string name="accessibility_enabled_desc">Accessibility Service is running and enforcing active blocklists.</string>
+    <string name="dns_shield_enabled_title">Mobile DNS Blocking is Active</string>
+    <string name="dns_shield_disabled_title">Mobile DNS Blocking is OFF</string>
+    <string name="dns_shield_disabled_desc">Enable local VPN DNS filtering to block distracting websites across Chrome, Firefox, and all apps without root.</string>
+    <string name="dns_shield_enable_button">Enable DNS Website Blocking</string>
+    <string name="dns_shield_disable_button">Turn Off DNS Blocking</string>
     <string name="sign_in_with_google">Sign in with Google</string>
     <string name="sign_out">Sign Out</string>
     <string name="sync_now">Sync Now</string>

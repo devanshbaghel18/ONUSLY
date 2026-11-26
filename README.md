@@ -94,10 +94,11 @@ Traditional habit trackers rely on honour-system checkboxes that users easily ga
   - `desktop_app`: Desktop executable names (e.g. `discord.exe`, `steam.exe`, `slack`).
   - `android_package`: Mobile package names (e.g. `com.discord`, `com.reddit.frontpage`).
   - Special granular targets: YouTube Shorts path-specific filtering (`/shorts` blocked while educational `/watch` remains open).
-- **Windows Desktop Agent**: Native system service executing under `NT AUTHORITY\LocalService` with loopback DNS sinkhole, DPAPI credential storage, named-pipe IPC (`\\.\pipe\OnuslyAgentIPC`), and 1-click standalone installer with auto-pairing.
-- **Linux Desktop Agent**: Systemd daemon with kernel keyring credential storage and UNIX domain socket IPC (`/run/onusly/onusly.sock`).
-- **Android Native Client (`com.onusly.app`)**: Android `AccessibilityService` with `canRetrieveWindowContent="false"` for strict zero-surveillance privacy. Detects foreground packages, presents full-screen `LockActivity` blocker overlays, and maintains a local fail-safe Last-Known-Good (LKG) cache with ETag 304 synchronization.
-- **Chromium / Edge Extension (Manifest V3)**: Page blocker, YouTube Shorts feed suppression, dashboard bridge, and native messaging IPC with anti-tamper disconnect lockdown.
+- **Windows Desktop Agent**: Native system service executing under `NT AUTHORITY\LocalService` with loopback DNS sinkhole, DPAPI credential storage, named-pipe IPC (`\\.\pipe\OnuslyDesktopPipe` / fallback `OnuslyAgentIPC`), 1-click standalone installer (`OnuslySetup.exe`), and foreground desktop Digital Wellbeing tracking.
+- **Linux Desktop Agent**: Systemd daemon with kernel keyring credential storage, UNIX domain socket IPC (`/run/onusly/onusly.sock`), and X11/Wayland active window telemetry.
+- **Android Native Client (`com.onusly.app`)**: Android `AccessibilityService` (`canRetrieveWindowContent="false"`) for app blocking plus local non-root **Mobile DNS Shield (`OnuslyDnsVpnService`)** routing virtual DNS traffic (`10.111.222.2` sinkhole) for system-wide browser/website blocking, `UsageStatsManager` screen-time collection, and a local fail-safe Last-Known-Good (LKG) cache with ETag 304 synchronization.
+- **Chromium / Edge Extension (Manifest V3)**: Page blocker, YouTube Shorts feed suppression, dashboard bridge, native messaging IPC, popup Today's Wellbeing summary, and active browse-time/open-count tracker.
+- **Digital Wellbeing & Smart Enforcement (`/wellbeing/*`)**: Cross-platform daily screen-time, app launches, website opens, and blocked attempts analytics (`today`, `yesterday`, `7d`, `all`), daily per-app/per-domain quotas with real-time `wellbeing.limit_reached` WebSocket push triggers, and configurable Wind-Down Focus Schedules enforced uniformly across all clients.
 - **Device Pairing & Remote Revocation**: Secure 6-digit PIN and QR code pairing (`/enforcement/pair/*`), periodic heartbeats (`/enforcement/heartbeat`), and instant centralized device revocation (`POST /enforcement/devices/{id}/revoke`).
 
 ### 3.6 Real-Time WebSocket Gateway & Event Pipeline
@@ -516,8 +517,8 @@ An Nginx configuration template with WebSocket upgrade headers (`Upgrade` and `C
 
 Production routing:
 - `/ws` & `/ws/` -> `http://127.0.0.1:8080` (Go WebSocket Hub)
-- `/goals`, `/auth`, `/enforcement`, etc. -> `http://127.0.0.1:8080` (Go REST API)
-- `/downloads/` -> Static extension builds & update manifests
+- `/goals`, `/auth`, `/enforcement`, `/wellbeing`, `/uploads`, `/approvals`, etc. -> `http://127.0.0.1:8080` (Go REST API)
+- `/downloads/` -> Static extension builds, `OnuslySetup.exe`, & update manifests
 - `/` -> SPA static assets (`frontend/dist`)
 
 ### 12.3 Automated Deployment Scripts

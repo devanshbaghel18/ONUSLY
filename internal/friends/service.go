@@ -19,10 +19,17 @@ type MessageBroadcaster interface {
 	SendToUser(userID string, event realtime.Event) error
 }
 
+type NotificationSender interface {
+	CreateFromFriendRequest(ctx context.Context, recipientID, requestID, senderName, senderHandle, senderID string) error
+	CreateFromFriendAccepted(ctx context.Context, recipientID, acceptorName, acceptorHandle, acceptorID string) error
+	MarkAsRead(ctx context.Context, recipientID, notifID string) error
+}
+
 type Service struct {
 	repo         *Repository
 	userResolver UserResolver
 	broadcaster  MessageBroadcaster
+	notifSender  NotificationSender
 }
 
 func NewService(repo *Repository, resolver UserResolver, broadcaster MessageBroadcaster) *Service {
@@ -39,6 +46,10 @@ func (s *Service) SetBroadcaster(b MessageBroadcaster) {
 
 func (s *Service) SetUserResolver(r UserResolver) {
 	s.userResolver = r
+}
+
+func (s *Service) SetNotificationSender(n NotificationSender) {
+	s.notifSender = n
 }
 
 // SendRequest sends a friend request to a target user resolved by handle or email.
@@ -90,6 +101,9 @@ func (s *Service) SendRequest(ctx context.Context, callerID, callerEmail, caller
 	if callerName == "" {
 		callerName = strings.Split(callerEmail, "@")[0]
 	}
+	if callerName == "" {
+		callerName = "Someone"
+	}
 
 	targetName := targetHandle
 	if targetName == "" {
@@ -113,6 +127,10 @@ func (s *Service) SendRequest(ctx context.Context, callerID, callerEmail, caller
 
 	if err := s.repo.SaveFriendRequest(ctx, req); err != nil {
 		return nil, fmt.Errorf("save friend request: %w", err)
+	}
+
+	if s.notifSender != nil {
+		_ = s.notifSender.CreateFromFriendRequest(ctx, targetID, req.ID, req.SenderName, req.SenderHandle, req.SenderID)
 	}
 
 	// Broadcast realtime event to recipient if broadcaster is present
@@ -162,6 +180,11 @@ func (s *Service) RespondRequest(ctx context.Context, callerID string, reqID str
 			return fmt.Errorf("accept friend request: %w", err)
 		}
 
+		if s.notifSender != nil {
+			_ = s.notifSender.MarkAsRead(ctx, callerID, "friend-req-"+req.ID)
+			_ = s.notifSender.CreateFromFriendAccepted(ctx, req.SenderID, req.RecipientName, req.RecipientHandle, req.RecipientID)
+		}
+
 		// Broadcast acceptance to both users
 		if s.broadcaster != nil {
 			event := realtime.Event{
@@ -179,6 +202,9 @@ func (s *Service) RespondRequest(ctx context.Context, callerID string, reqID str
 	} else {
 		if err := s.repo.RejectFriendRequest(ctx, *req); err != nil {
 			return fmt.Errorf("reject friend request: %w", err)
+		}
+		if s.notifSender != nil {
+			_ = s.notifSender.MarkAsRead(ctx, callerID, "friend-req-"+req.ID)
 		}
 	}
 

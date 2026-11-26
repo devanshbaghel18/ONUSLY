@@ -33,6 +33,7 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/internal/queue"
 	"github.com/devanshbaghel18/ONUSLY/internal/realtime"
 	"github.com/devanshbaghel18/ONUSLY/internal/shared"
+	"github.com/devanshbaghel18/ONUSLY/internal/wellbeing"
 )
 
 func health(w http.ResponseWriter, r *http.Request) {
@@ -203,15 +204,15 @@ func main() {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.Header().Del("X-Frame-Options")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://*.onusly.com;")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://*.onusly.com https://*.onusly.app;")
 		uploadFileServer.ServeHTTP(w, r)
 	})))
 
 	// Real-time WebSocket Hub
 	wsHub := realtime.NewHub()
 	authService.SetSessionDisconnecter(wsHub)
-	mux.HandleFunc("GET /ws", realtime.ServeWS(wsHub, cfg.JWTSecret))
-	mux.HandleFunc("GET /ws/", realtime.ServeWS(wsHub, cfg.JWTSecret))
+	mux.HandleFunc("GET /ws", realtime.ServeWSWithValidator(wsHub, cfg.JWTSecret, authRepo))
+	mux.HandleFunc("GET /ws/", realtime.ServeWSWithValidator(wsHub, cfg.JWTSecret, authRepo))
 
 	// Goals
 	goalRepo := goals.NewRepository(db, tableName)
@@ -299,7 +300,15 @@ func main() {
 	// Friends & Communities Repository, Service & Handler
 	friendsRepo := friends.NewRepository(db, tableName)
 	friendsService := friends.NewService(friendsRepo, chatResolver, wsHub)
+	friendsService.SetNotificationSender(notifService)
 	friendsHandler := friends.NewHandler(friendsService)
+
+	// Digital Wellbeing Analytics Repository, Service & Handler
+	wellbeingRepo := wellbeing.NewDynamoRepository(db, tableName)
+	wellbeingService := wellbeing.NewService(wellbeingRepo)
+	wellbeingService.SetLimitNotifier(&serverWellbeingNotifier{hub: wsHub})
+	wellbeingHandler := wellbeing.NewHandler(wellbeingService)
+	enforcementService.SetWellbeingProvider(wellbeingService)
 
 	// Protected routes
 	goalRoutes := http.NewServeMux()
@@ -490,6 +499,32 @@ func main() {
 		"POST /enforcement/pair/confirm",
 		enforcementHandler.ConfirmPairing,
 	)
+
+	// Digital Wellbeing Ingestion, Summary, Daily Limits & Focus Schedule
+	goalRoutes.HandleFunc(
+		"POST /wellbeing/ingest",
+		wellbeingHandler.Ingest,
+	)
+	goalRoutes.HandleFunc(
+		"GET /wellbeing/summary",
+		wellbeingHandler.GetSummary,
+	)
+	goalRoutes.HandleFunc(
+		"GET /wellbeing/rules",
+		wellbeingHandler.GetRules,
+	)
+	goalRoutes.HandleFunc(
+		"PUT /wellbeing/limits",
+		wellbeingHandler.UpsertLimit,
+	)
+	goalRoutes.HandleFunc(
+		"DELETE /wellbeing/limits/{id}",
+		wellbeingHandler.DeleteLimit,
+	)
+	goalRoutes.HandleFunc(
+		"PUT /wellbeing/schedule",
+		wellbeingHandler.SaveSchedule,
+	)
 	goalRoutes.HandleFunc(
 		"GET /enforcement/desktop/status",
 		enforcementHandler.GetDesktopStatus,
@@ -647,6 +682,8 @@ func main() {
 	mux.Handle("/communities/", protectedRoutes)
 	mux.Handle("/enforcement", protectedRoutes)
 	mux.Handle("/enforcement/", protectedRoutes)
+	mux.Handle("/wellbeing", protectedRoutes)
+	mux.Handle("/wellbeing/", protectedRoutes)
 	mux.Handle("/uploads", protectedRoutes)
 	mux.Handle("POST /auth/revoke-all", protectedRoutes)
 	mux.Handle("POST /auth/logout-all", protectedRoutes)
@@ -796,5 +833,22 @@ func (b *serverNotifBroadcaster) SendNotification(userID, eventType string, payl
 	return b.hub.SendToUser(userID, realtime.Event{
 		Type:    eventType,
 		Payload: payload,
+	})
+}
+
+type serverWellbeingNotifier struct {
+	hub *realtime.Hub
+}
+
+func (n *serverWellbeingNotifier) NotifyLimitReached(_ context.Context, userID string, exceeded []wellbeing.TimeLimitRule) {
+	if n.hub == nil || len(exceeded) == 0 {
+		return
+	}
+	_ = n.hub.SendToUser(userID, realtime.Event{
+		Type: "wellbeing.limit_reached",
+		Payload: map[string]interface{}{
+			"userId":   userID,
+			"exceeded": exceeded,
+		},
 	})
 }

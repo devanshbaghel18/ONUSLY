@@ -1,6 +1,10 @@
 package com.onusly.app.ui
 
+import android.Manifest
+import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -10,6 +14,7 @@ import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
@@ -19,6 +24,7 @@ import com.google.android.material.card.MaterialCardView
 import com.onusly.app.OnuslyApplication
 import com.onusly.app.R
 import com.onusly.app.data.SyncRepository
+import com.onusly.app.dns.DnsShieldManager
 import com.onusly.app.service.OnuslyAccessibilityService
 import kotlinx.coroutines.launch
 
@@ -38,6 +44,28 @@ class SettingsFragment : Fragment() {
     private lateinit var tvAccessibilityDiagnostics: TextView
     private lateinit var btnSettingsAccessibility: MaterialButton
 
+    private lateinit var cardSettingsDnsShield: MaterialCardView
+    private lateinit var tvSettingsDnsStatus: TextView
+    private lateinit var tvSettingsDnsDiagnostics: TextView
+    private lateinit var btnSettingsDnsToggle: MaterialButton
+
+    private val settingsNotificationLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    private val settingsVpnLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val ctx = context ?: return@registerForActivityResult
+        if (result.resultCode == Activity.RESULT_OK) {
+            DnsShieldManager.startShield(ctx)
+        } else {
+            DnsShieldManager.setUserEnabled(ctx, false)
+            Toast.makeText(ctx, "VPN permission is required for Mobile DNS blocking", Toast.LENGTH_LONG).show()
+        }
+        updateDnsShieldUi()
+    }
+
     private lateinit var cardSettingsBattery: MaterialCardView
     private lateinit var tvBatteryOptimizationStatus: TextView
     private lateinit var tvBatteryOptimizationDiagnostics: TextView
@@ -56,11 +84,26 @@ class SettingsFragment : Fragment() {
         return view
     }
 
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        viewLifecycleOwner.lifecycleScope.launch {
+            DnsShieldManager.isRunning.collect {
+                updateDnsShieldUi()
+            }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            DnsShieldManager.stats.collect {
+                updateDnsShieldUi()
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         updateProfileUi()
         updateBaseUrlUi()
         updateAccessibilityUi()
+        updateDnsShieldUi()
         updateBatteryOptimizationUi()
     }
 
@@ -78,6 +121,11 @@ class SettingsFragment : Fragment() {
         tvAccessibilityStatus = view.findViewById(R.id.tvAccessibilityStatus)
         tvAccessibilityDiagnostics = view.findViewById(R.id.tvAccessibilityDiagnostics)
         btnSettingsAccessibility = view.findViewById(R.id.btnSettingsAccessibility)
+
+        cardSettingsDnsShield = view.findViewById(R.id.cardSettingsDnsShield)
+        tvSettingsDnsStatus = view.findViewById(R.id.tvSettingsDnsStatus)
+        tvSettingsDnsDiagnostics = view.findViewById(R.id.tvSettingsDnsDiagnostics)
+        btnSettingsDnsToggle = view.findViewById(R.id.btnSettingsDnsToggle)
 
         cardSettingsBattery = view.findViewById(R.id.cardSettingsBattery)
         tvBatteryOptimizationStatus = view.findViewById(R.id.tvBatteryOptimizationStatus)
@@ -99,6 +147,27 @@ class SettingsFragment : Fragment() {
         btnSettingsAccessibility.setOnClickListener {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
+        }
+
+        btnSettingsDnsToggle.setOnClickListener {
+            val ctx = context ?: return@setOnClickListener
+            if (DnsShieldManager.isRunning.value) {
+                DnsShieldManager.stopShield(ctx)
+                updateDnsShieldUi()
+            } else {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    settingsNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                val prepareIntent = DnsShieldManager.prepareVpnIntent(ctx)
+                if (prepareIntent != null) {
+                    settingsVpnLauncher.launch(prepareIntent)
+                } else {
+                    DnsShieldManager.startShield(ctx)
+                    updateDnsShieldUi()
+                }
+            }
         }
 
         btnBatteryOptimization.setOnClickListener {
@@ -186,6 +255,38 @@ class SettingsFragment : Fragment() {
             cardSettingsAccessibility.strokeColor = ContextCompat.getColor(context, R.color.warning)
             cardSettingsAccessibility.strokeWidth = 2
             tvAccessibilityDiagnostics.text = "Enforcement is currently paused. Android requires users to manually enable Accessibility Services in System Settings.\n\nTap below to open Accessibility Settings, find ONUSLY, and switch it ON.\n\nNote: If Android 13+ restricts settings, open App Info > ⋮ (menu) > 'Allow restricted settings'."
+        }
+    }
+
+    private fun updateDnsShieldUi() {
+        if (view == null || !::cardSettingsDnsShield.isInitialized) return
+        val ctx = context ?: return
+        val running = DnsShieldManager.isRunning.value
+        val stats = DnsShieldManager.stats.value
+        val strictPrivateDns = DnsShieldManager.isStrictPrivateDnsActive(ctx)
+
+        if (running) {
+            tvSettingsDnsStatus.text = "ACTIVE"
+            tvSettingsDnsStatus.setTextColor(ContextCompat.getColor(ctx, R.color.success))
+            cardSettingsDnsShield.strokeColor = ContextCompat.getColor(ctx, R.color.success)
+            cardSettingsDnsShield.strokeWidth = 2
+            val privateDnsNote = if (strictPrivateDns) {
+                "\n\nWarning: Android Private DNS is set to Strict (Hostname), which may bypass local port-53 filtering."
+            } else ""
+            tvSettingsDnsDiagnostics.text = "Local DNS VPN shield is active (${stats.blockedDomainsCount} domain(s) blocked).\nQueries — Blocked: ${stats.queriesBlocked}, Forwarded: ${stats.queriesForwarded}, Cached: ${stats.queriesCached}$privateDnsNote"
+            btnSettingsDnsToggle.text = getString(R.string.dns_shield_disable_button)
+            btnSettingsDnsToggle.backgroundTintList = ContextCompat.getColorStateList(ctx, R.color.surface_card)
+        } else {
+            tvSettingsDnsStatus.text = "OFF"
+            tvSettingsDnsStatus.setTextColor(ContextCompat.getColor(ctx, R.color.warning))
+            cardSettingsDnsShield.strokeColor = ContextCompat.getColor(ctx, R.color.surface_card)
+            cardSettingsDnsShield.strokeWidth = 1
+            val privateDnsNote = if (strictPrivateDns) {
+                "\n\nNote: Switch Android Private DNS to Automatic or Off before enabling."
+            } else ""
+            tvSettingsDnsDiagnostics.text = "Local VPN DNS filter is turned off. Enable to enforce website domain blocklists system-wide without root.$privateDnsNote"
+            btnSettingsDnsToggle.text = getString(R.string.dns_shield_enable_button)
+            btnSettingsDnsToggle.backgroundTintList = ContextCompat.getColorStateList(ctx, R.color.primary)
         }
     }
 
@@ -287,6 +388,7 @@ class SettingsFragment : Fragment() {
         val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_edit_base_url, null)
         val tvEditBaseUrlError = dialogView.findViewById<TextView>(R.id.tvEditBaseUrlError)
         val etEditBaseUrlInput = dialogView.findViewById<EditText>(R.id.etEditBaseUrlInput)
+        val btnUseProdUrl = dialogView.findViewById<MaterialButton>(R.id.btnUseProdUrl)
         val btnResetDefaultUrl = dialogView.findViewById<MaterialButton>(R.id.btnResetDefaultUrl)
         val btnCancelEditBaseUrl = dialogView.findViewById<MaterialButton>(R.id.btnCancelEditBaseUrl)
         val btnSaveEditBaseUrl = dialogView.findViewById<MaterialButton>(R.id.btnSaveEditBaseUrl)
@@ -299,6 +401,12 @@ class SettingsFragment : Fragment() {
             .create()
 
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        btnUseProdUrl?.setOnClickListener {
+            etEditBaseUrlInput.setText(SyncRepository.PRODUCTION_BASE_URL)
+            etEditBaseUrlInput.setSelection(SyncRepository.PRODUCTION_BASE_URL.length)
+            tvEditBaseUrlError.visibility = View.GONE
+        }
 
         btnResetDefaultUrl.setOnClickListener {
             etEditBaseUrlInput.setText(SyncRepository.DEFAULT_BASE_URL)

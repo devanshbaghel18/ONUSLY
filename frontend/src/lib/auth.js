@@ -87,9 +87,14 @@ export function clearAuth() {
 
   // Asynchronously instruct backend to clear HttpOnly session cookie
   try {
+    const envBase = typeof import.meta !== "undefined" ? import.meta.env?.VITE_API_BASE_URL : "";
     const baseUrl =
-      (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
-      (typeof window !== "undefined" && window.location ? `${window.location.protocol}//${window.location.hostname}:8080` : "http://localhost:8080");
+      envBase ||
+      (typeof window !== "undefined" && window.location
+        ? (typeof import.meta !== "undefined" && import.meta.env?.DEV
+            ? `${window.location.protocol}//${window.location.hostname}:8080`
+            : window.location.origin)
+        : "http://localhost:8080");
     fetch(`${baseUrl}/auth/logout`, {
       method: "POST",
       credentials: "include",

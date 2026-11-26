@@ -94,7 +94,12 @@ export function isProtectedUrl(urlStr) {
     }
 
     // ONUSLY production and staging domains
-    if (host === "onusly.com" || host.endsWith(".onusly.com")) {
+    if (
+      host === "onusly.com" ||
+      host.endsWith(".onusly.com") ||
+      host === "onusly.app" ||
+      host.endsWith(".onusly.app")
+    ) {
       return true;
     }
 

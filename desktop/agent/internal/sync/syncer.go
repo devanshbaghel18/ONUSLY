@@ -109,6 +109,8 @@ func (s *Syncer) Sync(ctx context.Context) (*core.BlocklistData, error) {
 		}
 
 		if userID != "" && body.UserID != "" && body.UserID != userID {
+			s.cachedBlocklist = nil
+			s.lastKnownETag = ""
 			return nil, core.ErrUserMismatch
 		}
 

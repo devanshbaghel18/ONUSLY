@@ -14,6 +14,10 @@ const valVersion = document.getElementById("valVersion");
 const valLastSync = document.getElementById("valLastSync");
 const badgeCount = document.getElementById("badgeCount");
 const domainList = document.getElementById("domainList");
+const wbTotalTime = document.getElementById("wbTotalTime");
+const wbOpens = document.getElementById("wbOpens");
+const wbBlocked = document.getElementById("wbBlocked");
+const wbTopList = document.getElementById("wbTopList");
 
 const btnSync = document.getElementById("btnSync");
 const btnSyncText = document.getElementById("btnSyncText");
@@ -22,7 +26,31 @@ const btnOpenDashboard = document.getElementById("btnOpenDashboard");
 const btnDisconnect = document.getElementById("btnDisconnect");
 const btnGoDashboard = document.getElementById("btnGoDashboard");
 
-let dashboardUrl = "http://localhost:5173";
+let dashboardUrl = "https://onusly.com";
+let configuredBaseUrl = "https://api.onusly.com";
+
+function formatDurationShort(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  if (s < 60) return `${s}s`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function inferApiBaseFromTabUrl(tabUrl, fallbackBaseUrl) {
+  try {
+    const u = new URL(tabUrl);
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") {
+      return `http://${u.hostname}:8080`;
+    }
+    if (u.hostname === "onusly.com" || u.hostname.endsWith(".onusly.com") || u.hostname === "onusly.app" || u.hostname.endsWith(".onusly.app")) {
+      return "https://api.onusly.com";
+    }
+    return fallbackBaseUrl || u.origin;
+  } catch {
+    return fallbackBaseUrl || "https://api.onusly.com";
+  }
+}
 
 function setSyncing(isSyncing) {
   if (isSyncing) {
@@ -43,6 +71,9 @@ async function renderState() {
 
     if (settings?.dashboardUrl) {
       dashboardUrl = settings.dashboardUrl;
+    }
+    if (settings?.baseUrl) {
+      configuredBaseUrl = settings.baseUrl;
     }
 
     if (isManaged || (session && session.userId && session.token)) {
@@ -143,6 +174,39 @@ async function renderState() {
         }
       }
 
+      // Render Today's Wellbeing summary
+      try {
+        const wbRes = await chrome.runtime.sendMessage({ type: "GET_WELLBEING_SUMMARY" });
+        const summary = wbRes?.summary;
+        if (wbTotalTime) wbTotalTime.textContent = formatDurationShort(summary?.totalSeconds || 0);
+        if (wbOpens) wbOpens.textContent = String(summary?.totalOpens || 0);
+        if (wbBlocked) wbBlocked.textContent = String(summary?.totalBlocked || 0);
+        if (wbTopList) {
+          wbTopList.innerHTML = "";
+          const top = summary?.topWebsites || [];
+          if (top.length === 0) {
+            wbTopList.innerHTML = '<div class="empty-state">No browsing activity recorded yet today.</div>';
+          } else {
+            for (const entry of top.slice(0, 4)) {
+              const row = document.createElement("div");
+              row.className = "domain-item";
+              const domSpan = document.createElement("span");
+              domSpan.className = "domain-name";
+              domSpan.textContent = entry.domain;
+              const statSpan = document.createElement("span");
+              statSpan.style.fontSize = "11px";
+              statSpan.style.color = "#94A3B8";
+              statSpan.textContent = `${formatDurationShort(entry.seconds)} · ${entry.opens || 0} opens`;
+              row.appendChild(domSpan);
+              row.appendChild(statSpan);
+              wbTopList.appendChild(row);
+            }
+          }
+        }
+      } catch {
+        // Ignore popup wellbeing preview fetch errors
+      }
+
       // Check if goals are currently in progress to lock Disconnect button
       const hasActiveGoals = targets.some((t) => {
         const st = (t.status || "").toLowerCase().trim();
@@ -231,17 +295,20 @@ async function handleQuickPair() {
       url: [
         "http://localhost:*/*",
         "http://127.0.0.1:*/*",
-        "https://*.onusly.com/*"
+        "https://*.onusly.com/*",
+        "https://*.onusly.app/*"
       ]
     });
 
     if (!tabs || tabs.length === 0) {
-      alert("No ONUSLY dashboard tab found. Please open http://localhost:5173 and log in first.");
+      alert(`No ONUSLY dashboard tab found. Please open ${dashboardUrl} and log in first.`);
       return;
     }
 
     let token = null;
     let user = null;
+    let matchedTabUrl = "";
+    let matchedDashboardUrl = "";
 
     // 2. Try to obtain token from open tab
     for (const tab of tabs) {
@@ -251,6 +318,8 @@ async function handleQuickPair() {
         if (response?.success && response.token) {
           token = response.token;
           user = response.user;
+          matchedTabUrl = tab.url || "";
+          matchedDashboardUrl = response.dashboardUrl || "";
           break;
         }
       } catch {
@@ -274,6 +343,7 @@ async function handleQuickPair() {
           });
           if (results?.[0]?.result?.token) {
             token = results[0].result.token;
+            matchedTabUrl = tab.url || "";
             try {
               user = JSON.parse(results[0].result.user);
             } catch {
@@ -292,12 +362,16 @@ async function handleQuickPair() {
       return;
     }
 
+    const derivedDashboardUrl = matchedDashboardUrl || (matchedTabUrl ? new URL(matchedTabUrl).origin : dashboardUrl);
+    const derivedBaseUrl = inferApiBaseFromTabUrl(matchedTabUrl, configuredBaseUrl);
+
     // 3. Send handoff to background worker
     const result = await chrome.runtime.sendMessage({
       type: "ONUSLY_AUTH_HANDOFF",
       token,
       user,
-      baseUrl: "http://localhost:8080",
+      baseUrl: derivedBaseUrl,
+      dashboardUrl: derivedDashboardUrl,
     });
 
     if (result?.success) {
@@ -329,7 +403,8 @@ async function handleConnectToken() {
     const result = await chrome.runtime.sendMessage({
       type: "ONUSLY_AUTH_HANDOFF",
       token,
-      baseUrl: "http://localhost:8080",
+      baseUrl: configuredBaseUrl,
+      dashboardUrl,
     });
 
     if (result?.success) {

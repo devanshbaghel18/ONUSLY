@@ -7,6 +7,19 @@ export const API_BASE_URL =
     ? "http://localhost:8080"
     : "";
 
+export function resolveApiOrigin() {
+  if (API_BASE_URL) {
+    return API_BASE_URL.replace(/\/+$/, "");
+  }
+  if (typeof window !== "undefined" && window.location) {
+    if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
+      return `${window.location.protocol}//${window.location.hostname}:8080`;
+    }
+    return window.location.origin;
+  }
+  return "http://localhost:8080";
+}
+
 async function request(endpoint, options = {}) {
   const token = getToken();
   const headers = {
@@ -459,6 +472,54 @@ export async function autoPairDesktopAgent() {
 
 export async function reconnectDesktopAgent() {
   return request("/enforcement/desktop/reconnect", { method: "POST" });
+}
+
+export async function getWellbeingSummary({ range = "today", deviceId = "" } = {}) {
+  const tzOffset = -new Date().getTimezoneOffset();
+  const params = new URLSearchParams({
+    range,
+    tzOffset: String(tzOffset),
+  });
+  if (deviceId) {
+    params.set("deviceId", deviceId);
+  }
+  return request(`/wellbeing/summary?${params.toString()}`, { method: "GET" });
+}
+
+export async function ingestWellbeing(payload) {
+  return request("/wellbeing/ingest", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getWellbeingRules() {
+  const tzOffset = -new Date().getTimezoneOffset();
+  return request(`/wellbeing/rules?tzOffset=${tzOffset}`, { method: "GET" });
+}
+
+export async function upsertWellbeingLimit(limit) {
+  return request("/wellbeing/limits", {
+    method: "PUT",
+    body: JSON.stringify(limit),
+  });
+}
+
+export async function deleteWellbeingLimit(ruleId) {
+  return request(`/wellbeing/limits/${encodeURIComponent(ruleId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function saveWellbeingSchedule(schedule) {
+  const tzOffset = -new Date().getTimezoneOffset();
+  return request("/wellbeing/schedule", {
+    method: "PUT",
+    body: JSON.stringify({
+      ...schedule,
+      timezoneOffsetMinutes: tzOffset,
+    }),
+  });
 }
 
 

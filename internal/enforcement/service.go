@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"sort"
 	"strings"
@@ -42,12 +43,17 @@ type DeviceTokenGenerator interface {
 	GenerateDeviceToken(userID, email, handle, name, deviceID string) (string, error)
 }
 
+type WellbeingTargetProvider interface {
+	GetActiveWellbeingTargets(ctx context.Context, userID string) ([]goals.Goal, error)
+}
+
 type Service struct {
 	goalLister         GoalLister
 	goalGetter         GoalGetter
 	deviceRepo         DeviceRepository
 	notificationSender NotificationSender
 	tokenGenerator     TokenGenerator
+	wellbeingProvider  WellbeingTargetProvider
 }
 
 func NewService(goalLister GoalLister) *Service {
@@ -74,6 +80,10 @@ func (s *Service) SetNotificationSender(sender NotificationSender) {
 
 func (s *Service) SetTokenGenerator(gen TokenGenerator) {
 	s.tokenGenerator = gen
+}
+
+func (s *Service) SetWellbeingProvider(provider WellbeingTargetProvider) {
+	s.wellbeingProvider = provider
 }
 
 // canonicalApplicationTarget provides deterministic sorting and serialization of typed targets.
@@ -143,6 +153,15 @@ func (s *Service) GetBlocklist(ctx context.Context, userID string) (*BlocklistRe
 	goalsList, err := s.goalLister.List(ctx, userID)
 	if err != nil {
 		return nil, err
+	}
+
+	if s.wellbeingProvider != nil {
+		wbGoals, wbErr := s.wellbeingProvider.GetActiveWellbeingTargets(ctx, userID)
+		if wbErr != nil {
+			log.Printf("[Enforcement] Failed to load active wellbeing targets for user %s: %v", userID, wbErr)
+		} else if len(wbGoals) > 0 {
+			goalsList = append(goalsList, wbGoals...)
+		}
 	}
 
 	var targets []TargetItem

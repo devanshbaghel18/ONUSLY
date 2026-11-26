@@ -115,6 +115,7 @@ export default function AppLayout({ children }) {
   };
 
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
+  const [pendingFriendReqsCount, setPendingFriendReqsCount] = useState(0);
 
   useEffect(() => {
     // Notify extension on every page navigation
@@ -123,10 +124,16 @@ export default function AppLayout({ children }) {
     let mounted = true;
     const fetchPending = async () => {
       try {
-        const { getApproverInbox } = await import("../lib/api");
-        const res = await getApproverInbox({ status: "pending" });
-        if (mounted && res?.total !== undefined) {
-          setPendingApprovalsCount(res.total);
+        const { getApproverInbox, getFriendRequests } = await import("../lib/api");
+        const [inboxRes, reqsRes] = await Promise.all([
+          getApproverInbox({ status: "pending" }).catch(() => null),
+          getFriendRequests().catch(() => null),
+        ]);
+        if (mounted && inboxRes?.total !== undefined) {
+          setPendingApprovalsCount(inboxRes.total);
+        }
+        if (mounted && Array.isArray(reqsRes?.incoming)) {
+          setPendingFriendReqsCount(reqsRes.incoming.length);
         }
       } catch {}
     };
@@ -142,7 +149,10 @@ export default function AppLayout({ children }) {
         event?.type === "proof.submitted" ||
         event?.type === "goal.unlocked" ||
         event?.type === "goal.rejected" ||
-        event?.type === "chat.message.approved"
+        event?.type === "chat.message.approved" ||
+        event?.type === "friend.request" ||
+        event?.type === "friend.accepted" ||
+        event?.type === "notification.new"
       ) {
         fetchPending();
       }
@@ -158,12 +168,17 @@ export default function AppLayout({ children }) {
   const navLinks = [
     { name: "Dashboard", path: "/dashboard" },
     { name: "My Goals", path: "/goals" },
+    { name: "Digital Wellbeing", path: "/wellbeing" },
     {
       name: "Approval Center",
       path: "/approvals",
       badge: pendingApprovalsCount,
     },
-    { name: "Community & Friends", path: "/community-friends" },
+    {
+      name: "Community & Friends",
+      path: "/community-friends",
+      badge: pendingFriendReqsCount,
+    },
   ];
 
   const displayHandle = user?.handle

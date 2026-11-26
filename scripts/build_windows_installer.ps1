@@ -1,6 +1,11 @@
 # ONUSLY Windows 1-Click Installer Build Script
 # Packages onusly-agent, native-host, and pairing GUI into a single standalone OnuslySetup.exe
 
+param(
+    [string]$ApiUrl = "https://api.onusly.com",
+    [string]$DashboardUrl = "https://onusly.com"
+)
+
 $ErrorActionPreference = "Stop"
 
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
@@ -15,10 +20,12 @@ New-Item -ItemType Directory -Force -Path $binDir, $assetsDir, $downloadsDir | O
 Write-Host "=========================================================" -ForegroundColor Cyan
 Write-Host "       ONUSLY Windows Standalone Installer Builder       " -ForegroundColor Cyan
 Write-Host "=========================================================" -ForegroundColor Cyan
+Write-Host "API URL:       $ApiUrl" -ForegroundColor Gray
+Write-Host "Dashboard URL: $DashboardUrl" -ForegroundColor Gray
 
 # 1. Compile core agent
 Write-Host "[1/4] Compiling onusly-agent.exe..." -ForegroundColor Yellow
-go build -ldflags "-s -w" -o "$binDir\onusly-agent.exe" ./desktop/agent/cmd
+go build -ldflags "-s -w -X 'main.defaultAPIURL=$ApiUrl'" -o "$binDir\onusly-agent.exe" ./desktop/agent/cmd
 if ($LASTEXITCODE -ne 0) { throw "Failed to build onusly-agent.exe" }
 
 # 2. Compile native messaging host
@@ -32,7 +39,7 @@ Copy-Item "$binDir\onusly-agent.exe", "$binDir\onusly-native-host.exe" $assetsDi
 
 # 4. Compile OnuslySetup.exe (Pure Windows GUI subsystem, no command prompt)
 Write-Host "[4/4] Compiling standalone OnuslySetup.exe..." -ForegroundColor Yellow
-go build -ldflags "-H=windowsgui -s -w" -o "$binDir\OnuslySetup.exe" ./desktop/installer/cmd/installer
+go build -ldflags "-H=windowsgui -s -w -X 'main.apiURL=$ApiUrl' -X 'main.dashboardBaseURL=$DashboardUrl'" -o "$binDir\OnuslySetup.exe" ./desktop/installer/cmd/installer
 if ($LASTEXITCODE -ne 0) { throw "Failed to build OnuslySetup.exe" }
 
 # Copy to frontend public downloads

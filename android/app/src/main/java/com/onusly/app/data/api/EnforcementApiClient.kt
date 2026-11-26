@@ -9,6 +9,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class EnforcementApiClient(
@@ -77,21 +79,18 @@ class EnforcementApiClient(
     ): HeartbeatResult = withContext(Dispatchers.IO) {
         try {
             val url = "${baseUrl.trimEnd('/')}/enforcement/heartbeat"
-            val issuesJson = issues.joinToString(separator = ",", prefix = "[", postfix = "]") { "\"$it\"" }
             val sentAt = java.time.format.DateTimeFormatter.ISO_INSTANT.format(java.time.Instant.now())
-            val jsonPayload = """
-                {
-                    "deviceId": "$deviceId",
-                    "clientType": "android",
-                    "platform": "android",
-                    "browser": "",
-                    "clientVersion": "$clientVersion",
-                    "enforcing": $enforcing,
-                    "blocklistVersion": "$blocklistVersion",
-                    "issues": $issuesJson,
-                    "sentAt": "$sentAt"
-                }
-            """.trimIndent()
+            val jsonPayload = JSONObject().apply {
+                put("deviceId", deviceId)
+                put("clientType", "android")
+                put("platform", "android")
+                put("browser", "")
+                put("clientVersion", clientVersion)
+                put("enforcing", enforcing)
+                put("blocklistVersion", blocklistVersion)
+                put("issues", JSONArray(issues))
+                put("sentAt", sentAt)
+            }.toString()
             val requestBody = jsonPayload.toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
                 .url(url)
@@ -120,6 +119,27 @@ class EnforcementApiClient(
             }
         } catch (e: Exception) {
             HeartbeatResult.Error(-1, e.message ?: "Network error")
+        }
+    }
+
+    suspend fun sendWellbeingSnapshot(
+        baseUrl: String,
+        jwtToken: String,
+        jsonPayload: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "${baseUrl.trimEnd('/')}/wellbeing/ingest"
+            val requestBody = jsonPayload.toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $jwtToken")
+                .post(requestBody)
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 }

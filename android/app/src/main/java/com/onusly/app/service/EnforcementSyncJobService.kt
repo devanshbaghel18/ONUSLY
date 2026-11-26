@@ -28,11 +28,24 @@ class EnforcementSyncJobService : JobService() {
                 // 1. Sync blocklist from backend
                 app.syncRepository.syncBlocklist()
 
-                // 2. Check accessibility service status and transmit heartbeat
+                // 2. Check accessibility service status & DNS Shield status and transmit heartbeat
+                val issues = mutableListOf<String>()
                 val accessibilityActive = OnuslyAccessibilityService.isServiceRunning ||
                         OnuslyAccessibilityService.isServiceEnabled(this@EnforcementSyncJobService)
-                val issues = if (!accessibilityActive) listOf("accessibility_disabled") else emptyList()
+                if (!accessibilityActive) {
+                    issues.add("accessibility_disabled")
+                }
+                val ctx = this@EnforcementSyncJobService
+                val activeDomainsCount = com.onusly.app.engine.DomainMatcher.getActiveBlockedDomains(
+                    app.syncRepository.getActiveCache()
+                ).size
+                if (activeDomainsCount > 0 && com.onusly.app.dns.DnsShieldManager.isUserEnabled(ctx) &&
+                    (!com.onusly.app.dns.DnsShieldManager.isRunning.value || com.onusly.app.dns.DnsShieldManager.isStrictPrivateDnsActive(ctx))
+                ) {
+                    issues.add("dns_drift")
+                }
                 app.syncRepository.sendHeartbeat(issues)
+                app.syncRepository.syncWellbeingToday(this@EnforcementSyncJobService)
 
                 Log.d(TAG, "Periodic background enforcement sync completed successfully")
                 jobFinished(params, false) // Finished, do not reschedule immediately (periodic scheduler handles next)
@@ -48,7 +61,6 @@ class EnforcementSyncJobService : JobService() {
     override fun onStopJob(params: JobParameters?): Boolean {
         Log.d(TAG, "Periodic background enforcement sync job was cancelled by system")
         syncJob?.cancel()
-        jobScope.cancel()
         return true // Reschedule if aborted prematurely
     }
 

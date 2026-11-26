@@ -5,16 +5,29 @@
 import { createStorage } from "./src/storage.js";
 import { createSyncService } from "./src/syncService.js";
 import { evaluateUrl, isEnforcingStatus } from "./src/blockerEngine.js";
+import { createWellbeingTracker } from "./src/wellbeingTracker.js";
+import { sendWellbeingSnapshot } from "./src/apiClient.js";
 
 export const storage = createStorage();
 export const syncService = createSyncService(storage);
+export const wellbeingTracker = createWellbeingTracker({ storage });
 
 const ALARM_NAME = "onusly_sync_alarm";
 const ALLOWED_ORIGIN_PATTERNS = [
-  /^http:\/\/localhost:(5173|5174|5175|4173|8080|3000)$/,
-  /^http:\/\/127\.0\.0\.1:(5173|5174|5175|4173|8080|3000)$/,
+  /^http:\/\/localhost:(5173|5174|5175|4173|8080|8081|3000)$/,
+  /^http:\/\/127\.0\.0\.1:(5173|5174|5175|4173|8080|8081|3000)$/,
   /^https:\/\/(.*\.)?onusly\.com$/,
+  /^https:\/\/(.*\.)?onusly\.app$/,
 ];
+
+function detectBrowser() {
+  const ua = typeof navigator !== "undefined" ? (navigator.userAgent || "").toLowerCase() : "";
+  if (ua.includes("firefox")) return "firefox";
+  if (ua.includes("edg/")) return "edge";
+  if (ua.includes("opr/") || ua.includes("opera")) return "opera";
+  if (globalThis.navigator?.brave) return "brave";
+  return "chrome";
+}
 
 /**
  * Validates whether the sender of an external message is an authorized ONUSLY origin.
@@ -97,7 +110,11 @@ export async function checkAndBlockTab(tabId, url, providedCache = null) {
         `?domain=${encodeURIComponent(evaluation.hostname || "")}` +
         `&url=${encodeURIComponent(url)}`;
 
+      const wasPending = pendingBlockedTabs.get(tabId) === url;
       pendingBlockedTabs.set(tabId, url);
+      if (!wasPending) {
+        wellbeingTracker.recordBlockedAttempt(evaluation.hostname || url).catch(() => {});
+      }
       chrome.tabs.update(tabId, { url: blockedPageUrl }, () => {
         // Fallback cleanup if callback fires
         if (chrome.runtime.lastError) {
@@ -218,10 +235,73 @@ if (globalThis.chrome?.tabs?.onActivated) {
     try {
       const tab = await chrome.tabs.get(activeInfo.tabId);
       if (tab?.url) {
-        await checkAndBlockTab(tab.id, tab.url);
+        const session = await storage.getSession();
+        const isManaged = await storage.getManagedMode();
+        const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
+        const evalRes = evaluateUrl(tab.url, cache);
+        if (evalRes.isBlocked) {
+          await wellbeingTracker.clearActiveFocus();
+        } else {
+          await wellbeingTracker.recordActiveFocus(tab.url);
+        }
+        await checkAndBlockTab(tab.id, tab.url, cache);
+      } else {
+        await wellbeingTracker.clearActiveFocus();
       }
     } catch {
       // Tab may have closed
+    }
+  });
+}
+
+// 6. Digital Wellbeing website open count & foreground browse tracking
+if (globalThis.chrome?.webNavigation?.onCommitted) {
+  chrome.webNavigation.onCommitted.addListener(async (details) => {
+    if (details.frameId !== 0) return;
+    try {
+      const session = await storage.getSession();
+      const isManaged = await storage.getManagedMode();
+      const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
+      if (evaluateUrl(details.url, cache).isBlocked) {
+        return;
+      }
+      wellbeingTracker.recordVisit(details.url, details.tabId).catch(() => {});
+      chrome.tabs?.get?.(details.tabId, (tab) => {
+        if (tab?.active) {
+          wellbeingTracker.recordActiveFocus(details.url).catch(() => {});
+        }
+      });
+    } catch {
+      // Ignore transient navigation errors
+    }
+  });
+}
+
+if (globalThis.chrome?.windows?.onFocusChanged) {
+  chrome.windows.onFocusChanged.addListener(async (windowId) => {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) {
+      await wellbeingTracker.clearActiveFocus();
+      return;
+    }
+    try {
+      const tabs = await chrome.tabs.query({ active: true, windowId });
+      if (tabs?.[0]?.url) {
+        await wellbeingTracker.recordActiveFocus(tabs[0].url);
+      } else {
+        await wellbeingTracker.clearActiveFocus();
+      }
+    } catch {
+      // Ignore transient focus query errors
+    }
+  });
+}
+
+if (globalThis.chrome?.idle?.onStateChanged) {
+  chrome.idle.setDetectionInterval?.(60);
+  chrome.idle.onStateChanged.addListener((newState) => {
+    wellbeingTracker.setIdleState(newState).catch(() => {});
+    if (newState === "idle" || newState === "locked") {
+      wellbeingTracker.syncToBackend(sendWellbeingSnapshot, detectBrowser()).catch(() => {});
     }
   });
 }
@@ -232,7 +312,7 @@ if (globalThis.chrome?.tabs?.onActivated) {
 // Core Message Processing Handlers
 // --------------------------------------------------------------------------
 export async function processAuthHandoff(message) {
-  const { token, user, baseUrl } = message || {};
+  const { token, user, baseUrl, dashboardUrl } = message || {};
   if (!token || typeof token !== "string") {
     return { success: false, error: "Missing or invalid token" };
   }
@@ -242,8 +322,15 @@ export async function processAuthHandoff(message) {
     return { success: false, error: "Invalid JWT token structure" };
   }
 
+  const settingsPatch = {};
   if (baseUrl && typeof baseUrl === "string") {
-    await storage.saveSettings({ baseUrl: baseUrl.trim().replace(/\/+$/, "") });
+    settingsPatch.baseUrl = baseUrl.trim().replace(/\/+$/, "");
+  }
+  if (dashboardUrl && typeof dashboardUrl === "string") {
+    settingsPatch.dashboardUrl = dashboardUrl.trim().replace(/\/+$/, "");
+  }
+  if (Object.keys(settingsPatch).length > 0) {
+    await storage.saveSettings(settingsPatch);
   }
 
   const userId = payload.sub;
@@ -571,6 +658,12 @@ if (globalThis.chrome?.runtime?.onMessage) {
         return;
       }
 
+      if (message.type === "GET_WELLBEING_SUMMARY") {
+        const summary = await wellbeingTracker.getTodaySummary(5);
+        sendResponse({ summary });
+        return;
+      }
+
       if (message.type === "EVALUATE_URL") {
         const session = await storage.getSession();
         const isManaged = await storage.getManagedMode();
@@ -599,6 +692,7 @@ if (globalThis.chrome?.runtime?.onInstalled) {
 
 if (globalThis.chrome?.runtime?.onStartup) {
   chrome.runtime.onStartup.addListener(() => {
+    chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
     processSync().then((res) => {
       if (res?.success) enforceOnOpenTabs();
     }).catch(() => {});
@@ -611,6 +705,7 @@ if (globalThis.chrome?.alarms?.onAlarm) {
       processSync().then((res) => {
         if (res?.success) enforceOnOpenTabs();
       }).catch(() => {});
+      wellbeingTracker.syncToBackend(sendWellbeingSnapshot, detectBrowser()).catch(() => {});
     }
   });
 }

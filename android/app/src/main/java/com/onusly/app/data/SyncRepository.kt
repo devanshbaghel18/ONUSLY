@@ -22,6 +22,7 @@ class SyncRepository(
 
     companion object {
         const val DEFAULT_BASE_URL = "http://10.0.2.2:8080"
+        const val PRODUCTION_BASE_URL = "https://api.onusly.com"
         const val KEY_BASE_URL = "api_base_url"
         private const val SETTINGS_PREFS_NAME = "onusly_settings"
 
@@ -167,7 +168,7 @@ class SyncRepository(
             return HeartbeatResult.Error(401, "Invalid session")
         }
         val cache = getActiveCache()
-        val isEnforcing = cache != null && cache.targets.isNotEmpty() && issues.isEmpty()
+        val isEnforcing = issues.isEmpty()
         val result = apiClient.sendHeartbeat(
             baseUrl = getBaseUrl(),
             jwtToken = session.jwtToken,
@@ -182,6 +183,67 @@ class SyncRepository(
         }
 
         return result
+    }
+
+    suspend fun syncWellbeingToday(context: Context): Boolean {
+        val session = authManager.getSession() ?: return false
+        if (session.jwtToken.isBlank() || session.userId.isBlank()) return false
+
+        val hitStore = com.onusly.app.dns.DnsHitStore.create(context)
+        val todayKey = com.onusly.app.wellbeing.AppUsageTracker.getTodayDateKey()
+        val liveHits = com.onusly.app.dns.DnsShieldManager.domainHits.value.filter {
+            it.lastSeenMillis == 0L || com.onusly.app.dns.DnsHitStore.dateKeyFor(it.lastSeenMillis) == todayKey
+        }
+        val dnsHits = if (liveHits.isNotEmpty()) liveHits else hitStore.loadDay(todayKey)
+
+        val snapshot = com.onusly.app.wellbeing.AppUsageTracker.collectTodaySnapshot(context, dnsHits)
+        if (snapshot.apps.isEmpty() && snapshot.domains.isEmpty()) return false
+
+        val sentAt = java.time.format.DateTimeFormatter.ISO_INSTANT.format(java.time.Instant.now())
+        val payload = com.onusly.app.wellbeing.AppUsageTracker.buildIngestJsonPayload(
+            deviceId = getOrCreateDeviceId(),
+            snapshot = snapshot,
+            sentAtIso = sentAt
+        )
+        return apiClient.sendWellbeingSnapshot(getBaseUrl(), session.jwtToken, payload)
+    }
+
+    suspend fun syncWellbeingHistoryIfNeeded(context: Context, force: Boolean = false): Boolean {
+        val session = authManager.getSession() ?: return false
+        if (session.jwtToken.isBlank() || session.userId.isBlank()) return false
+
+        val todayKey = com.onusly.app.wellbeing.AppUsageTracker.getTodayDateKey()
+        val lastSyncedDay = settingsPrefs.getString("last_wellbeing_history_day", null)
+        if (!force && lastSyncedDay == todayKey) {
+            return true
+        }
+
+        val hitStore = com.onusly.app.dns.DnsHitStore.create(context)
+        val dnsByDate = hitStore.loadAllDays().toMutableMap()
+        val liveHits = com.onusly.app.dns.DnsShieldManager.domainHits.value
+        if (liveHits.isNotEmpty()) {
+            dnsByDate[todayKey] = liveHits
+        }
+
+        val snapshots = com.onusly.app.wellbeing.AppUsageTracker.collectPastWeekSnapshots(context, dnsByDate)
+        val sentAt = java.time.format.DateTimeFormatter.ISO_INSTANT.format(java.time.Instant.now())
+        val devId = getOrCreateDeviceId()
+
+        var anySent = false
+        for (snap in snapshots) {
+            val payload = com.onusly.app.wellbeing.AppUsageTracker.buildIngestJsonPayload(
+                deviceId = devId,
+                snapshot = snap,
+                sentAtIso = sentAt
+            )
+            if (apiClient.sendWellbeingSnapshot(getBaseUrl(), session.jwtToken, payload)) {
+                anySent = true
+            }
+        }
+        if (anySent || snapshots.isEmpty()) {
+            settingsPrefs.edit().putString("last_wellbeing_history_day", todayKey).apply()
+        }
+        return anySent
     }
 
     fun onDeviceRevoked() {

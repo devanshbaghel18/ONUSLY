@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,6 +12,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
+
+// SessionVersionValidator checks whether a user's session version has been revoked.
+type SessionVersionValidator interface {
+	GetTokenVersion(ctx context.Context, userID string) (int, error)
+}
 
 // isAllowedWebSocketOrigin validates incoming origin headers during WebSocket upgrade handshakes
 // against explicit whitelisted origins to prevent Cross-Site WebSocket Hijacking (CSWSH).
@@ -38,7 +44,13 @@ func isAllowedWebSocketOrigin(r *http.Request) bool {
 		originLower == "http://127.0.0.1:3000" ||
 		originLower == "http://127.0.0.1:5173" ||
 		originLower == "http://localhost:8080" ||
-		originLower == "http://127.0.0.1:8080" {
+		originLower == "http://127.0.0.1:8080" ||
+		originLower == "http://localhost:8081" ||
+		originLower == "http://127.0.0.1:8081" ||
+		originLower == "https://onusly.com" ||
+		originLower == "https://www.onusly.com" ||
+		originLower == "https://onusly.app" ||
+		originLower == "https://www.onusly.app" {
 		return true
 	}
 
@@ -60,11 +72,12 @@ var upgrader = websocket.Upgrader{
 
 // AuthUser represents the authenticated identity extracted from a JWT.
 type AuthUser struct {
-	ID        string
-	Email     string
-	Handle    string
-	Name      string
-	TokenType string
+	ID           string
+	Email        string
+	Handle       string
+	Name         string
+	TokenType    string
+	TokenVersion int
 }
 
 // AuthHandshakeMessage defines the expected format for first-message WebSocket authentication.
@@ -133,12 +146,18 @@ func ValidateToken(tokenString, jwtSecret string) (*AuthUser, error) {
 		}
 	}
 
+	tokenVer := 1
+	if rawVer, ok := claims["token_version"].(float64); ok && rawVer > 0 {
+		tokenVer = int(rawVer)
+	}
+
 	return &AuthUser{
-		ID:        strings.TrimSpace(userID),
-		Email:     strings.TrimSpace(strings.ToLower(email)),
-		Handle:    strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@")),
-		Name:      strings.TrimSpace(name),
-		TokenType: tokenType,
+		ID:           strings.TrimSpace(userID),
+		Email:        strings.TrimSpace(strings.ToLower(email)),
+		Handle:       strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@")),
+		Name:         strings.TrimSpace(name),
+		TokenType:    tokenType,
+		TokenVersion: tokenVer,
 	}, nil
 }
 
@@ -178,8 +197,24 @@ func ExtractAndValidateToken(r *http.Request, jwtSecret string) (string, error) 
 	return user.ID, nil
 }
 
+func checkUserTokenNotRevoked(ctx context.Context, user *AuthUser, validator SessionVersionValidator) error {
+	if validator == nil || user == nil || user.TokenType != "user" {
+		return nil
+	}
+	expectedVer, err := validator.GetTokenVersion(ctx, user.ID)
+	if err == nil && expectedVer > 0 && user.TokenVersion < expectedVer {
+		return errors.New("session revoked: please sign in again")
+	}
+	return nil
+}
+
 // ServeWS handles WebSocket connection upgrade requests.
 func ServeWS(hub *Hub, jwtSecret string) http.HandlerFunc {
+	return ServeWSWithValidator(hub, jwtSecret, nil)
+}
+
+// ServeWSWithValidator handles WebSocket connection upgrades while validating active session versions.
+func ServeWSWithValidator(hub *Hub, jwtSecret string, validator SessionVersionValidator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Reject query parameter tokens to prevent URL leakage
 		if r.URL.Query().Get("token") != "" {
@@ -209,6 +244,10 @@ func ServeWS(hub *Hub, jwtSecret string) http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 				return
 			}
+			if err := checkUserTokenNotRevoked(r.Context(), user, validator); err != nil {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
 			preAuthUser = user
 		}
 
@@ -227,11 +266,11 @@ func ServeWS(hub *Hub, jwtSecret string) http.HandlerFunc {
 		}
 
 		// First-message handshake for browser clients (where custom headers cannot be set in WebSocket constructor)
-		go handleHandshake(hub, conn, jwtSecret)
+		go handleHandshake(hub, conn, jwtSecret, validator)
 	}
 }
 
-func handleHandshake(hub *Hub, conn *websocket.Conn, jwtSecret string) {
+func handleHandshake(hub *Hub, conn *websocket.Conn, jwtSecret string, validator SessionVersionValidator) {
 	conn.SetReadLimit(maxMessageSize)
 	_ = conn.SetReadDeadline(time.Now().Add(authTimeout))
 
@@ -287,6 +326,15 @@ func handleHandshake(hub *Hub, conn *websocket.Conn, jwtSecret string) {
 
 	user, err := ValidateToken(tokenStr, jwtSecret)
 	if err != nil {
+		_ = conn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, err.Error()),
+			time.Now().Add(time.Second),
+		)
+		_ = conn.Close()
+		return
+	}
+	if err := checkUserTokenNotRevoked(context.Background(), user, validator); err != nil {
 		_ = conn.WriteControl(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, err.Error()),

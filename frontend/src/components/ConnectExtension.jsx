@@ -12,7 +12,7 @@ import {
   FolderArchive,
 } from "lucide-react";
 import { getToken, getUser } from "../lib/auth";
-import { getBlocklist, API_BASE_URL } from "../lib/api";
+import { getBlocklist, resolveApiOrigin } from "../lib/api";
 import { notifyExtensionSync } from "../lib/extensionSync";
 
 // Deterministic Extension ID from manifest.json public key
@@ -217,7 +217,8 @@ export default function ConnectExtension() {
               type: "ONUSLY_AUTH_HANDOFF",
               token,
               user: currentUser,
-              baseUrl: API_BASE_URL,
+              baseUrl: resolveApiOrigin(),
+              dashboardUrl: window.location.origin,
             },
             (response) => {
               if (window.chrome.runtime.lastError || !response?.success) {
@@ -334,28 +335,49 @@ export default function ConnectExtension() {
       const count = Array.isArray(blocklist?.targets) ? blocklist.targets.length : 0;
       const version = blocklist?.version || "active";
 
-      // Forward sync request to extension via both runtime and bridge
-      if (window.chrome?.runtime?.sendMessage) {
-        try {
-          window.chrome.runtime.sendMessage(extensionId, { type: "ONUSLY_SYNC" }, () => {});
-        } catch {
-          // ignore
+      // Forward sync request to extension and wait for acknowledgement
+      const bridgeRes = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (val) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          window.removeEventListener("message", onMsg);
+          resolve(val);
+        };
+        const onMsg = (ev) => {
+          if (ev.source === window && ev.data?.type === "ONUSLY_SYNC_RESPONSE") {
+            finish(ev.data.response);
+          }
+        };
+        const timer = setTimeout(() => finish(null), 2500);
+        window.addEventListener("message", onMsg);
+        if (window.chrome?.runtime?.sendMessage) {
+          try {
+            window.chrome.runtime.sendMessage(extensionId, { type: "ONUSLY_SYNC" }, (resp) => {
+              if (!window.chrome.runtime.lastError && resp?.success) finish(resp);
+            });
+          } catch {}
         }
+        window.postMessage({ type: "ONUSLY_SYNC" }, "*");
+      });
+
+      if (!bridgeRes?.success) {
+        throw new Error(bridgeRes?.error || "Extension did not acknowledge re-sync. Ensure it is enabled and reload the extension.");
       }
-      window.postMessage({ type: "ONUSLY_SYNC" }, "*");
 
       notifyExtensionSync();
 
       const updated = {
         connected: true,
-        version,
-        targetsCount: count,
+        version: bridgeRes.version || version,
+        targetsCount: bridgeRes.targetsCount ?? count,
         connectedAt: Date.now(),
       };
 
       saveStoredConnection(userId, updated);
       setExtInfo(updated);
-      setMessage(`✅ Blocklist re-synchronized (${count} active target(s) locked).`);
+      setMessage(`✅ Blocklist re-synchronized (${updated.targetsCount} active target(s) locked).`);
       setMessageType("success");
       setTimeout(() => setMessage(""), 5000);
     } catch (err) {
@@ -681,7 +703,7 @@ export default function ConnectExtension() {
                     <p className="font-semibold text-neutral-200">Chrome / Edge / Brave / Opera / Vivaldi:</p>
                     <p>• In your URL bar, open <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">chrome://extensions</code> (or <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">edge://extensions</code>, <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">brave://extensions</code>).</p>
                     <p>• Turn ON <strong>Developer mode</strong> (top-right in Chrome, left sidebar in Edge).</p>
-                    <p>• Click <strong>"Load unpacked"</strong> and select <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">C:\onusly\ONUSLY\extension</code>.</p>
+                    <p>• Click <strong>"Load unpacked"</strong> and select the extracted <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">onusly-extension</code> folder.</p>
                   </div>
                   <div className="pt-2 border-t border-neutral-800/80 space-y-0.5">
                     <p className="font-semibold text-neutral-200">Mozilla Firefox (Linux & Windows):</p>

@@ -13,9 +13,11 @@ import {
   RotateCcw,
   Clock,
   Sparkles,
+  Activity,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
-import { getGoals, repeatGoal } from "../lib/api";
+import { getGoals, repeatGoal, getWellbeingSummary } from "../lib/api";
+import { formatDuration } from "../lib/wellbeingFormat";
 import { useWebSocket } from "../hooks/useWebSocket";
 import CreateGoalModal from "../components/CreateGoalModal";
 import SubmitProofModal from "../components/approvals/SubmitProofModal";
@@ -37,6 +39,7 @@ export default function Dashboard() {
   const [unlockBanner, setUnlockBanner] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [shareGoal, setShareGoal] = useState(null);
+  const [wellbeingToday, setWellbeingToday] = useState(null);
 
   // Subscribe to real-time WebSocket events
   const { isConnected, send } = useWebSocket((event) => {
@@ -68,6 +71,11 @@ export default function Dashboard() {
           setError("");
         })
         .catch((err) => console.error("Background goals refresh failed:", err));
+    } else if (event?.type === "wellbeing.limit_reached") {
+      notifyExtensionSync();
+      getWellbeingSummary({ range: "today" })
+        .then((wb) => setWellbeingToday(wb))
+        .catch(() => {});
     }
   });
 
@@ -89,6 +97,12 @@ export default function Dashboard() {
       .finally(() => {
         if (!ignore) setLoading(false);
       });
+
+    getWellbeingSummary({ range: "today" })
+      .then((wb) => {
+        if (!ignore) setWellbeingToday(wb);
+      })
+      .catch(() => {});
 
     return () => {
       ignore = true;
@@ -277,6 +291,38 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+        {/* Digital Wellbeing Quick Summary Widget */}
+        <Link
+          to="/wellbeing"
+          className="group flex flex-col justify-between gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 transition hover:border-white/20 hover:bg-white/[0.04] sm:flex-row sm:items-center"
+        >
+          <div className="flex items-center gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-white">
+              <Activity size={20} />
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+                Digital Wellbeing Today
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <span className="font-black text-white">
+                  Screen Time: {formatDuration(wellbeingToday?.totalScreenSeconds || 0)}
+                </span>
+                <span className="text-neutral-400">
+                  Websites Opened: <strong className="text-neutral-200">{wellbeingToday?.totalWebsiteOpens || 0}</strong>
+                </span>
+                <span className="text-neutral-400">
+                  Blocked: <strong className="text-emerald-400">{wellbeingToday?.totalBlockedAttempts || 0}</strong>
+                </span>
+              </div>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-neutral-300 group-hover:text-white transition">
+            <span>View Full Analytics</span>
+            <ChevronRight size={15} />
+          </span>
+        </Link>
 
         {error && (
           <div className="rounded-2xl border border-[#444444] bg-[#1E1E1E] p-4 text-xs font-medium text-white animate-fade-in">

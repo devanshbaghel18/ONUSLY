@@ -141,23 +141,19 @@ export async function fetchBlocklist(
 }
 
 /**
- * Sends device heartbeat to backend API.
+ * Posts an authenticated JSON payload to a backend API path.
  *
  * @param {string} baseUrl
+ * @param {string} path
  * @param {string} token
  * @param {object} payload
  * @param {Function} [fetchFn]
  * @returns {Promise<boolean>}
  */
-export async function sendHeartbeat(
-  baseUrl,
-  token,
-  payload,
-  fetchFn = globalThis.fetch
-) {
+async function postAuthedJson(baseUrl, path, token, payload, fetchFn = globalThis.fetch) {
   if (!baseUrl || !token || !payload) return false;
   const cleanBase = baseUrl.trim().replace(/\/+$/, "");
-  const url = `${cleanBase}/enforcement/heartbeat`;
+  const url = `${cleanBase}${path}`;
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timeoutId = controller ? setTimeout(() => controller.abort(), 6000) : null;
@@ -181,4 +177,40 @@ export async function sendHeartbeat(
     if (timeoutId) clearTimeout(timeoutId);
     return false;
   }
+}
+
+/**
+ * Sends device heartbeat to backend API.
+ *
+ * @param {string} baseUrl
+ * @param {string} token
+ * @param {object} payload
+ * @param {Function} [fetchFn]
+ * @returns {Promise<boolean>}
+ */
+export async function sendHeartbeat(
+  baseUrl,
+  token,
+  payload,
+  fetchFn = globalThis.fetch
+) {
+  return postAuthedJson(baseUrl, "/enforcement/heartbeat", token, payload, fetchFn);
+}
+
+/**
+ * Uploads daily browser Digital Wellbeing usage snapshot to backend API.
+ *
+ * @param {string} baseUrl
+ * @param {string} token
+ * @param {object} payload
+ * @param {Function} [fetchFn]
+ * @returns {Promise<boolean>}
+ */
+export async function sendWellbeingSnapshot(
+  baseUrl,
+  token,
+  payload,
+  fetchFn = globalThis.fetch
+) {
+  return postAuthedJson(baseUrl, "/wellbeing/ingest", token, payload, fetchFn);
 }

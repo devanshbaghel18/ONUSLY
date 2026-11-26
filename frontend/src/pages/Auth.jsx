@@ -54,7 +54,10 @@ export default function Auth() {
 
   const handleGoogleAuth = () => {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    const redirectUri = `${import.meta.env.VITE_API_BASE_URL}/auth/google/callback`;
+    const apiBase =
+      import.meta.env.VITE_API_BASE_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "http://localhost:8080");
+    const redirectUri = `${apiBase.replace(/\/+$/, "")}/auth/google/callback`;
 
     const params = new URLSearchParams({
       client_id: clientId,

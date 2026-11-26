@@ -306,7 +306,12 @@ export default function Communities() {
   useEffect(() => {
     if (!location.state) return;
     const timer = setTimeout(() => {
-      if (location.state?.view === "friends" && location.state?.targetId) {
+      if (location.state?.view === "friends" && location.state?.openRequests) {
+        setSelectedCommunity(null);
+        setFriendModalTab("requests");
+        setShowAddFriendModal(true);
+        getFriendRequests().then(setFriendRequests).catch(() => {});
+      } else if (location.state?.view === "friends" && location.state?.targetId) {
         setSelectedCommunity(null);
         setActiveFriendId(location.state.targetId);
         const updated = clearUnreadCount(location.state.targetId);
@@ -1370,6 +1375,7 @@ export default function Communities() {
       }
       const refreshedReqs = await getFriendRequests();
       setFriendRequests(refreshedReqs);
+      window.dispatchEvent(new Event("onusly:inbox-updated"));
     } catch (err) {
       setFriendError(err.message || `Failed to ${action} request`);
     }

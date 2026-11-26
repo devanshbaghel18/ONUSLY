@@ -270,7 +270,7 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 
 		apiURL := s.GetAPIBaseURL()
 		if apiURL == "" {
-			apiURL = "http://localhost:8081"
+			apiURL = "https://api.onusly.com"
 		}
 
 		client := s.pairingClient
@@ -303,7 +303,7 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 
 		apiURL := s.GetAPIBaseURL()
 		if apiURL == "" {
-			apiURL = "http://localhost:8081"
+			apiURL = "https://api.onusly.com"
 		}
 
 		client := s.pairingClient

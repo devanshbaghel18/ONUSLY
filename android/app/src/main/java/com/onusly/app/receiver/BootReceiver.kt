@@ -36,6 +36,8 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
+        com.onusly.app.dns.DnsShieldManager.startIfEnabledAndPermitted(context)
+
         app.applicationScope.launch(Dispatchers.IO) {
             try {
                 withTimeoutOrNull(20_000) {

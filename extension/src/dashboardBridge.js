@@ -115,7 +115,12 @@ if (rt?.onMessage) {
         } catch {
           user = null;
         }
-        sendResponse({ success: !!token, token, user });
+        sendResponse({
+          success: !!token,
+          token,
+          user,
+          dashboardUrl: window.location.origin,
+        });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
       }

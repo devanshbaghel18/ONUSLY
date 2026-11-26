@@ -19,6 +19,7 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/identity"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/ipc"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/sync"
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/wellbeing"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 )
 
@@ -35,6 +36,7 @@ func runPlatformDaemon(
 	apiURL string,
 	dnsListenAddr string,
 	configDir string,
+	dataDir string,
 ) {
 	if dnsListenAddr == "" {
 		dnsListenAddr = "127.0.0.1:53"
@@ -191,6 +193,56 @@ func runPlatformDaemon(
 	heartbeatTicker := time.NewTicker(60 * time.Second)
 	defer heartbeatTicker.Stop()
 
+	effectiveDataDir := dataDir
+	if effectiveDataDir == "" {
+		effectiveDataDir = filepath.Join(filepath.Dir(configDir), "data")
+	}
+	wellbeingTracker := wellbeing.NewTracker(effectiveDataDir)
+	lastWellbeingTick := time.Now()
+	lastSyncedYesterdayKey := ""
+
+	var lastObservedVersion string
+	if initialData != nil {
+		lastObservedVersion = initialData.Version
+	} else if cachedBlock, _ := syncer.GetCachedBlocklist(); cachedBlock != nil {
+		lastObservedVersion = cachedBlock.Version
+	}
+
+	telemetryTrigger := make(chan []string, 2)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case hbIssues := <-telemetryTrigger:
+				hbCtx, hbCancel := context.WithTimeout(ctx, 8*time.Second)
+				if errHb := reporter.SendHeartbeat(hbCtx, hbIssues); errHb != nil {
+					handleLifecycleErr(errHb)
+				}
+				nowSnap := time.Now()
+				yDate := nowSnap.AddDate(0, 0, -1).Local().Format("2006-01-02")
+				if lastSyncedYesterdayKey != yDate {
+					yPayload := wellbeingTracker.BuildIngestPayloadForDate("", "", yDate, nowSnap)
+					if len(yPayload.Apps) > 0 {
+						if errY := reporter.SendWellbeingSnapshot(hbCtx, func(deviceID, platform string, n time.Time) any {
+							return wellbeingTracker.BuildIngestPayloadForDate(deviceID, platform, yDate, n)
+						}); errY == nil {
+							lastSyncedYesterdayKey = yDate
+						}
+					} else {
+						lastSyncedYesterdayKey = yDate
+					}
+				}
+				if errWb := reporter.SendWellbeingSnapshot(hbCtx, func(deviceID, platform string, n time.Time) any {
+					return wellbeingTracker.BuildIngestPayload(deviceID, platform, n)
+				}); errWb != nil {
+					handleLifecycleErr(errWb)
+				}
+				hbCancel()
+			}
+		}
+	}()
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
@@ -209,16 +261,31 @@ func runPlatformDaemon(
 			return
 
 		case <-syncTicker.C:
-			res, err := syncer.Sync(ctx)
+			nowTick := time.Now()
+			elapsed := nowTick.Sub(lastWellbeingTick)
+			lastWellbeingTick = nowTick
+			if elapsed > 0 {
+				fgExe, isIdle := wellbeing.SampleForegroundApp(60_000)
+				wellbeingTracker.RecordSampleDuration(fgExe, elapsed, isIdle, nowTick)
+			}
+
+			syncCtx, syncCancel := context.WithTimeout(ctx, 6*time.Second)
+			res, err := syncer.Sync(syncCtx)
+			syncCancel()
 			if err != nil {
 				log.Printf("[ONUSLY Agent] Sync error: %v", err)
 				handleLifecycleErr(err)
-				_ = reporter.SendHeartbeat(ctx, []string{"service_degraded"})
-			} else {
-				log.Printf("[ONUSLY Agent] Synchronized blocklist: %d target(s) (version %s)", len(res.Targets), res.Version)
+			} else if res != nil {
 				dnsPolicy.UpdateFromBlocklist(res)
 				appController.UpdateBlocklist(res)
-				_ = reporter.SendHeartbeat(ctx, nil)
+				if res.Version != lastObservedVersion {
+					lastObservedVersion = res.Version
+					log.Printf("[ONUSLY Agent] Synchronized blocklist: %d target(s) (version %s)", len(res.Targets), res.Version)
+					select {
+					case telemetryTrigger <- nil:
+					default:
+					}
+				}
 			}
 
 		case <-heartbeatTicker.C:
@@ -232,8 +299,9 @@ func runPlatformDaemon(
 					issues = append(issues, "app_enforcement_failed")
 				}
 			}
-			if errHb := reporter.SendHeartbeat(ctx, issues); errHb != nil {
-				handleLifecycleErr(errHb)
+			select {
+			case telemetryTrigger <- issues:
+			default:
 			}
 		}
 	}

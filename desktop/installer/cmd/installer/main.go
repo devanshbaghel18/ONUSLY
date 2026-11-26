@@ -5,12 +5,14 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -23,9 +25,14 @@ import (
 var assetsFS embed.FS
 
 const (
-	pipePath    = `\\.\pipe\OnuslyDesktopPipe`
-	apiURL      = "http://localhost:8080"
-	extensionID = "jifigaejbinmdhnljobkodcgeaplojmg"
+	pipePath         = `\\.\pipe\OnuslyDesktopPipe`
+	fallbackPipePath = `\\.\pipe\OnuslyAgentIPC`
+	extensionID      = "jifigaejbinmdhnljobkodcgeaplojmg"
+)
+
+var (
+	apiURL           = "https://api.onusly.com"
+	dashboardBaseURL = "https://onusly.com"
 )
 
 type ipcRequest struct {
@@ -40,28 +47,33 @@ type ipcResponse struct {
 }
 
 func queryIPC(action string, timeout time.Duration) (*ipcResponse, error) {
+	candidates := []string{pipePath, fallbackPipePath}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		conn, err := net.Dial("unix", pipePath)
-		if err != nil {
-			// On Windows named pipes, dial via standard Windows named pipe path
-			conn, err = dialNamedPipe(pipePath, 500*time.Millisecond)
-		}
-		if err == nil {
-			defer conn.Close()
-			_ = conn.SetDeadline(time.Now().Add(timeout))
-
-			req := ipcRequest{Action: action}
-			data, _ := json.Marshal(req)
-			if _, err := conn.Write(append(data, '\n')); err != nil {
-				return nil, err
+		for _, p := range candidates {
+			conn, err := net.Dial("unix", p)
+			if err != nil {
+				conn, err = dialNamedPipe(p, 400*time.Millisecond)
 			}
+			if err == nil {
+				timer := time.AfterFunc(timeout, func() { _ = conn.Close() })
+				req := ipcRequest{Action: action}
+				data, _ := json.Marshal(req)
+				if _, wErr := conn.Write(append(data, '\n')); wErr != nil {
+					timer.Stop()
+					_ = conn.Close()
+					return nil, wErr
+				}
 
-			var resp ipcResponse
-			if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-				return nil, err
+				var resp ipcResponse
+				decErr := json.NewDecoder(conn).Decode(&resp)
+				timer.Stop()
+				_ = conn.Close()
+				if decErr != nil {
+					return nil, decErr
+				}
+				return &resp, nil
 			}
-			return &resp, nil
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -267,6 +279,26 @@ func startDetachedDaemon(binPath, configDir, dataDir string) error {
 }
 
 func main() {
+	apiFlag := flag.String("api-url", "", "Override ONUSLY API URL")
+	dashFlag := flag.String("dashboard-url", "", "Override ONUSLY Dashboard URL")
+	flag.Parse()
+
+	if envAPI := strings.TrimSpace(os.Getenv("ONUSLY_API_URL")); envAPI != "" {
+		apiURL = envAPI
+	}
+	if strings.TrimSpace(*apiFlag) != "" {
+		apiURL = strings.TrimSpace(*apiFlag)
+	}
+	apiURL = strings.TrimRight(apiURL, "/")
+
+	if envDash := strings.TrimSpace(os.Getenv("ONUSLY_DASHBOARD_URL")); envDash != "" {
+		dashboardBaseURL = envDash
+	}
+	if strings.TrimSpace(*dashFlag) != "" {
+		dashboardBaseURL = strings.TrimSpace(*dashFlag)
+	}
+	dashboardBaseURL = strings.TrimRight(dashboardBaseURL, "/")
+
 	localAppData := os.Getenv("LOCALAPPDATA")
 	if localAppData == "" {
 		localAppData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")
@@ -317,7 +349,7 @@ func main() {
 	pairResp, pairErr := queryIPC("pair-request", 5*time.Second)
 	if pairErr != nil || pairResp == nil || !pairResp.Success {
 		// Open dashboard anyway so user can see their connected devices
-		openBrowser("http://localhost:5173/dashboard")
+		openBrowser(dashboardBaseURL + "/dashboard")
 		showMessageBox("ONUSLY Desktop Protection Installed",
 			"ONUSLY Desktop Protection has been successfully installed and is running in the background!\n\nOpen your dashboard to link your device.",
 			0x40, // MB_ICONINFORMATION
@@ -326,7 +358,7 @@ func main() {
 	}
 
 	code := pairResp.PairCode
-	dashboardURL := fmt.Sprintf("http://localhost:5173/dashboard?pairCode=%s", code)
+	dashboardURL := fmt.Sprintf("%s/dashboard?pairCode=%s", dashboardBaseURL, code)
 
 	// 7. Automatically open Chrome/browser with pairing code pre-filled
 	openBrowser(dashboardURL)

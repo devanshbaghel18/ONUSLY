@@ -19,6 +19,7 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/identity"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/ipc"
 	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/sync"
+	"github.com/devanshbaghel18/ONUSLY/desktop/agent/internal/wellbeing"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 	win "github.com/devanshbaghel18/ONUSLY/desktop/core/windows"
 )
@@ -40,6 +41,7 @@ func runPlatformDaemon(
 	apiURL string,
 	dnsListenAddr string,
 	configDir string,
+	dataDir string,
 ) {
 	if dnsListenAddr == "" {
 		dnsListenAddr = "127.0.0.1:53"
@@ -209,6 +211,52 @@ func runPlatformDaemon(
 		heartbeatTicker := time.NewTicker(60 * time.Second)
 		defer heartbeatTicker.Stop()
 
+		effectiveDataDir := dataDir
+		if effectiveDataDir == "" {
+			effectiveDataDir = filepath.Join(filepath.Dir(configDir), "data")
+		}
+		wellbeingTracker := wellbeing.NewTracker(effectiveDataDir)
+		lastWellbeingTick := time.Now()
+		lastSyncedYesterdayKey := ""
+
+		// Async telemetry worker ensures slow HTTP calls never stall SCM stop / cancelChan response
+		telemetryTrigger := make(chan []string, 2)
+		go func() {
+			for {
+				select {
+				case <-workerCtx.Done():
+					return
+				case <-cancelChan:
+					return
+				case hbIssues := <-telemetryTrigger:
+					hbCtx, hbCancel := context.WithTimeout(workerCtx, 8*time.Second)
+					if errHb := reporter.SendHeartbeat(hbCtx, hbIssues); errHb != nil {
+						handleLifecycleErr(errHb)
+					}
+					nowSnap := time.Now()
+					yDate := nowSnap.AddDate(0, 0, -1).Local().Format("2006-01-02")
+					if lastSyncedYesterdayKey != yDate {
+						yPayload := wellbeingTracker.BuildIngestPayloadForDate("", "", yDate, nowSnap)
+						if len(yPayload.Apps) > 0 {
+							if errY := reporter.SendWellbeingSnapshot(hbCtx, func(deviceID, platform string, n time.Time) any {
+								return wellbeingTracker.BuildIngestPayloadForDate(deviceID, platform, yDate, n)
+							}); errY == nil {
+								lastSyncedYesterdayKey = yDate
+							}
+						} else {
+							lastSyncedYesterdayKey = yDate
+						}
+					}
+					if errWb := reporter.SendWellbeingSnapshot(hbCtx, func(deviceID, platform string, n time.Time) any {
+						return wellbeingTracker.BuildIngestPayload(deviceID, platform, n)
+					}); errWb != nil {
+						handleLifecycleErr(errWb)
+					}
+					hbCancel()
+				}
+			}
+		}()
+
 		var lastObservedVersion string
 		if initData != nil {
 			lastObservedVersion = initData.Version
@@ -243,9 +291,20 @@ func runPlatformDaemon(
 				// If console is detached, don't perform unnecessary sync
 				currentSess := monitor.GetCurrent()
 				if currentSess != nil && !currentSess.IsAttached {
+					lastWellbeingTick = time.Now()
 					continue
 				}
-				res, err := syncer.Sync(workerCtx)
+				nowTick := time.Now()
+				elapsed := nowTick.Sub(lastWellbeingTick)
+				lastWellbeingTick = nowTick
+				if elapsed > 0 {
+					fgExe, isIdle := wellbeing.SampleForegroundApp(60_000)
+					wellbeingTracker.RecordSampleDuration(fgExe, elapsed, isIdle, nowTick)
+				}
+
+				syncCtx, syncCancel := context.WithTimeout(workerCtx, 6*time.Second)
+				res, err := syncer.Sync(syncCtx)
+				syncCancel()
 				if err != nil {
 					log.Printf("[ONUSLY Windows] Sync notice: %v", err)
 					handleLifecycleErr(err)
@@ -255,8 +314,10 @@ func runPlatformDaemon(
 					if res.Version != lastObservedVersion {
 						lastObservedVersion = res.Version
 						log.Printf("[ONUSLY Windows] Blocklist updated instantly: %d target(s) (version %s)", len(res.Targets), res.Version)
-						// Immediately emit heartbeat so dashboard telemetry badge reflects change with zero lag!
-						_ = reporter.SendHeartbeat(workerCtx, nil)
+						select {
+						case telemetryTrigger <- nil:
+						default:
+						}
 					}
 				}
 
@@ -276,8 +337,9 @@ func runPlatformDaemon(
 						}
 					}
 				}
-				if errHb := reporter.SendHeartbeat(workerCtx, issues); errHb != nil {
-					handleLifecycleErr(errHb)
+				select {
+				case telemetryTrigger <- issues:
+				default:
 				}
 			}
 		}

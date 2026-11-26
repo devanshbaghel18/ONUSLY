@@ -4,7 +4,7 @@ import { createGoal } from "../lib/api";
 import { APP_CATALOG, isProtectedProcess, normalizeDesktopAppTarget } from "../lib/blockedApps";
 import { notifyExtensionSync } from "../lib/extensionSync";
 
-export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
+export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initialCustomTarget = null }) {
   const [taskDescription, setTaskDescription] = useState("");
   const [taskDetails, setTaskDetails] = useState("");
   const [selectedCatalogIds, setSelectedCatalogIds] = useState(["instagram", "twitter"]);
@@ -21,21 +21,23 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
   const hasTargets = selectedCatalogIds.length > 0 || customTargets.length > 0;
 
   useEffect(() => {
-    if (isOpen) {
-      const timer = setTimeout(() => {
-        setTaskDescription("");
-        setTaskDetails("");
-        setSelectedCatalogIds(["instagram", "twitter"]);
-        setCustomTargets([]);
-        setCustomInput("");
-        setShowCustomInput(false);
-        setApprovalType("friend");
-        setApproverEmail("");
-        setFormError("");
-      }, 0);
-      return () => clearTimeout(timer);
+    if (!isOpen) return;
+    setTaskDescription("");
+    setTaskDetails("");
+    if (initialCustomTarget && initialCustomTarget.value) {
+      setSelectedCatalogIds([]);
+      setCustomTargets([initialCustomTarget]);
+    } else {
+      setSelectedCatalogIds(["instagram", "twitter"]);
+      setCustomTargets([]);
     }
-  }, [isOpen]);
+    setCustomInput("");
+    setCustomTargetError("");
+    setShowCustomInput(false);
+    setApprovalType("friend");
+    setApproverEmail("");
+    setFormError("");
+  }, [isOpen, initialCustomTarget]);
 
   // Handle escape key
   useEffect(() => {
@@ -69,10 +71,12 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
   };
 
   const handleSelectAllCatalog = () => {
-    if (selectedCatalogIds.length === APP_CATALOG.length) {
+    // Keep youtube_shorts mutually exclusive with full youtube so Select All never triggers conflicts
+    const compatibleIds = APP_CATALOG.filter((a) => a.id !== "youtube_shorts").map((a) => a.id);
+    if (compatibleIds.every((id) => selectedCatalogIds.includes(id))) {
       setSelectedCatalogIds([]);
     } else {
-      setSelectedCatalogIds(APP_CATALOG.map((a) => a.id));
+      setSelectedCatalogIds(compatibleIds);
     }
   };
 
@@ -214,18 +218,29 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated }) {
       }
     });
 
-    customTargets.forEach((ct) => {
-      const trimmedVal = ct.value.trim();
+    for (const ct of customTargets) {
+      const rawVal = (ct.value || "").trim();
+      if (!rawVal) continue;
       if (ct.type === "desktop") {
-        appsSet.add(trimmedVal);
-        applicationTargets.push({ kind: "desktop_app", identifier: trimmedVal });
+        const clean = normalizeDesktopAppTarget(rawVal);
+        if (isProtectedProcess(clean)) {
+          setFormError(`"${clean}" is a protected system/ONUSLY process and cannot be restricted.`);
+          return;
+        }
+        appsSet.add(clean);
+        applicationTargets.push({ kind: "desktop_app", identifier: clean });
       } else if (ct.type === "app") {
-        appsSet.add(trimmedVal);
-        applicationTargets.push({ kind: "android_package", identifier: trimmedVal });
+        if (isProtectedProcess(rawVal)) {
+          setFormError(`"${rawVal}" is a protected process and cannot be restricted.`);
+          return;
+        }
+        appsSet.add(rawVal);
+        applicationTargets.push({ kind: "android_package", identifier: rawVal });
       } else {
-        domainsSet.add(trimmedVal);
+        const cleanDom = rawVal.toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+        if (cleanDom) domainsSet.add(cleanDom);
       }
-    });
+    }
 
     const isTargeted = appsSet.size > 0 || domainsSet.size > 0;
     const finalApprovalType = isTargeted ? "friend" : approvalType;

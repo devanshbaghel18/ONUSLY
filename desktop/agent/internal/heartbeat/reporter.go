@@ -127,20 +127,69 @@ func (r *Reporter) SendHeartbeat(ctx context.Context, issues []string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		bodyStr := string(bodyBytes)
-		if strings.Contains(bodyStr, "DEVICE_REVOKED") || strings.Contains(bodyStr, "device_revoked") {
-			return core.ErrDeviceRevoked
-		}
-		if strings.Contains(bodyStr, "CREDENTIAL_EXPIRED") || strings.Contains(bodyStr, "credential_expired") {
-			return core.ErrCredentialExpired
-		}
-		return core.ErrUnauthenticated
+		return classifyAuthError(resp)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("heartbeat returned status %d", resp.StatusCode)
 	}
 
+	return nil
+}
+
+func classifyAuthError(resp *http.Response) error {
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	bodyStr := string(bodyBytes)
+	if strings.Contains(bodyStr, "DEVICE_REVOKED") || strings.Contains(bodyStr, "device_revoked") {
+		return core.ErrDeviceRevoked
+	}
+	if strings.Contains(bodyStr, "CREDENTIAL_EXPIRED") || strings.Contains(bodyStr, "credential_expired") {
+		return core.ErrCredentialExpired
+	}
+	return core.ErrUnauthenticated
+}
+
+// SendWellbeingSnapshot dispatches daily desktop Digital Wellbeing metrics to POST /wellbeing/ingest.
+func (r *Reporter) SendWellbeingSnapshot(ctx context.Context, buildPayload func(deviceID, platform string, now time.Time) any) error {
+	if buildPayload == nil {
+		return nil
+	}
+	token, err := r.credStore.GetToken()
+	if err != nil || token == "" {
+		return nil // Silently skip when unpaired
+	}
+
+	deviceID, err := r.identityStore.GetDeviceID()
+	if err != nil || deviceID == "" {
+		return nil
+	}
+
+	payload := buildPayload(deviceID, r.platform, time.Now())
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("%s/wellbeing/ingest", strings.TrimRight(r.apiBaseURL, "/"))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		return classifyAuthError(resp)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("wellbeing ingest returned status %d", resp.StatusCode)
+	}
 	return nil
 }

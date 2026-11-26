@@ -6,6 +6,8 @@ import {
   AlertCircle,
   FileText,
   Unlock,
+  UserPlus,
+  UserCheck,
   X,
 } from "lucide-react";
 import {
@@ -58,14 +60,15 @@ export default function NotificationFeed() {
     fetchNotifications();
   }, [fetchNotifications]);
 
-  // Live real-time sync via existing Slice A WebSocket
+  // Live real-time sync via WebSocket
   useWebSocket((event) => {
     if (
       event?.type === "goal.unlocked" ||
       event?.type === "proof.submitted" ||
+      event?.type === "friend.request" ||
+      event?.type === "friend.accepted" ||
       event?.type === "notification.new"
     ) {
-      console.log("[NotificationFeed] Real-time event received, refreshing feed...");
       fetchNotifications();
     }
   });
@@ -115,6 +118,24 @@ export default function NotificationFeed() {
     }
 
     setIsOpen(false);
+    if (notif.type === "friend_request") {
+      navigate("/community-friends", {
+        state: {
+          view: "friends",
+          openRequests: true,
+        },
+      });
+      return;
+    }
+    if (notif.type === "friend_accepted") {
+      navigate("/community-friends", {
+        state: {
+          view: "friends",
+          targetId: notif.ownerId || "",
+        },
+      });
+      return;
+    }
     if (notif.goalId) {
       if (notif.type === "proof_submitted") {
         navigate("/community-friends", {
@@ -218,12 +239,14 @@ export default function NotificationFeed() {
                 </div>
                 <p className="text-xs font-bold text-neutral-300">All caught up!</p>
                 <p className="text-[11px] text-neutral-500 mt-1 max-w-[220px]">
-                  You&apos;ll be notified when proof is submitted or approved.
+                  You&apos;ll be notified for friend requests, proof reviews, and goal approvals.
                 </p>
               </div>
             ) : (
               notifications.map((n) => {
                 const isProof = n.type === "proof_submitted";
+                const isFriendReq = n.type === "friend_request";
+                const isFriendAcc = n.type === "friend_accepted";
                 const isApproved =
                   n.type === "approval_decided" &&
                   (n.title?.toLowerCase().includes("approved") ||
@@ -243,6 +266,10 @@ export default function NotificationFeed() {
                         <Unlock size={14} />
                       ) : isProof ? (
                         <FileText size={14} />
+                      ) : isFriendReq ? (
+                        <UserPlus size={14} />
+                      ) : isFriendAcc ? (
+                        <UserCheck size={14} />
                       ) : (
                         <AlertCircle size={14} />
                       )}
@@ -256,7 +283,7 @@ export default function NotificationFeed() {
                             !n.read ? "text-white" : "text-neutral-300"
                           }`}
                         >
-                          {n.title || (isProof ? "New Proof" : "Decision Update")}
+                          {n.title || (isProof ? "New Proof" : isFriendReq ? "New Friend Request" : "Decision Update")}
                         </p>
                         <span className="shrink-0 text-[10px] font-medium text-neutral-500">
                           {formatRelativeTime(n.createdAt)}

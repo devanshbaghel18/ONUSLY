@@ -199,11 +199,11 @@ export function createStorage(customAdapter = null) {
     async getSettings() {
       const data = await adapter.get([KEY_SETTINGS]);
       const settings = data[KEY_SETTINGS] || {};
-      if (!settings.baseUrl || settings.baseUrl.includes("8081")) {
-        settings.baseUrl = "http://localhost:8080";
+      if (!settings.baseUrl) {
+        settings.baseUrl = "https://api.onusly.com";
       }
       if (!settings.dashboardUrl) {
-        settings.dashboardUrl = "http://localhost:5173";
+        settings.dashboardUrl = "https://onusly.com";
       }
       return settings;
     },
@@ -242,6 +242,21 @@ export function createStorage(customAdapter = null) {
      */
     async setManagedMode(isManaged) {
       await adapter.set({ onusly_managed_mode: Boolean(isManaged) });
+    },
+
+    /**
+     * Retrieves persisted daily Digital Wellbeing website counters.
+     */
+    async getWellbeingData() {
+      const data = await adapter.get(["onusly_wellbeing_daily"]);
+      return data["onusly_wellbeing_daily"] || {};
+    },
+
+    /**
+     * Saves daily Digital Wellbeing website counters.
+     */
+    async saveWellbeingData(dailyMap) {
+      await adapter.set({ onusly_wellbeing_daily: dailyMap || {} });
     },
   };
 }

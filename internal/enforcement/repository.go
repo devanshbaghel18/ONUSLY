@@ -59,6 +59,10 @@ func (r *DynamoRepository) UpsertDevice(ctx context.Context, device Device) erro
 		return fmt.Errorf("failed to marshal device: %w", err)
 	}
 
+	if r.db == nil {
+		return nil
+	}
+
 	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 	defer cancel()
 
@@ -97,6 +101,10 @@ func (r *DynamoRepository) UpdateHeartbeat(ctx context.Context, device Device) e
 		return fmt.Errorf("failed to marshal device: %w", err)
 	}
 
+	if r.db == nil {
+		return nil
+	}
+
 	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 	defer cancel()
 
@@ -123,6 +131,18 @@ func (r *DynamoRepository) UpdateHeartbeat(ctx context.Context, device Device) e
 }
 
 func (r *DynamoRepository) ListDevices(ctx context.Context, userID string) ([]Device, error) {
+	if r.db == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		list := []Device{}
+		for _, d := range r.memDevices {
+			if d.UserID == userID {
+				list = append(list, d)
+			}
+		}
+		return list, nil
+	}
+
 	queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 	defer cancel()
 
@@ -166,6 +186,16 @@ func (r *DynamoRepository) ListDevices(ctx context.Context, userID string) ([]De
 }
 
 func (r *DynamoRepository) GetDevice(ctx context.Context, userID, deviceID string) (*Device, error) {
+	if r.db == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if d, ok := r.memDevices[userID+"#"+deviceID]; ok {
+			cp := d
+			return &cp, nil
+		}
+		return nil, ErrDeviceNotFound
+	}
+
 	getCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 	defer cancel()
 
@@ -208,17 +238,27 @@ func (r *DynamoRepository) RevokeDevice(ctx context.Context, userID, deviceID, r
 		reason = "user_revoked"
 	}
 
+	memKey := userID + "#" + deviceID
 	r.mu.Lock()
-	if d, ok := r.memDevices[userID+"#"+deviceID]; ok {
+	prev, hadMem := r.memDevices[memKey]
+	if hadMem {
+		d := prev
 		d.Status = DeviceStatusRevoked
 		d.RevokedAt = now
 		d.RevocationReason = reason
 		d.Enforcing = false
 		d.UpdatedAt = now
 		d.CredentialVersion++
-		r.memDevices[userID+"#"+deviceID] = d
+		r.memDevices[memKey] = d
 	}
 	r.mu.Unlock()
+
+	if r.db == nil {
+		if !hadMem {
+			return ErrDeviceNotFound
+		}
+		return nil
+	}
 
 	updCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 	defer cancel()
@@ -246,6 +286,13 @@ func (r *DynamoRepository) RevokeDevice(ctx context.Context, userID, deviceID, r
 	if err != nil {
 		var condErr *types.ConditionalCheckFailedException
 		if errors.As(err, &condErr) {
+			r.mu.Lock()
+			if hadMem {
+				r.memDevices[memKey] = prev
+			} else {
+				delete(r.memDevices, memKey)
+			}
+			r.mu.Unlock()
 			return ErrDeviceNotFound
 		}
 		log.Printf("[EnforcementRepo] Remote RevokeDevice notice: %v (revoked in local memory)", err)
@@ -270,6 +317,14 @@ func (r *DynamoRepository) SavePairingSession(ctx context.Context, session Pairi
 		return fmt.Errorf("failed to marshal pairing session: %w", err)
 	}
 
+	if r.db == nil {
+		return nil
+	}
+
+	if r.db == nil {
+		return nil
+	}
+
 	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 	defer cancel()
 
@@ -285,6 +340,16 @@ func (r *DynamoRepository) SavePairingSession(ctx context.Context, session Pairi
 }
 
 func (r *DynamoRepository) GetPairingSession(ctx context.Context, code string) (*PairingSession, error) {
+	if r.db == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if sess, ok := r.memSessions[code]; ok {
+			cp := sess
+			return &cp, nil
+		}
+		return nil, errors.New("pairing session not found")
+	}
+
 	getCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 	defer cancel()
 
@@ -324,6 +389,10 @@ func (r *DynamoRepository) ConfirmPairingSession(ctx context.Context, code, user
 	}
 	r.mu.Unlock()
 
+	if r.db == nil {
+		return nil
+	}
+
 	updCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 	defer cancel()
 
@@ -354,30 +423,31 @@ func (r *DynamoRepository) ConfirmPairingSession(ctx context.Context, code, user
 }
 
 func (r *DynamoRepository) ConsumePairingSession(ctx context.Context, code string) (*PairingSession, error) {
-	nowUnix := fmt.Sprintf("%d", time.Now().Unix())
-	delCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
-	defer cancel()
-
-	res, err := r.db.DeleteItem(delCtx, &dynamodb.DeleteItemInput{
-		TableName: aws.String(r.tableName),
-		Key: map[string]types.AttributeValue{
-			"PK": &types.AttributeValueMemberS{Value: "PAIR#" + code},
-			"SK": &types.AttributeValueMemberS{Value: "SESSION"},
-		},
-		ConditionExpression: aws.String("attribute_exists(PK) AND Confirmed = :true AND ExpiresAt >= :nowUnix"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":true":    &types.AttributeValueMemberBOOL{Value: true},
-			":nowUnix": &types.AttributeValueMemberN{Value: nowUnix},
-		},
-		ReturnValues: types.ReturnValueAllOld,
-	})
-	if err == nil && len(res.Attributes) > 0 {
-		var session PairingSession
-		if err := attributevalue.UnmarshalMap(res.Attributes, &session); err == nil {
-			r.mu.Lock()
-			delete(r.memSessions, code)
-			r.mu.Unlock()
-			return &session, nil
+	if r.db != nil {
+		nowUnix := fmt.Sprintf("%d", time.Now().Unix())
+		delCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		res, err := r.db.DeleteItem(delCtx, &dynamodb.DeleteItemInput{
+			TableName: aws.String(r.tableName),
+			Key: map[string]types.AttributeValue{
+				"PK": &types.AttributeValueMemberS{Value: "PAIR#" + code},
+				"SK": &types.AttributeValueMemberS{Value: "SESSION"},
+			},
+			ConditionExpression: aws.String("attribute_exists(PK) AND Confirmed = :true AND ExpiresAt >= :nowUnix"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":true":    &types.AttributeValueMemberBOOL{Value: true},
+				":nowUnix": &types.AttributeValueMemberN{Value: nowUnix},
+			},
+			ReturnValues: types.ReturnValueAllOld,
+		})
+		cancel()
+		if err == nil && len(res.Attributes) > 0 {
+			var session PairingSession
+			if err := attributevalue.UnmarshalMap(res.Attributes, &session); err == nil {
+				r.mu.Lock()
+				delete(r.memSessions, code)
+				r.mu.Unlock()
+				return &session, nil
+			}
 		}
 	}
 

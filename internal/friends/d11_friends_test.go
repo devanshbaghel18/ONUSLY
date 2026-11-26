@@ -268,3 +268,49 @@ func (c *conditionRecordingMockDB) GetItem(ctx context.Context, params *dynamodb
 		},
 	}, nil
 }
+
+type d11MockNotifSender struct {
+	requests []string
+	accepts  []string
+	readIDs  []string
+}
+
+func (m *d11MockNotifSender) CreateFromFriendRequest(_ context.Context, recipientID, requestID, _, _, _ string) error {
+	m.requests = append(m.requests, recipientID+":"+requestID)
+	return nil
+}
+
+func (m *d11MockNotifSender) CreateFromFriendAccepted(_ context.Context, recipientID, _, _, acceptorID string) error {
+	m.accepts = append(m.accepts, recipientID+":"+acceptorID)
+	return nil
+}
+
+func (m *d11MockNotifSender) MarkAsRead(_ context.Context, recipientID, notifID string) error {
+	m.readIDs = append(m.readIDs, recipientID+":"+notifID)
+	return nil
+}
+
+func TestD11_Friends_SendAndAcceptDispatchesInAppNotifications(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := setupD11FriendsService()
+	notifMock := &d11MockNotifSender{}
+	svc.SetNotificationSender(notifMock)
+
+	req, err := svc.SendRequest(ctx, "user-alice", "alice@example.com", "alice", "bob")
+	if err != nil {
+		t.Fatalf("SendRequest failed: %v", err)
+	}
+	if len(notifMock.requests) != 1 || notifMock.requests[0] != "user-bob:"+req.ID {
+		t.Fatalf("expected friend request notification for user-bob:%s, got %+v", req.ID, notifMock.requests)
+	}
+
+	if err := svc.RespondRequest(ctx, "user-bob", req.ID, "accept"); err != nil {
+		t.Fatalf("RespondRequest failed: %v", err)
+	}
+	if len(notifMock.readIDs) != 1 || notifMock.readIDs[0] != "user-bob:friend-req-"+req.ID {
+		t.Fatalf("expected request notification marked read, got %+v", notifMock.readIDs)
+	}
+	if len(notifMock.accepts) != 1 || notifMock.accepts[0] != "user-alice:user-bob" {
+		t.Fatalf("expected friend accepted notification for user-alice, got %+v", notifMock.accepts)
+	}
+}

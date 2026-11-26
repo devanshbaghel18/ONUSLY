@@ -203,6 +203,78 @@ func (s *Service) CreateFromEnforcementRecovered(ctx context.Context, recipientI
 	return err
 }
 
+// CreateFromFriendRequest generates and persists an in-app notification for an incoming friend request.
+func (s *Service) CreateFromFriendRequest(ctx context.Context, recipientID, requestID, senderName, senderHandle, senderID string) error {
+	recipientID = strings.TrimSpace(recipientID)
+	if recipientID == "" || strings.TrimSpace(requestID) == "" {
+		return nil
+	}
+
+	display := strings.TrimSpace(senderName)
+	if display == "" {
+		display = "Someone"
+	}
+	if h := strings.TrimPrefix(strings.TrimSpace(senderHandle), "@"); h != "" {
+		display = "@" + h
+	}
+
+	notif := &Notification{
+		ID:          "friend-req-" + requestID,
+		RecipientID: recipientID,
+		Type:        "friend_request",
+		Title:       "New Friend Request",
+		Message:     fmt.Sprintf("%s sent you a friend request.", display),
+		OwnerID:     senderID,
+		Read:        false,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	err := s.repo.Create(ctx, notif)
+	if err != nil && errors.Is(err, ErrAlreadyExists) {
+		return nil
+	}
+	if err == nil && s.broadcaster != nil {
+		_ = s.broadcaster.SendNotification(recipientID, "notification.new", notif)
+	}
+	return err
+}
+
+// CreateFromFriendAccepted generates and persists an in-app notification when a friend request is accepted.
+func (s *Service) CreateFromFriendAccepted(ctx context.Context, recipientID, acceptorName, acceptorHandle, acceptorID string) error {
+	recipientID = strings.TrimSpace(recipientID)
+	if recipientID == "" {
+		return nil
+	}
+
+	display := strings.TrimSpace(acceptorName)
+	if display == "" {
+		display = "Someone"
+	}
+	if h := strings.TrimPrefix(strings.TrimSpace(acceptorHandle), "@"); h != "" {
+		display = "@" + h
+	}
+
+	notif := &Notification{
+		ID:          fmt.Sprintf("friend-acc-%s-%d", strings.TrimSpace(acceptorID), time.Now().UTC().UnixNano()),
+		RecipientID: recipientID,
+		Type:        "friend_accepted",
+		Title:       "Friend Request Accepted",
+		Message:     fmt.Sprintf("%s accepted your friend request.", display),
+		OwnerID:     acceptorID,
+		Read:        false,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	err := s.repo.Create(ctx, notif)
+	if err != nil && errors.Is(err, ErrAlreadyExists) {
+		return nil
+	}
+	if err == nil && s.broadcaster != nil {
+		_ = s.broadcaster.SendNotification(recipientID, "notification.new", notif)
+	}
+	return err
+}
+
 // List returns notifications for the recipient along with total unread count.
 func (s *Service) List(ctx context.Context, recipientID string, limit int) (*NotificationListResponse, error) {
 	if strings.TrimSpace(recipientID) == "" {
