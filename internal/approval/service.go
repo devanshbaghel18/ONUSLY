@@ -189,7 +189,6 @@ func (s *Service) Decide(
 	); err != nil {
 		return nil, err
 	}
-	_, _ = s.goalService.UpdateStatus(ctx, goal.OwnerID, goalID, goalStatus)
 
 	for _, listener := range s.listeners {
 		func() {
@@ -548,16 +547,26 @@ func (s *Service) GetSubmissions(
 				completedCount++
 			}
 		}
-		stats.TotalVerified = completedCount
-		stats.TotalRejected = len(auditLog) - completedCount
-		if stats.TotalRejected < 0 {
-			stats.TotalRejected = 0
+		rejectedDecisions := 0
+		for _, entry := range auditLog {
+			if strings.EqualFold(entry.Decision, "rejected") {
+				rejectedDecisions++
+			}
 		}
+		stats.TotalVerified = completedCount
+		stats.TotalRejected = rejectedDecisions
 		stats.CompletionRate = float64(completedCount) / float64(len(userGoals)) * 100.0
+
+		// Sort goals chronologically descending so streak reflects most recent completed goals
+		sortedGoals := make([]goals.Goal, len(userGoals))
+		copy(sortedGoals, userGoals)
+		sort.SliceStable(sortedGoals, func(i, j int) bool {
+			return sortedGoals[i].CreatedAt > sortedGoals[j].CreatedAt
+		})
 
 		// Calculate consecutive streak
 		streak := 0
-		for _, g := range userGoals {
+		for _, g := range sortedGoals {
 			if g.Status == "completed" {
 				streak++
 			} else if g.Status == "active" || g.Status == "proof_submitted" {
@@ -596,5 +605,3 @@ func (s *Service) GetSubmissions(
 
 	return dossier, nil
 }
-
-

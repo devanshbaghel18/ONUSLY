@@ -565,60 +565,69 @@ class ChatFragment : Fragment() {
     }
 
     private fun handleApproveProof(msg: ChatMessage) {
-        val app = (activity?.application as? OnuslyApplication) ?: return
-        val currentUserId = app.authManager.getUserId()
-        if (msg.ownerId.isBlank() || (currentUserId != null && msg.ownerId.equals(currentUserId, ignoreCase = true))) {
-            Toast.makeText(context, "You cannot decide your own goal.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val proofId = if (msg.id.startsWith("proof-")) msg.id.removePrefix("proof-") else msg.id
-
-        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            val res = app.goalsRepository.decideApproval(
-                goalId = msg.goalId,
-                proofId = proofId,
-                request = ApprovalDecisionRequest(
-                    status = "approved",
-                    comment = "Approved via Android Chat",
-                    ownerId = msg.ownerId
-                )
-            )
-            withContext(Dispatchers.Main) {
-                res.onSuccess {
-                    Toast.makeText(context, "Goal Approved & Unlocked!", Toast.LENGTH_SHORT).show()
-                    loadMessages(currentPeer)
-                }.onFailure { err ->
-                    Toast.makeText(context, "Approval failed: ${err.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
+        decideProofMessage(
+            msg = msg,
+            decision = "approved",
+            comment = "Approved via Android Chat",
+            successToast = "Goal Approved & Unlocked!",
+            failurePrefix = "Approval failed"
+        )
     }
 
     private fun handleRejectProof(msg: ChatMessage) {
+        decideProofMessage(
+            msg = msg,
+            decision = "rejected",
+            comment = "Rejected via Android Chat",
+            successToast = "Proof Rejected. Goal remains active.",
+            failurePrefix = "Rejection failed"
+        )
+    }
+
+    private fun decideProofMessage(
+        msg: ChatMessage,
+        decision: String,
+        comment: String,
+        successToast: String,
+        failurePrefix: String
+    ) {
         val app = (activity?.application as? OnuslyApplication) ?: return
         val currentUserId = app.authManager.getUserId()
-        if (msg.ownerId.isBlank() || (currentUserId != null && msg.ownerId.equals(currentUserId, ignoreCase = true))) {
+        if (msg.goalId.isBlank() || msg.ownerId.isBlank() || (currentUserId != null && msg.ownerId.equals(currentUserId, ignoreCase = true))) {
             Toast.makeText(context, "You cannot decide your own goal.", Toast.LENGTH_SHORT).show()
             return
         }
-        val proofId = if (msg.id.startsWith("proof-")) msg.id.removePrefix("proof-") else msg.id
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            val res = app.goalsRepository.decideApproval(
-                goalId = msg.goalId,
-                proofId = proofId,
-                request = ApprovalDecisionRequest(
-                    status = "rejected",
-                    comment = "Rejected via Android Chat",
-                    ownerId = msg.ownerId
+            val proofsResult = app.goalsRepository.getProofs(msg.goalId, msg.ownerId)
+            val resolvedProofId = proofsResult.getOrNull()?.let { proofs ->
+                val explicitProofId = if (msg.id.startsWith("proof-")) msg.id.removePrefix("proof-") else ""
+                proofs.firstOrNull { explicitProofId.isNotEmpty() && it.id == explicitProofId }?.id
+                    ?: proofs.sortedByDescending { it.submittedAt }.firstOrNull()?.id
+            }
+
+            val res = if (resolvedProofId.isNullOrBlank()) {
+                val err = proofsResult.exceptionOrNull()
+                    ?: IllegalStateException("No submitted proof found for this goal.")
+                Result.failure(err)
+            } else {
+                app.goalsRepository.decideApproval(
+                    goalId = msg.goalId,
+                    proofId = resolvedProofId,
+                    request = ApprovalDecisionRequest(
+                        status = decision,
+                        comment = comment,
+                        ownerId = msg.ownerId
+                    )
                 )
-            )
+            }
+
             withContext(Dispatchers.Main) {
                 res.onSuccess {
-                    Toast.makeText(context, "Proof Rejected. Goal remains active.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, successToast, Toast.LENGTH_SHORT).show()
                     loadMessages(currentPeer)
                 }.onFailure { err ->
-                    Toast.makeText(context, "Rejection failed: ${err.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "$failurePrefix: ${err.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }

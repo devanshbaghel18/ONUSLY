@@ -25,7 +25,6 @@ function detectBrowser() {
   const ua = typeof navigator !== "undefined" ? (navigator.userAgent || "").toLowerCase() : "";
   if (ua.includes("firefox")) return "firefox";
   if (ua.includes("edg/")) return "edge";
-  if (ua.includes("opr/") || ua.includes("opera")) return "opera";
   if (globalThis.navigator?.brave) return "brave";
   return "chrome";
 }
@@ -336,9 +335,10 @@ export async function processAuthHandoff(message) {
 
   const userId = payload.sub;
   const currentSession = await storage.getSession();
+  const existingCache = await storage.getBlocklistCache();
 
-  // Safe account switching: if switching from User A to User B, clear old cache first
-  if (currentSession && currentSession.userId !== userId) {
+  // Safe account switching: clear old session/cache whenever cached user differs (even if prior JWT expired)
+  if ((currentSession && currentSession.userId !== userId) || (existingCache && existingCache.userId && existingCache.userId !== userId)) {
     await storage.clearAll();
   }
 
@@ -513,11 +513,16 @@ export async function pairDesktopAgent(token, userId) {
   if (globalThis.browser?.runtime?.sendNativeMessage) {
     try {
       const resp = await globalThis.browser.runtime.sendNativeMessage("com.onusly.desktop_agent", payload);
-      if (resp?.success) {
+      if (resp?.success && (resp?.paired === true || resp?.status?.paired === true)) {
         await storage.setManagedMode(true);
         return { success: true, paired: true };
       }
-      return { success: false, error: resp?.error || "Agent pairing rejected" };
+      return {
+        success: false,
+        paired: false,
+        pairCode: resp?.pairCode || null,
+        error: resp?.error || "Desktop agent pairing not confirmed",
+      };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -531,11 +536,16 @@ export async function pairDesktopAgent(token, userId) {
             resolve({ success: false, error: chrome.runtime.lastError.message });
             return;
           }
-          if (response?.success) {
+          if (response?.success && (response?.paired === true || response?.status?.paired === true)) {
             await storage.setManagedMode(true);
             resolve({ success: true, paired: true });
           } else {
-            resolve({ success: false, error: response?.error || "Agent pairing rejected" });
+            resolve({
+              success: false,
+              paired: false,
+              pairCode: response?.pairCode || null,
+              error: response?.error || "Desktop agent pairing not confirmed",
+            });
           }
         });
       } catch (err) {
@@ -601,7 +611,19 @@ if (globalThis.chrome?.runtime?.onMessage) {
     (async () => {
       if (!message || typeof message !== "object") return;
 
-      // Handle bridge requests from ONUSLY dashboard content script
+      // Handle bridge requests from ONUSLY dashboard content script (require authorized origin)
+      if (
+        message.type === "ONUSLY_PING" ||
+        message.type === "ONUSLY_AUTH_HANDOFF" ||
+        message.type === "ONUSLY_DISCONNECT" ||
+        message.type === "ONUSLY_SYNC"
+      ) {
+        if (!isAuthorizedOrigin(sender)) {
+          sendResponse({ success: false, error: "Unauthorized sender origin" });
+          return;
+        }
+      }
+
       if (message.type === "ONUSLY_PING") {
         sendResponse(await processPing());
         return;

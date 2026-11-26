@@ -64,8 +64,8 @@ func NewRegistry() *Registry {
 		syncOutcomesTotal:                 make(map[string]*atomic.Uint64),
 		heartbeatsTotal:                   make(map[string]*atomic.Uint64),
 		idempotencyHits:                   make(map[string]*atomic.Uint64),
-		idempotencyConflicts:             make(map[string]*atomic.Uint64),
-		conditionalConflicts:             make(map[string]*atomic.Uint64),
+		idempotencyConflicts:              make(map[string]*atomic.Uint64),
+		conditionalConflicts:              make(map[string]*atomic.Uint64),
 		authFailuresTotal:                 make(map[string]*atomic.Uint64),
 		authzFailuresTotal:                make(map[string]*atomic.Uint64),
 		pairingFailuresTotal:              make(map[string]*atomic.Uint64),
@@ -700,8 +700,12 @@ func isAuthorizedMetricsRequest(req *http.Request) bool {
 		return true
 	}
 
-	// If no internal token configured and running locally, allow
-	if tokenReq == "" {
+	// Fail closed in production when ONUSLY_METRICS_TOKEN is unset; allow non-production local tests.
+	envMode := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
+	if envMode == "" {
+		envMode = strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	}
+	if envMode != "production" && tokenReq == "" {
 		return true
 	}
 
@@ -733,4 +737,3 @@ func (r *Registry) Handler() http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(r.Snapshot())
 	}
 }
-

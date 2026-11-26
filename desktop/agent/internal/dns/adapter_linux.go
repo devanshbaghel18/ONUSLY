@@ -113,9 +113,48 @@ func (m *LinuxAdapterManager) DiscoverAdapters() ([]AdapterDNSConfig, error) {
 }
 
 func (m *LinuxAdapterManager) BackupDNS(backupFilePath string) (*DNSBackupState, error) {
+	// Safety Guarantee: Never overwrite an existing valid non-loopback backup with loopback settings.
+	if data, err := os.ReadFile(backupFilePath); err == nil {
+		var existingState DNSBackupState
+		if err := json.Unmarshal(data, &existingState); err == nil && len(existingState.OriginalDns) > 0 {
+			hasValidNonLoopback := false
+			for _, a := range existingState.OriginalDns {
+				for _, s := range a.ServerAddresses {
+					if s != "127.0.0.1" && s != "::1" && !strings.HasPrefix(s, "127.") {
+						hasValidNonLoopback = true
+						break
+					}
+				}
+				if a.IsDHCP {
+					hasValidNonLoopback = true
+					break
+				}
+			}
+			if hasValidNonLoopback {
+				return &existingState, nil
+			}
+		}
+	}
+
 	adapters, err := m.DiscoverAdapters()
 	if err != nil {
 		return nil, err
+	}
+
+	// Sanitize discovered adapters: strip loopback addresses so crashed sessions revert to DHCP rather than locking in 127.0.0.1.
+	for i := range adapters {
+		nonLoopbackServers := make([]string, 0, len(adapters[i].ServerAddresses))
+		for _, s := range adapters[i].ServerAddresses {
+			if s != "127.0.0.1" && s != "::1" && !strings.HasPrefix(s, "127.") {
+				nonLoopbackServers = append(nonLoopbackServers, s)
+			}
+		}
+		if len(nonLoopbackServers) == 0 && len(adapters[i].ServerAddresses) > 0 {
+			adapters[i].IsDHCP = true
+			adapters[i].ServerAddresses = []string{}
+		} else {
+			adapters[i].ServerAddresses = nonLoopbackServers
+		}
 	}
 
 	state := &DNSBackupState{
@@ -258,4 +297,3 @@ func (m *LinuxAdapterManager) IsRedirectionActive(backupFilePath string) (bool, 
 	}
 	return state.IsActive, nil
 }
-

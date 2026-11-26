@@ -21,12 +21,13 @@ func NewHandler(service *Service) *Handler {
 }
 
 type createGoalRequest struct {
-	Title          string   `json:"title"`
-	Description    string   `json:"description"`
-	ApprovalType   *string  `json:"approvalType"`
-	ApproverEmail  *string  `json:"approverEmail"`
-	BlockedApps    []string `json:"blockedApps"`
-	BlockedDomains []string `json:"blockedDomains"`
+	Title              string              `json:"title"`
+	Description        string              `json:"description"`
+	ApprovalType       *string             `json:"approvalType"`
+	ApproverEmail      *string             `json:"approverEmail"`
+	BlockedApps        []string            `json:"blockedApps"`
+	BlockedDomains     []string            `json:"blockedDomains"`
+	ApplicationTargets []ApplicationTarget `json:"applicationTargets"`
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -47,12 +48,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		userID,
 		CreateGoalInput{
-			Title:          req.Title,
-			Description:    req.Description,
-			ApprovalType:   req.ApprovalType,
-			ApproverEmail:  req.ApproverEmail,
-			BlockedApps:    req.BlockedApps,
-			BlockedDomains: req.BlockedDomains,
+			Title:              req.Title,
+			Description:        req.Description,
+			ApprovalType:       req.ApprovalType,
+			ApproverEmail:      req.ApproverEmail,
+			BlockedApps:        req.BlockedApps,
+			BlockedDomains:     req.BlockedDomains,
+			ApplicationTargets: req.ApplicationTargets,
 		},
 	)
 
@@ -194,12 +196,13 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Title          *string   `json:"title"`
-		Description    *string   `json:"description"`
-		ApprovalType   *string   `json:"approvalType"`
-		ApproverEmail  *string   `json:"approverEmail"`
-		BlockedApps    *[]string `json:"blockedApps"`
-		BlockedDomains *[]string `json:"blockedDomains"`
+		Title              *string              `json:"title"`
+		Description        *string              `json:"description"`
+		ApprovalType       *string              `json:"approvalType"`
+		ApproverEmail      *string              `json:"approverEmail"`
+		BlockedApps        *[]string            `json:"blockedApps"`
+		BlockedDomains     *[]string            `json:"blockedDomains"`
+		ApplicationTargets *[]ApplicationTarget `json:"applicationTargets"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -208,12 +211,13 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := UpdateGoalInput{
-		Title:          req.Title,
-		Description:    req.Description,
-		ApprovalType:   req.ApprovalType,
-		ApproverEmail:  req.ApproverEmail,
-		BlockedApps:    req.BlockedApps,
-		BlockedDomains: req.BlockedDomains,
+		Title:              req.Title,
+		Description:        req.Description,
+		ApprovalType:       req.ApprovalType,
+		ApproverEmail:      req.ApproverEmail,
+		BlockedApps:        req.BlockedApps,
+		BlockedDomains:     req.BlockedDomains,
+		ApplicationTargets: req.ApplicationTargets,
 	}
 
 	if ifMatch := strings.Trim(r.Header.Get("If-Match"), `"`); ifMatch != "" {

@@ -1,8 +1,12 @@
 package auth
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -28,6 +32,41 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	}
 }
 
+func (h *Handler) resolveFrontendURL() string {
+	frontendURL := strings.TrimSpace(h.service.cfg.FrontendURL)
+	if frontendURL == "" {
+		frontendURL = strings.TrimSpace(os.Getenv("FRONTEND_URL"))
+	}
+	if frontendURL == "" {
+		frontendURL = "http://localhost:5173"
+	}
+	return strings.TrimRight(frontendURL, "/")
+}
+
+func (h *Handler) buildSessionCookie(r *http.Request, name, value string, maxAge int) *http.Cookie {
+	isSecure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	sameSite := http.SameSiteLaxMode
+	if isSecure {
+		frontendURL := h.resolveFrontendURL()
+		if parsed, err := url.Parse(frontendURL); err == nil && parsed.Host != "" && !strings.EqualFold(parsed.Host, r.Host) {
+			sameSite = http.SameSiteNoneMode
+		}
+	}
+	c := &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     "/",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: sameSite,
+	}
+	if maxAge < 0 {
+		c.Expires = time.Unix(0, 0)
+	}
+	return c
+}
+
 func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	var req GoogleLoginRequest
 
@@ -51,22 +90,53 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set HttpOnly session cookie (SameSite=Lax, Path=/)
-	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, h.buildSessionCookie(r, "token", resp.Token, 7*24*3600))
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// GoogleLoginRedirect initiates the OAuth2 authorization code flow with a CSRF state cookie.
+func (h *Handler) GoogleLoginRedirect(w http.ResponseWriter, r *http.Request) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		http.Error(w, "failed to generate oauth state", http.StatusInternalServerError)
+		return
+	}
+	state := hex.EncodeToString(buf)
+	isSecure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    resp.Token,
+		Name:     "oauth_state",
+		Value:    state,
 		Path:     "/",
-		MaxAge:   7 * 24 * 3600, // 7 days (matches JWT exp)
+		MaxAge:   600,
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, h.service.GetAuthURL(state), http.StatusFound)
+}
+
+func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
+	stateQuery := strings.TrimSpace(r.URL.Query().Get("state"))
+	stateCookie, err := r.Cookie("oauth_state")
+	if err != nil || stateQuery == "" || stateCookie.Value == "" ||
+		subtle.ConstantTimeCompare([]byte(stateQuery), []byte(stateCookie.Value)) != 1 {
+		http.Error(w, "invalid oauth state", http.StatusBadRequest)
+		return
+	}
+
+	isSecure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
 		HttpOnly: true,
 		Secure:   isSecure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	writeJSON(w, http.StatusOK, resp)
-}
-
-func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		http.Error(w, "missing code", http.StatusBadRequest)
@@ -79,54 +149,18 @@ func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frontendURL := strings.TrimSpace(h.service.cfg.FrontendURL)
-	if frontendURL == "" {
-		frontendURL = strings.TrimSpace(os.Getenv("FRONTEND_URL"))
-	}
-	if frontendURL == "" {
-		frontendURL = "http://localhost:5173"
-	}
-	frontendURL = strings.TrimRight(frontendURL, "/")
+	frontendURL := h.resolveFrontendURL()
 
-	// Set HttpOnly session cookie
-	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    token,
-		Path:     "/",
-		MaxAge:   7 * 24 * 3600,
-		HttpOnly: true,
-		Secure:   isSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
+	http.SetCookie(w, h.buildSessionCookie(r, "token", token, 7*24*3600))
 
-	// redirect to frontend with token
-	http.Redirect(w, r, frontendURL+"/?token="+token, http.StatusFound)
+	// Pass token in URL fragment rather than query parameter to prevent server log and Referer leaks.
+	http.Redirect(w, r, frontendURL+"/#token="+url.QueryEscape(token), http.StatusFound)
 }
 
 // Logout clears the HttpOnly session cookie
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		Expires:  time.Unix(0, 0),
-		HttpOnly: true,
-		Secure:   isSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     "onusly_token",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		Expires:  time.Unix(0, 0),
-		HttpOnly: true,
-		Secure:   isSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
+	http.SetCookie(w, h.buildSessionCookie(r, "token", "", -1))
+	http.SetCookie(w, h.buildSessionCookie(r, "onusly_token", "", -1))
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "logged out successfully",
@@ -153,27 +187,8 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Also clear current browser cookie
-	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		Expires:  time.Unix(0, 0),
-		HttpOnly: true,
-		Secure:   isSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     "onusly_token",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		Expires:  time.Unix(0, 0),
-		HttpOnly: true,
-		Secure:   isSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
+	http.SetCookie(w, h.buildSessionCookie(r, "token", "", -1))
+	http.SetCookie(w, h.buildSessionCookie(r, "onusly_token", "", -1))
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"message":      "all sessions have been successfully revoked",

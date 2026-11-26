@@ -187,10 +187,10 @@ func Idempotency(store IdempotencyStore) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Determine tenant scope
-			scope := "public:" + r.URL.Path
+			// Determine tenant + endpoint scope so keys cannot collide across endpoints
+			scope := "public:" + r.Method + ":" + r.URL.Path
 			if userID, ok := GetUserID(r.Context()); ok && userID != "" {
-				scope = "user:" + userID
+				scope = "user:" + userID + ":" + r.Method + ":" + r.URL.Path
 			}
 
 			// Read and hash request payload
@@ -219,9 +219,13 @@ func Idempotency(store IdempotencyStore) func(http.Handler) http.Handler {
 					return
 				}
 
-				// Replay cached response
+				// Replay cached response (skip CORS/Vary headers so current request's CORS headers remain intact)
 				metrics.DefaultRegistry.RecordIdempotencyHit(r.URL.Path)
 				for hK, hV := range rec.Headers {
+					lowerK := strings.ToLower(hK)
+					if strings.HasPrefix(lowerK, "access-control-") || lowerK == "vary" {
+						continue
+					}
 					w.Header().Set(hK, hV)
 				}
 				w.Header().Set("Idempotent-Replay", "true")
@@ -261,6 +265,10 @@ func Idempotency(store IdempotencyStore) func(http.Handler) http.Handler {
 			if recWriter.statusCode < 500 {
 				cachedHeaders := make(map[string]string)
 				for hK := range w.Header() {
+					lowerK := strings.ToLower(hK)
+					if strings.HasPrefix(lowerK, "access-control-") || lowerK == "vary" {
+						continue
+					}
 					cachedHeaders[hK] = w.Header().Get(hK)
 				}
 
@@ -278,4 +286,3 @@ func Idempotency(store IdempotencyStore) func(http.Handler) http.Handler {
 		})
 	}
 }
-

@@ -85,7 +85,11 @@ func runUpdateCommand(args []string, configDir, dataDir string) error {
 	switch action {
 	case "check":
 		fs := flag.NewFlagSet("update check", flag.ContinueOnError)
-		feedURL := fs.String("feed-url", "http://localhost:8080/downloads/update_manifest.json", "Update feed manifest URL")
+		defaultFeed := strings.TrimSpace(os.Getenv("ONUSLY_UPDATE_FEED_URL"))
+		if defaultFeed == "" {
+			defaultFeed = "https://api.onusly.com/downloads/update_manifest.json"
+		}
+		feedURL := fs.String("feed-url", defaultFeed, "Update feed manifest URL")
 		allowDowngrade := fs.Bool("allow-downgrade", false, "Permit authorized downgrade (recovery mode only)")
 		if err := fs.Parse(subArgs); err != nil {
 			return err
@@ -187,7 +191,11 @@ func runUpdateCommand(args []string, configDir, dataDir string) error {
 
 	case "stage":
 		fs := flag.NewFlagSet("update stage", flag.ContinueOnError)
-		feedURL := fs.String("feed-url", "http://localhost:8080/downloads/update_manifest.json", "Update feed manifest URL")
+		defaultFeed := strings.TrimSpace(os.Getenv("ONUSLY_UPDATE_FEED_URL"))
+		if defaultFeed == "" {
+			defaultFeed = "https://api.onusly.com/downloads/update_manifest.json"
+		}
+		feedURL := fs.String("feed-url", defaultFeed, "Update feed manifest URL")
 		artifactsBase := fs.String("artifacts-url", "", "Base URL or directory for artifacts (default derived from feed-url)")
 		allowDowngrade := fs.Bool("allow-downgrade", false, "Permit authorized downgrade (recovery mode only)")
 		if err := fs.Parse(subArgs); err != nil {
@@ -245,4 +253,3 @@ func runUpdateCommand(args []string, configDir, dataDir string) error {
 		return errors.New("unknown update subcommand. Supported: check, verify, stage")
 	}
 }
-

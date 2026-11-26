@@ -199,6 +199,7 @@ Current statuses:
 ``` text
 active
 proof_submitted
+rejected
 completed
 ```
 
@@ -213,13 +214,14 @@ proof_submitted
   |
   +---- approve ----> completed
   |
-  +---- reject -----> active
+  +---- reject -----> rejected
+                        |
+                        | resubmit proof
+                        v
+                  proof_submitted
 ```
 
-A rejected goal can receive new proof.
-
-Do not introduce a `rejected` goal status without an explicit product
-decision.
+A rejected goal has status `rejected` and can receive new proof submissions.
 
 ------------------------------------------------------------------------
 

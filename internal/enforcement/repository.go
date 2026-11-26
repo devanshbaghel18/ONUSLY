@@ -284,19 +284,18 @@ func (r *DynamoRepository) RevokeDevice(ctx context.Context, userID, deviceID, r
 		},
 	})
 	if err != nil {
+		r.mu.Lock()
+		if hadMem {
+			r.memDevices[memKey] = prev
+		} else {
+			delete(r.memDevices, memKey)
+		}
+		r.mu.Unlock()
 		var condErr *types.ConditionalCheckFailedException
 		if errors.As(err, &condErr) {
-			r.mu.Lock()
-			if hadMem {
-				r.memDevices[memKey] = prev
-			} else {
-				delete(r.memDevices, memKey)
-			}
-			r.mu.Unlock()
 			return ErrDeviceNotFound
 		}
-		log.Printf("[EnforcementRepo] Remote RevokeDevice notice: %v (revoked in local memory)", err)
-		return nil
+		return err
 	}
 	return nil
 }
@@ -416,8 +415,7 @@ func (r *DynamoRepository) ConfirmPairingSession(ctx context.Context, code, user
 		},
 	})
 	if err != nil {
-		log.Printf("[EnforcementRepo] Remote ConfirmPairingSession notice: %v (confirmed in local memory)", err)
-		return nil
+		return err
 	}
 	return nil
 }

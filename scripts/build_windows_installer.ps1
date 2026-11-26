@@ -38,12 +38,18 @@ Write-Host "[3/4] Staging embedded installer assets..." -ForegroundColor Yellow
 Copy-Item "$binDir\onusly-agent.exe", "$binDir\onusly-native-host.exe" $assetsDir -Force
 
 # 4. Compile OnuslySetup.exe (Pure Windows GUI subsystem, no command prompt)
-Write-Host "[4/4] Compiling standalone OnuslySetup.exe..." -ForegroundColor Yellow
+Write-Host "[4/5] Compiling standalone OnuslySetup.exe..." -ForegroundColor Yellow
 go build -ldflags "-H=windowsgui -s -w -X 'main.apiURL=$ApiUrl' -X 'main.dashboardBaseURL=$DashboardUrl'" -o "$binDir\OnuslySetup.exe" ./desktop/installer/cmd/installer
 if ($LASTEXITCODE -ne 0) { throw "Failed to build OnuslySetup.exe" }
 
+# 5. Compile ONUSLY_Shield_Toggle.exe
+Write-Host "[5/5] Compiling ONUSLY_Shield_Toggle.exe..." -ForegroundColor Yellow
+go build -ldflags "-s -w" -o "$binDir\ONUSLY_Shield_Toggle.exe" ./desktop/agent/cmd/switcher
+if ($LASTEXITCODE -ne 0) { throw "Failed to build ONUSLY_Shield_Toggle.exe" }
+
 # Copy to frontend public downloads
 Copy-Item "$binDir\OnuslySetup.exe" "$downloadsDir\OnuslySetup.exe" -Force
+Copy-Item "$binDir\ONUSLY_Shield_Toggle.exe" "$downloadsDir\ONUSLY_Shield_Toggle.exe" -Force
 
 $fileSizeMB = [math]::Round(((Get-Item "$binDir\OnuslySetup.exe").Length / 1MB), 2)
 

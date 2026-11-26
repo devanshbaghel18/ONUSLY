@@ -25,7 +25,16 @@ def package_extension(codebase_url=None):
     ext_version = manifest_data.get("version", "1.0.0")
 
     if not codebase_url:
-        codebase_url = os.environ.get("ONUSLY_CODEBASE_URL", "https://api.onusly.com/downloads/onusly.crx")
+        codebase_url = os.environ.get("ONUSLY_CODEBASE_URL", "").strip()
+    if not codebase_url:
+        api_base = os.environ.get("VITE_API_BASE_URL", "").strip().rstrip("/")
+        public_domain = os.environ.get("PUBLIC_DOMAIN", "").strip()
+        if api_base:
+            codebase_url = f"{api_base}/downloads/onusly.crx"
+        elif public_domain:
+            codebase_url = f"https://{public_domain}/downloads/onusly.crx"
+        else:
+            codebase_url = "https://api.onusly.com/downloads/onusly.crx"
 
     include_items = [
         'manifest.json',
@@ -130,6 +139,7 @@ def package_extension(codebase_url=None):
                     produced_crx = stage_dir + ".crx"
                     if os.path.exists(produced_crx):
                         shutil.move(produced_crx, dest_crx)
+                        os.chmod(dest_crx, 0o644)
                         print(f"Packaged signed CRX into {dest_crx} ({os.path.getsize(dest_crx)} bytes)")
                     else:
                         print(f"Notice: CRX packing exited {res.returncode}: {res.stderr}")

@@ -74,6 +74,8 @@ var validIssues = map[string]bool{
 	"incognito_allowed":      true,
 	"dns_drift":              true,
 	"service_degraded":       true,
+	"dns_resolver_offline":   true,
+	"app_enforcement_failed": true,
 }
 
 // ApplicationTarget defines an explicitly typed application restriction.

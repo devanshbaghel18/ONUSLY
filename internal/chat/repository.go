@@ -424,11 +424,9 @@ func (r *Repository) ClearConversation(ctx context.Context, userKey, peerKey str
 	}
 
 	convKey := fmt.Sprintf("%s#%s", normUser, normPeer)
-	convKeyRev := fmt.Sprintf("%s#%s", normPeer, normUser)
 	r.mu.Lock()
 	if r.memMessages != nil {
 		delete(r.memMessages, convKey)
-		delete(r.memMessages, convKeyRev)
 	}
 	r.mu.Unlock()
 
@@ -526,7 +524,7 @@ func (r *Repository) DeleteMessage(ctx context.Context, callerEmail, callerHandl
 	}
 
 	isSender := false
-	if normIDKey != "" && (foundItem.SenderID == normIDKey || foundItem.OwnerID == normIDKey) {
+	if normIDKey != "" && foundItem.SenderID == normIDKey {
 		isSender = true
 	} else if foundItem.SenderID == "" && normEmail != "" && strings.EqualFold(foundItem.SenderEmail, normEmail) {
 		isSender = true

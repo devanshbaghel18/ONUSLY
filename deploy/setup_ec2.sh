@@ -289,13 +289,14 @@ echo "[+] Environment configuration verified (Env: ${ENV_MODE}, JWT_SECRET ok, R
 # 8. Strict Production TLS Certificate & Key Validation
 # ------------------------------------------------------------------------------
 PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-api.onusly.com}"
+CERT_DOMAINS="${CERT_DOMAINS:-$PUBLIC_DOMAIN}"
 CERT_MODE="$(echo "${CERT_MODE:-origin}" | tr '[:upper:]' '[:lower:]')"
 mkdir -p "$SSL_DIR"
 chmod 755 "$SSL_DIR"
 mkdir -p /var/www/certbot
 
 if [ "$CERT_MODE" = "letsencrypt" ]; then
-  echo ">>> Configuring Let's Encrypt TLS certificate for ${PUBLIC_DOMAIN}..."
+  echo ">>> Configuring Let's Encrypt TLS certificate for ${PUBLIC_DOMAIN} (${CERT_DOMAINS})..."
   if ! command -v certbot >/dev/null 2>&1; then
     echo "[+] Installing certbot for Let's Encrypt..."
     dnf install -y certbot python3-certbot-nginx
@@ -303,17 +304,21 @@ if [ "$CERT_MODE" = "letsencrypt" ]; then
   SSL_CERT_PATH="/etc/letsencrypt/live/${PUBLIC_DOMAIN}/fullchain.pem"
   SSL_KEY_PATH="/etc/letsencrypt/live/${PUBLIC_DOMAIN}/privkey.pem"
   if [ ! -f "$SSL_CERT_PATH" ] || [ ! -f "$SSL_KEY_PATH" ] || ! openssl x509 -checkend 604800 -noout -in "$SSL_CERT_PATH" >/dev/null 2>&1; then
-    echo "[+] Obtaining/renewing Let's Encrypt certificate for ${PUBLIC_DOMAIN}..."
+    echo "[+] Obtaining/renewing Let's Encrypt certificate for ${CERT_DOMAINS}..."
     CERTBOT_EMAIL_ARGS=(--register-unsafely-without-email)
     if [ -n "${CERTBOT_EMAIL:-}" ]; then
       CERTBOT_EMAIL_ARGS=(--email "$CERTBOT_EMAIL")
     fi
+    CERTBOT_DOMAIN_ARGS=()
+    for d in ${CERT_DOMAINS//,/ }; do
+      [ -n "$d" ] && CERTBOT_DOMAIN_ARGS+=(-d "$d")
+    done
     NGINX_WAS_ACTIVE=false
     if systemctl is-active --quiet nginx 2>/dev/null; then
       NGINX_WAS_ACTIVE=true
       systemctl stop nginx || true
     fi
-    certbot certonly --standalone --non-interactive --agree-tos "${CERTBOT_EMAIL_ARGS[@]}" -d "${PUBLIC_DOMAIN}"
+    certbot certonly --standalone --non-interactive --agree-tos "${CERTBOT_EMAIL_ARGS[@]}" "${CERTBOT_DOMAIN_ARGS[@]}"
     if [ "$NGINX_WAS_ACTIVE" = true ]; then
       systemctl start nginx || true
     fi
@@ -485,18 +490,41 @@ mkdir -p /etc/nginx/conf.d
 mkdir -p /var/www/certbot
 mkdir -p /var/www/onusly/frontend/dist
 
+if command -v go >/dev/null 2>&1 && [ -d "${APP_DIR}/desktop" ]; then
+  echo ">>> Cross-compiling Windows desktop installer & shield toggle into downloads..."
+  mkdir -p "${APP_DIR}/frontend/public/downloads"
+  WIN_STAGE_DIR="$(mktemp -d)"
+  VITE_API_FOR_WIN="${VITE_API_BASE_URL:-https://${PUBLIC_DOMAIN}}"
+  DASHBOARD_FOR_WIN="${FRONTEND_URL:-https://${PUBLIC_DOMAIN}}"
+  (
+    cd "$APP_DIR"
+    GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X 'main.defaultAPIURL=${VITE_API_FOR_WIN}'" \
+      -o "${WIN_STAGE_DIR}/onusly-agent.exe" ./desktop/agent/cmd
+    GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" \
+      -o "${WIN_STAGE_DIR}/onusly-native-host.exe" ./desktop/native-host
+    mkdir -p "${APP_DIR}/desktop/installer/cmd/installer/assets"
+    cp -f "${WIN_STAGE_DIR}/onusly-agent.exe" "${WIN_STAGE_DIR}/onusly-native-host.exe" \
+      "${APP_DIR}/desktop/installer/cmd/installer/assets/"
+    GOOS=windows GOARCH=amd64 go build \
+      -ldflags "-H=windowsgui -s -w -X 'main.apiURL=${VITE_API_FOR_WIN}' -X 'main.dashboardBaseURL=${DASHBOARD_FOR_WIN}'" \
+      -o "${APP_DIR}/frontend/public/downloads/OnuslySetup.exe" ./desktop/installer/cmd/installer
+    GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" \
+      -o "${APP_DIR}/frontend/public/downloads/ONUSLY_Shield_Toggle.exe" ./desktop/agent/cmd/switcher
+  ) || echo "WARNING: Windows cross-compilation failed cleanly; check Go toolchain."
+  rm -rf "$WIN_STAGE_DIR" "${APP_DIR}/desktop/installer/cmd/installer/assets/"*.exe
+fi
+
 if command -v npm >/dev/null 2>&1 && [ -f "${APP_DIR}/frontend/package.json" ]; then
   echo ">>> Building frontend production assets..."
   VITE_API_BASE_URL_BUILD="${VITE_API_BASE_URL-https://api.onusly.com}"
   VITE_GOOGLE_CLIENT_ID_BUILD="${VITE_GOOGLE_CLIENT_ID:-${GOOGLE_CLIENT_ID:-}}"
-  BUILD_CMD="npx vite build"
-  if [ ! -f "${APP_DIR}/frontend/public/downloads/onusly-extension.zip" ] || [ ! -f "${APP_DIR}/frontend/public/downloads/updates.xml" ]; then
-    BUILD_CMD="npm run build"
-  fi
+  ONUSLY_CODEBASE_URL_BUILD="${ONUSLY_CODEBASE_URL:-https://${PUBLIC_DOMAIN}/downloads/onusly.crx}"
   if ! (cd "${APP_DIR}/frontend" && \
     VITE_API_BASE_URL="$VITE_API_BASE_URL_BUILD" \
     VITE_GOOGLE_CLIENT_ID="$VITE_GOOGLE_CLIENT_ID_BUILD" \
-    bash -c "(npm ci 2>/dev/null || npm install) && ${BUILD_CMD}"); then
+    ONUSLY_CODEBASE_URL="$ONUSLY_CODEBASE_URL_BUILD" \
+    PUBLIC_DOMAIN="$PUBLIC_DOMAIN" \
+    bash -c "(npm ci --no-audit --no-fund 2>/dev/null || npm install) && npm run build"); then
     echo "[-] ERROR: Frontend production build failed!" >&2
     exit 1
   fi
@@ -557,7 +585,17 @@ if [ "$SSL_CERT_PATH" != "/etc/ssl/onusly/api.onusly.com.pem" ] || [ "$SSL_KEY_P
   sed -i "s|/etc/ssl/onusly/api.onusly.com.pem|${SSL_CERT_PATH}|g" "$NGINX_CONF_DEST"
   sed -i "s|/etc/ssl/onusly/api.onusly.com.key|${SSL_KEY_PATH}|g" "$NGINX_CONF_DEST"
 fi
-if [ "$PUBLIC_DOMAIN" != "api.onusly.com" ] && ! grep -F -q "$PUBLIC_DOMAIN" "$NGINX_CONF_DEST"; then
+if [ "$CERT_MODE" = "letsencrypt" ]; then
+  # Only bind SSL server_name to domains covered by the Let's Encrypt certificate (+ localhost)
+  COVERED_NAMES="$(echo "${CERT_DOMAINS//,/ }" | tr -s ' ')"
+  if echo " ${COVERED_NAMES} " | grep -F -q " api.onusly.com "; then
+    sed -i "s|server_name onusly.com www.onusly.com onusly.app www.onusly.app onusly.duckdns.org localhost;|server_name ${COVERED_NAMES} localhost;|g" "$NGINX_CONF_DEST"
+  else
+    # Single-domain Let's Encrypt (e.g. onusly.duckdns.org): keep Block 3 (unified API + SPA) authoritative
+    sed -i "s|server_name api.onusly.com;|server_name unused-api.onusly.invalid;|g" "$NGINX_CONF_DEST"
+    sed -i "s|server_name onusly.com www.onusly.com onusly.app www.onusly.app onusly.duckdns.org localhost;|server_name ${COVERED_NAMES} localhost;|g" "$NGINX_CONF_DEST"
+  fi
+elif [ "$PUBLIC_DOMAIN" != "api.onusly.com" ] && ! grep -F -q "$PUBLIC_DOMAIN" "$NGINX_CONF_DEST"; then
   sed -i "s|localhost;|${PUBLIC_DOMAIN} localhost;|g" "$NGINX_CONF_DEST"
 fi
 

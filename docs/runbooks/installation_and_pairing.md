@@ -7,7 +7,7 @@ This runbook covers the standard installation and pairing lifecycle for the ONUS
 - Windows 10/11 (x64) with Administrator privileges for installation.
 - PowerShell 5.1+ or PowerShell 7+.
 - Network access to the ONUSLY backend API (`https://api.onusly.com` or local dev instance).
-- Valid Pairing Token generated from the ONUSLY Web Dashboard (`https://app.onusly.com/devices/pair`).
+- Valid ONUSLY Dashboard session (`https://onusly.com/dashboard`, under **Active Device Coverage**) to confirm the generated 6-character pairing code.
 
 ---
 
@@ -47,21 +47,18 @@ Expected Invariants:
 
 ## 3. Device Pairing Workflow
 
-### 3.1 Generating a Pairing Code
-1. Log into the ONUSLY Dashboard.
-2. Navigate to **Settings** > **Devices** > **Add Desktop Device**.
-3. Copy the 64-character pairing token (valid for 15 minutes).
-
-### 3.2 Executing Pairing
-In an administrative or user console, issue the pairing command:
+### 3.1 Generating and Confirming a Pairing Code
+1. Log into the ONUSLY Dashboard (`https://onusly.com/dashboard`) in your browser.
+2. Run the interactive agent pairing command from an administrative or user console:
 ```powershell
-& "C:\Program Files\Onusly\onusly-agent.exe" pair <PAIRING_TOKEN>
+& "C:\Program Files\Onusly\onusly-agent.exe" pair
 ```
+3. Enter the printed 6-character pairing code into **Settings / Active Device Coverage** -> **Pair Desktop Device** in the ONUSLY Dashboard. The CLI polls automatically until the backend issues the device token.
 
-### 3.3 Verifying Pairing Success
+### 3.2 Verifying Pairing Success
 Query the live agent over the authenticated named pipe:
 ```powershell
-& "C:\Program Files\Onusly\onusly-agent.exe" query status
+& "C:\Program Files\Onusly\onusly-agent.exe" status
 ```
 Expected Output:
 ```json

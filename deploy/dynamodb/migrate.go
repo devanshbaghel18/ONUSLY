@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -62,12 +64,12 @@ func main() {
 		log.Fatalf("Error encoding backup JSON: %v", err)
 	}
 
-	backupPath := "deploy/dynamodb/stockholm_items.json"
-	err = os.WriteFile(backupPath, backupData, 0644)
+	backupPath := filepath.Join(os.TempDir(), fmt.Sprintf("onusly_stockholm_backup_%d.json", time.Now().UTC().Unix()))
+	err = os.WriteFile(backupPath, backupData, 0600)
 	if err != nil {
 		log.Fatalf("Error saving backup file: %v", err)
 	}
-	fmt.Printf("Saved full backup to %s (%d bytes)\n", backupPath, len(backupData))
+	fmt.Printf("Saved full backup to %s (%d bytes, mode 0600)\n", backupPath, len(backupData))
 
 	// 3. Check Mumbai (ap-south-1)
 	fmt.Println("\n=== STEP 2: Checking Mumbai (ap-south-1) Onusly Table ===")
@@ -113,15 +115,28 @@ func main() {
 			}
 		}
 
-		batchInput := &dynamodb.BatchWriteItemInput{
-			RequestItems: map[string][]types.WriteRequest{
-				"Onusly": writeReqs,
-			},
+		pending := map[string][]types.WriteRequest{
+			"Onusly": writeReqs,
 		}
-
-		_, err := ddbMumbai.BatchWriteItem(ctx, batchInput)
-		if err != nil {
-			log.Fatalf("BatchWriteItem failed at offset %d: %v", i, err)
+		for attempt := 0; len(pending["Onusly"]) > 0; attempt++ {
+			batchInput := &dynamodb.BatchWriteItemInput{
+				RequestItems: pending,
+			}
+			out, err := ddbMumbai.BatchWriteItem(ctx, batchInput)
+			if err != nil {
+				log.Fatalf("BatchWriteItem failed at offset %d: %v", i, err)
+			}
+			unprocessed := out.UnprocessedItems["Onusly"]
+			if len(unprocessed) == 0 {
+				break
+			}
+			if attempt >= 5 {
+				log.Fatalf("BatchWriteItem still had %d unprocessed items at offset %d after retries", len(unprocessed), i)
+			}
+			time.Sleep(time.Duration(1<<attempt) * 200 * time.Millisecond)
+			pending = map[string][]types.WriteRequest{
+				"Onusly": unprocessed,
+			}
 		}
 		migrated += len(chunk)
 		fmt.Printf("Migrated %d / %d items...\n", migrated, len(allItems))

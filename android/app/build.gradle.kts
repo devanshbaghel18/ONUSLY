@@ -46,19 +46,39 @@ android {
 
         val googleClientId = getGoogleClientId()
         buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleClientId\"")
+        val releaseApiUrl = System.getenv("ONUSLY_API_BASE_URL")?.takeIf { it.isNotBlank() }
+            ?: "https://api.onusly.com"
+        buildConfigField("String", "API_BASE_URL", "\"$releaseApiUrl\"")
+    }
+
+    signingConfigs {
+        val keystorePath = System.getenv("ONUSLY_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
+        if (keystorePath != null && rootProject.file(keystorePath).exists()) {
+            create("release") {
+                storeFile = rootProject.file(keystorePath)
+                storePassword = System.getenv("ONUSLY_KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("ONUSLY_KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("ONUSLY_KEY_PASSWORD") ?: ""
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            val releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning != null) {
+                signingConfig = releaseSigning
+            }
         }
         debug {
             applicationIdSuffix = ""
+            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080\"")
         }
     }
 

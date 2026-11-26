@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -173,17 +174,19 @@ func TestIPC_PeerCredentialAuthentication(t *testing.T) {
 	server.SetAllowedUIDs([]uint32{1000}) // Authorized desktop browser user UID
 
 	// Simulated peer credential validator for cross-UID testing
-	simulatedPeerUID := uint32(1000)
+	var simulatedPeerUID atomic.Uint32
+	simulatedPeerUID.Store(1000)
 	server.SetPeerCredChecker(func(conn net.Conn, allowedUIDs []uint32) error {
-		if simulatedPeerUID == 0 {
+		uidVal := simulatedPeerUID.Load()
+		if uidVal == 0 {
 			return nil // root is always authorized
 		}
 		for _, uid := range allowedUIDs {
-			if simulatedPeerUID == uid {
+			if uidVal == uid {
 				return nil
 			}
 		}
-		return fmt.Errorf("unauthorized peer UID %d", simulatedPeerUID)
+		return fmt.Errorf("unauthorized peer UID %d", uidVal)
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -197,7 +200,7 @@ func TestIPC_PeerCredentialAuthentication(t *testing.T) {
 
 	// Subtest 1: Authorized browser-user connection (UID 1000)
 	t.Run("Authorized_Browser_User_Connected", func(t *testing.T) {
-		simulatedPeerUID = 1000
+		simulatedPeerUID.Store(1000)
 		conn, err := net.Dial("unix", sockPath)
 		if err != nil {
 			t.Fatalf("failed to connect: %v", err)
@@ -221,7 +224,7 @@ func TestIPC_PeerCredentialAuthentication(t *testing.T) {
 
 	// Subtest 2: Unauthorized different-user connection (UID 1001)
 	t.Run("Unauthorized_Different_User_Rejected", func(t *testing.T) {
-		simulatedPeerUID = 1001
+		simulatedPeerUID.Store(1001)
 		conn, err := net.Dial("unix", sockPath)
 		if err != nil {
 			t.Fatalf("failed to connect: %v", err)
@@ -243,7 +246,7 @@ func TestIPC_PeerCredentialAuthentication(t *testing.T) {
 
 	// Subtest 3: Root connection (UID 0) to system agent
 	t.Run("Root_Connection_Allowed", func(t *testing.T) {
-		simulatedPeerUID = 0
+		simulatedPeerUID.Store(0)
 		conn, err := net.Dial("unix", sockPath)
 		if err != nil {
 			t.Fatalf("failed to connect: %v", err)
@@ -267,7 +270,7 @@ func TestIPC_PeerCredentialAuthentication(t *testing.T) {
 
 	// Subtest 4: Account Isolation (Different local user cannot query another user's blocklist)
 	t.Run("Account_Isolation_Enforced", func(t *testing.T) {
-		simulatedPeerUID = 5000 // Untrusted other local UID
+		simulatedPeerUID.Store(5000) // Untrusted other local UID
 		conn, err := net.Dial("unix", sockPath)
 		if err != nil {
 			t.Fatalf("failed to connect: %v", err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/realtime"
@@ -30,6 +31,7 @@ type Service struct {
 	userResolver UserResolver
 	broadcaster  MessageBroadcaster
 	notifSender  NotificationSender
+	sendMu       sync.Mutex
 }
 
 func NewService(repo *Repository, resolver UserResolver, broadcaster MessageBroadcaster) *Service {
@@ -72,6 +74,9 @@ func (s *Service) SendRequest(ctx context.Context, callerID, callerEmail, caller
 		return nil, errors.New("cannot send friend request to yourself")
 	}
 
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+
 	// Check if already friends
 	existingFriends, err := s.repo.GetFriends(ctx, callerID)
 	if err == nil {
@@ -93,6 +98,18 @@ func (s *Service) SendRequest(ctx context.Context, callerID, callerEmail, caller
 					return nil, errors.New("friend request already pending")
 				}
 				// Expired request: allow resending (safe retry)
+			}
+		}
+	}
+
+	// Check if target already sent an unexpired incoming request to caller
+	incoming, err := s.repo.GetIncomingRequests(ctx, callerID)
+	if err == nil {
+		for _, req := range incoming {
+			if req.SenderID == targetID && req.Status == "pending" {
+				if req.ExpiresAt.IsZero() || req.ExpiresAt.After(now) {
+					return nil, errors.New("this user has already sent you a friend request; accept it from your requests inbox")
+				}
 			}
 		}
 	}

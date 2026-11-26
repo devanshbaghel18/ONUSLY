@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,6 +14,25 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 )
+
+func isLocalDesktopControlAllowed(r *http.Request) bool {
+	envMode := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
+	if envMode == "" {
+		envMode = strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	}
+	if envMode == "production" {
+		return false
+	}
+	if strings.TrimSpace(r.Header.Get("X-Forwarded-For")) != "" {
+		return false
+	}
+	host := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(strings.TrimSpace(host))
+	return ip != nil && ip.IsLoopback()
+}
 
 type Handler struct {
 	service *Service
@@ -221,7 +241,11 @@ func (h *Handler) RequestPairing(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.service.InitiatePairing(r.Context(), in.ClientType, in.Platform, in.DeviceID)
 	if err != nil {
-		http.Error(w, "failed to initiate pairing: "+err.Error(), http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		if errors.Is(err, ErrInvalidUUID) || strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "invalid") {
+			status = http.StatusBadRequest
+		}
+		http.Error(w, "failed to initiate pairing: "+err.Error(), status)
 		return
 	}
 
@@ -292,6 +316,10 @@ func (h *Handler) ExchangePairing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetDesktopStatus(w http.ResponseWriter, r *http.Request) {
+	if !isLocalDesktopControlAllowed(r) {
+		http.Error(w, "local desktop control endpoints are disabled on remote API servers", http.StatusNotImplemented)
+		return
+	}
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok || userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -345,6 +373,10 @@ type ToggleDNSInput struct {
 }
 
 func (h *Handler) ToggleDesktopDNS(w http.ResponseWriter, r *http.Request) {
+	if !isLocalDesktopControlAllowed(r) {
+		http.Error(w, "local desktop control endpoints are disabled on remote API servers", http.StatusNotImplemented)
+		return
+	}
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok || userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -384,6 +416,10 @@ func (h *Handler) ToggleDesktopDNS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) SyncDesktop(w http.ResponseWriter, r *http.Request) {
+	if !isLocalDesktopControlAllowed(r) {
+		http.Error(w, "local desktop control endpoints are disabled on remote API servers", http.StatusNotImplemented)
+		return
+	}
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok || userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -409,6 +445,10 @@ func (h *Handler) SyncDesktop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AutoPairDesktop(w http.ResponseWriter, r *http.Request) {
+	if !isLocalDesktopControlAllowed(r) {
+		http.Error(w, "local desktop control endpoints are disabled on remote API servers", http.StatusNotImplemented)
+		return
+	}
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok || userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -458,6 +498,10 @@ func (h *Handler) AutoPairDesktop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ReconnectDesktop(w http.ResponseWriter, r *http.Request) {
+	if !isLocalDesktopControlAllowed(r) {
+		http.Error(w, "local desktop control endpoints are disabled on remote API servers", http.StatusNotImplemented)
+		return
+	}
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok || userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)

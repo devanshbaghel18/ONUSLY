@@ -102,6 +102,9 @@ type Hub struct {
 	// commMsgAuthors maps "communityID#messageID" -> author userID
 	commMsgAuthors map[string]string
 
+	// dmMsgAuthors maps "messageID" -> author userID to prevent cross-user ID overwrites
+	dmMsgAuthors map[string]string
+
 	// msgStore is an optional persistent message store for offline delivery
 	msgStore MessageStore
 
@@ -122,6 +125,7 @@ func NewHub() *Hub {
 		commRecords:    make(map[string]*CommunityRecord),
 		commByCode:     make(map[string]string),
 		commMsgAuthors: make(map[string]string),
+		dmMsgAuthors:   make(map[string]string),
 	}
 }
 
@@ -249,7 +253,7 @@ func (h *Hub) Unregister(c *Client) {
 		}
 	}
 
-	close(c.send)
+	c.closeSend()
 }
 
 // DisconnectUser forcibly closes all active connections for a given user (e.g. upon session revocation).
@@ -317,6 +321,47 @@ func (h *Hub) LeaveCommunity(communityID string, c *Client) {
 	}
 }
 
+// IsCommunityMember reports whether the given user is registered or connected as a member of communityID.
+func (h *Hub) IsCommunityMember(ctx context.Context, userID, email, handle, communityID string) bool {
+	cleanID := strings.TrimSpace(communityID)
+	if cleanID == "" {
+		return false
+	}
+	if isPublicTrendingCommunity(cleanID) {
+		return true
+	}
+	cleanEmail := strings.TrimSpace(strings.ToLower(email))
+	cleanHandle := strings.TrimPrefix(strings.TrimSpace(strings.ToLower(handle)), "@")
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if rec, ok := h.commRecords[cleanID]; ok && rec != nil {
+		if rec.CreatorID != "" && rec.CreatorID == userID {
+			return true
+		}
+		if cleanHandle != "" && rec.Members[cleanHandle] {
+			return true
+		}
+		if cleanEmail != "" && rec.Members[cleanEmail] {
+			return true
+		}
+		if userID != "" && rec.Members[userID] {
+			return true
+		}
+		return false
+	}
+
+	if conns, ok := h.communities[cleanID]; ok {
+		for client := range conns {
+			if client.userID == userID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // SendToCommunity dispatches an Event to all active clients currently in a community room.
 func (h *Hub) SendToCommunity(communityID string, event Event) error {
 	return h.SendToCommunityExcept(communityID, nil, event)
@@ -346,9 +391,7 @@ func (h *Hub) SendToCommunityExcept(communityID string, except *Client, event Ev
 		if except != nil && client == except {
 			continue
 		}
-		select {
-		case client.send <- data:
-		default:
+		if !client.trySend(data) {
 			log.Printf("[WebSocket] Buffer full for client in community %s", cleanID)
 		}
 	}
@@ -368,10 +411,7 @@ func (h *Hub) Broadcast(event Event) {
 
 	for _, conns := range h.users {
 		for client := range conns {
-			select {
-			case client.send <- data:
-			default:
-			}
+			_ = client.trySend(data)
 		}
 	}
 }
@@ -392,9 +432,7 @@ func (h *Hub) SendToUser(userID string, event Event) error {
 	}
 
 	for client := range userConns {
-		select {
-		case client.send <- data:
-		default:
+		if !client.trySend(data) {
 			log.Printf("[WebSocket] Buffer full for client of user: %s", userID)
 		}
 	}
@@ -423,9 +461,7 @@ func (h *Hub) SendToEmail(email string, event Event) error {
 	}
 
 	for client := range emailConns {
-		select {
-		case client.send <- data:
-		default:
+		if !client.trySend(data) {
 			log.Printf("[WebSocket] Buffer full for client of email: %s", normalized)
 		}
 	}
@@ -454,9 +490,7 @@ func (h *Hub) SendToHandle(handle string, event Event) error {
 	}
 
 	for client := range handleConns {
-		select {
-		case client.send <- data:
-		default:
+		if !client.trySend(data) {
 			log.Printf("[WebSocket] Buffer full for client of handle: %s", normalized)
 		}
 	}
@@ -737,7 +771,18 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		msgID := strings.TrimSpace(req.ID)
 		if msgID == "" {
-			msgID = fmt.Sprintf("msg-%d", time.Now().UnixNano())
+			b := make([]byte, 6)
+			_, _ = rand.Read(b)
+			msgID = fmt.Sprintf("msg-%d-%s", time.Now().UnixNano(), hex.EncodeToString(b))
+		} else {
+			h.mu.Lock()
+			if existingAuthor, taken := h.dmMsgAuthors[msgID]; taken && existingAuthor != c.userID {
+				h.mu.Unlock()
+				log.Printf("[WebSocket] Rejected colliding chat.message ID %q from user %s", msgID, c.userID)
+				return
+			}
+			h.dmMsgAuthors[msgID] = c.userID
+			h.mu.Unlock()
 		}
 
 		outEvent := Event{
@@ -791,11 +836,10 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		data, err := json.Marshal(outEvent)
 		if err == nil {
 			for target := range targetClients {
-				select {
-				case target.send <- data:
+				if target.trySend(data) {
 					delivered = true
-				default:
-					log.Printf("[WebSocket] Buffer full for recipient client (%s/@%s)", target.email, target.handle)
+				} else {
+					log.Printf("[WebSocket] Skipped/full buffer for recipient client (%s/@%s)", target.email, target.handle)
 				}
 			}
 		}
@@ -993,6 +1037,32 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 
 			if cleanID != "" {
 				h.mu.Lock()
+				if isPublicTrendingCommunity(cleanID) {
+					h.mu.Unlock()
+					c.SendEvent(Event{
+						Type: "community.error",
+						Payload: map[string]interface{}{
+							"error":       "unauthorized: cannot overwrite built-in public community",
+							"communityId": cleanID,
+						},
+					})
+					return
+				}
+				if cleanCode != "" {
+					if existingID, codeTaken := h.commByCode[cleanCode]; codeTaken && existingID != cleanID {
+						if existingRec, ok := h.commRecords[existingID]; ok && existingRec.CreatorID != "" && existingRec.CreatorID != c.userID {
+							h.mu.Unlock()
+							c.SendEvent(Event{
+								Type: "community.error",
+								Payload: map[string]interface{}{
+									"error":       "invite code already belongs to another community",
+									"communityId": cleanID,
+								},
+							})
+							return
+						}
+					}
+				}
 				rec, exists := h.commRecords[cleanID]
 				if exists {
 					// Security: Only the original creator can update community metadata or invited members
@@ -1336,20 +1406,24 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		}
 		if data, err := json.Marshal(outEvent); err == nil {
 			h.mu.RLock()
+			var roomTargets []*Client
 			if roomConns, ok := h.communities[cleanCommID]; ok {
 				for client := range roomConns {
-					if exceptClient := c; client == exceptClient {
+					if client == c {
 						continue
 					}
-					select {
-					case client.send <- data:
-						alreadySent[client] = true
-					default:
-						log.Printf("[WebSocket] Buffer full for client in community %s", cleanCommID)
-					}
+					roomTargets = append(roomTargets, client)
 				}
 			}
 			h.mu.RUnlock()
+
+			for _, client := range roomTargets {
+				if client.trySend(data) {
+					alreadySent[client] = true
+				} else {
+					log.Printf("[WebSocket] Buffer full for client in community %s", cleanCommID)
+				}
+			}
 		}
 
 		// Direct forward to any registered member connections not already reached in the room.
@@ -1385,10 +1459,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		if len(extraClients) > 0 {
 			if data, err := json.Marshal(outEvent); err == nil {
 				for _, client := range extraClients {
-					select {
-					case client.send <- data:
-					default:
-					}
+					_ = client.trySend(data)
 				}
 			}
 		}

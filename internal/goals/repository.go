@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -56,7 +55,9 @@ func NewRepository(db *dynamodb.Client, tableName string) *Repository {
 		tableName: tableName,
 		memGoals:  make(map[string]Goal),
 	}
-	repo.loadLocalFallback()
+	if db == nil {
+		repo.loadLocalFallback()
+	}
 	return repo
 }
 
@@ -84,32 +85,30 @@ func (r *Repository) Create(ctx context.Context, goal Goal) error {
 		goal.GSI2SK = FormatApproverGSI2SK(goal.Status, goal.ID)
 	}
 
-	r.mu.Lock()
-	if r.memGoals == nil {
-		r.memGoals = make(map[string]Goal)
+	if r.db == nil {
+		r.mu.Lock()
+		if r.memGoals == nil {
+			r.memGoals = make(map[string]Goal)
+		}
+		r.memGoals[goal.OwnerID+"#"+goal.ID] = goal
+		r.saveLocalFallback()
+		r.mu.Unlock()
+		return nil
 	}
-	r.memGoals[goal.OwnerID+"#"+goal.ID] = goal
-	r.saveLocalFallback()
-	r.mu.Unlock()
 
 	item, err := attributevalue.MarshalMap(goal)
 	if err != nil {
 		return err
 	}
 
-	if r.db == nil {
-		return nil
-	}
-
-	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	putCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	_, err = r.db.PutItem(putCtx, &dynamodb.PutItemInput{
 		TableName: aws.String(r.tableName),
 		Item:      item,
 	})
 	if err != nil {
-		log.Printf("[GoalsRepo] Remote database put notice: %v (cached in local memory)", err)
-		return nil
+		return err
 	}
 
 	return nil
@@ -126,7 +125,7 @@ func (r *Repository) GetByID(ctx context.Context, ownerID, goalID string) (*Goal
 		return nil, fmt.Errorf("goal not found")
 	}
 
-	getCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	getCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	result, err := r.db.GetItem(getCtx, &dynamodb.GetItemInput{
 		TableName: aws.String(r.tableName),
@@ -137,22 +136,10 @@ func (r *Repository) GetByID(ctx context.Context, ownerID, goalID string) (*Goal
 	})
 
 	if err != nil {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		if g, ok := r.memGoals[ownerID+"#"+goalID]; ok {
-			cp := g
-			return &cp, nil
-		}
 		return nil, err
 	}
 
 	if len(result.Item) == 0 {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		if g, ok := r.memGoals[ownerID+"#"+goalID]; ok {
-			cp := g
-			return &cp, nil
-		}
 		return nil, fmt.Errorf("goal not found")
 	}
 
@@ -240,7 +227,22 @@ func (r *Repository) FindByID(ctx context.Context, goalID string) (*Goal, error)
 }
 
 func (r *Repository) List(ctx context.Context, ownerID string) ([]Goal, error) {
-	listCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	if r.db == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		var res []Goal
+		for _, g := range r.memGoals {
+			if g.OwnerID == ownerID {
+				res = append(res, g)
+			}
+		}
+		if res == nil {
+			res = []Goal{}
+		}
+		return res, nil
+	}
+
+	listCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	result, err := r.db.Query(listCtx, &dynamodb.QueryInput{
 		TableName:              aws.String(r.tableName),
@@ -256,41 +258,13 @@ func (r *Repository) List(ctx context.Context, ownerID string) ([]Goal, error) {
 	})
 
 	if err != nil {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		var res []Goal
-		for _, g := range r.memGoals {
-			if g.OwnerID == ownerID {
-				res = append(res, g)
-			}
-		}
-		if res == nil {
-			res = []Goal{}
-		}
-		return res, nil
+		return nil, err
 	}
 
 	var goals []Goal
 
 	if err := attributevalue.UnmarshalListOfMaps(result.Items, &goals); err != nil {
 		return nil, err
-	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for _, g := range r.memGoals {
-		if g.OwnerID == ownerID {
-			found := false
-			for _, dbGoal := range goals {
-				if dbGoal.ID == g.ID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				goals = append(goals, g)
-			}
-		}
 	}
 
 	return goals, nil
@@ -444,14 +418,29 @@ func (r *Repository) ListByApprover(
 }
 
 func (r *Repository) Delete(ctx context.Context, ownerID, goalID string) error {
-	r.mu.Lock()
-	if r.memGoals != nil {
-		delete(r.memGoals, ownerID+"#"+goalID)
+	if r.db == nil {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.memGoals == nil {
+			return fmt.Errorf("goal not found")
+		}
+		key := ownerID + "#" + goalID
+		g, ok := r.memGoals[key]
+		if !ok {
+			return fmt.Errorf("goal not found")
+		}
+		if g.Status == "proof_submitted" {
+			return ErrGoalInReview
+		}
+		if g.Status != "completed" && (len(g.BlockedApps) > 0 || len(g.BlockedDomains) > 0 || len(g.ApplicationTargets) > 0) {
+			return ErrGoalLocked
+		}
+		delete(r.memGoals, key)
 		r.saveLocalFallback()
+		return nil
 	}
-	r.mu.Unlock()
 
-	deleteCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	deleteCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	_, err := r.db.DeleteItem(deleteCtx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(r.tableName),
@@ -482,9 +471,14 @@ func (r *Repository) Delete(ctx context.Context, ownerID, goalID string) error {
 		if errors.As(err, &condFailed) || strings.Contains(err.Error(), "ConditionalCheckFailed") {
 			return ErrGoalLocked
 		}
-		// Remote DB offline / unavailable in local dev: memory deletion succeeded
-		return nil
+		return err
 	}
+
+	r.mu.Lock()
+	if r.memGoals != nil {
+		delete(r.memGoals, ownerID+"#"+goalID)
+	}
+	r.mu.Unlock()
 
 	return nil
 }
@@ -538,6 +532,8 @@ func (r *Repository) Update(
 		values[":approverId"] = &types.AttributeValueMemberS{Value: *input.ApproverID}
 	}
 
+	var removeParts []string
+
 	if input.ApproverID != nil && *input.ApproverID != "" {
 		setParts = append(setParts, "#gsi2pk = :gsi2pk")
 		names["#gsi2pk"] = "GSI2PK"
@@ -546,6 +542,10 @@ func (r *Repository) Update(
 		setParts = append(setParts, "#gsi2pk = :gsi2pk")
 		names["#gsi2pk"] = "GSI2PK"
 		values[":gsi2pk"] = &types.AttributeValueMemberS{Value: FormatApproverGSI2PK(*input.ApproverEmail)}
+	} else if input.ApproverID != nil && *input.ApproverID == "" {
+		names["#gsi2pk"] = "GSI2PK"
+		names["#gsi2sk"] = "GSI2SK"
+		removeParts = append(removeParts, "#gsi2pk", "#gsi2sk")
 	}
 
 	if input.BlockedApps != nil {
@@ -566,6 +566,16 @@ func (r *Repository) Update(
 			return nil, err
 		}
 		values[":blockedDomains"] = avDomains
+	}
+
+	if input.ApplicationTargets != nil {
+		setParts = append(setParts, "#applicationTargets = :applicationTargets")
+		names["#applicationTargets"] = "ApplicationTargets"
+		avTargets, err := attributevalue.Marshal(*input.ApplicationTargets)
+		if err != nil {
+			return nil, err
+		}
+		values[":applicationTargets"] = avTargets
 	}
 
 	conditionParts := []string{"attribute_exists(PK)"}
@@ -632,6 +642,9 @@ func (r *Repository) Update(
 	}
 
 	updateExpression := "SET " + strings.Join(setParts, ", ")
+	if len(removeParts) > 0 {
+		updateExpression += " REMOVE " + strings.Join(removeParts, ", ")
+	}
 	conditionExpression := strings.Join(conditionParts, " AND ")
 
 	if r.db == nil {
@@ -640,6 +653,24 @@ func (r *Repository) Update(
 		if r.memGoals != nil {
 			key := ownerID + "#" + goalID
 			if g, ok := r.memGoals[key]; ok {
+				hasLockedTargets := len(g.BlockedApps) > 0 || len(g.BlockedDomains) > 0 || len(g.ApplicationTargets) > 0
+				if input.DisallowNoneIfLocked && g.Status != "completed" && hasLockedTargets {
+					return nil, ErrAccountabilityRequired
+				}
+				if input.RequireFriendAccountability && g.Status != "completed" && g.ApprovalType != "friend" {
+					return nil, ErrAccountabilityRequired
+				}
+				if input.ExpectedVersion != nil && g.Version != *input.ExpectedVersion {
+					return nil, ErrGoalConflict
+				}
+				if input.ExpectedUpdatedAt != nil && *input.ExpectedUpdatedAt != "" && g.UpdatedAt != *input.ExpectedUpdatedAt {
+					return nil, ErrGoalConflict
+				}
+				if input.CheckTargetsUnchanged {
+					if len(g.BlockedApps) != len(input.ExpectedBlockedApps) || len(g.BlockedDomains) != len(input.ExpectedBlockedDomains) {
+						return nil, ErrTargetsLocked
+					}
+				}
 				if input.Title != nil {
 					g.Title = *input.Title
 				}
@@ -661,6 +692,9 @@ func (r *Repository) Update(
 					if *input.ApproverID != "" {
 						g.GSI2PK = FormatApproverGSI2PK(*input.ApproverID)
 						g.GSI2SK = FormatApproverGSI2SK(g.Status, g.ID)
+					} else if input.ApproverEmail == nil || *input.ApproverEmail == "" {
+						g.GSI2PK = ""
+						g.GSI2SK = ""
 					}
 				}
 				if input.BlockedApps != nil {
@@ -672,6 +706,8 @@ func (r *Repository) Update(
 				if input.ApplicationTargets != nil {
 					g.ApplicationTargets = *input.ApplicationTargets
 				}
+				g.UpdatedAt = input.UpdatedAt
+				g.Version++
 				r.memGoals[key] = g
 				r.saveLocalFallback()
 				cp := g
@@ -712,50 +748,6 @@ func (r *Repository) Update(
 			}
 			return nil, ErrGoalLocked
 		}
-		// If remote DB call timed out/failed, update in memory
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if r.memGoals != nil {
-			key := ownerID + "#" + goalID
-			if g, ok := r.memGoals[key]; ok {
-				if input.Title != nil {
-					g.Title = *input.Title
-				}
-				if input.Description != nil {
-					g.Description = *input.Description
-				}
-				if input.ApprovalType != nil {
-					g.ApprovalType = *input.ApprovalType
-				}
-				if input.ApproverEmail != nil {
-					g.ApproverEmail = *input.ApproverEmail
-					if g.ApproverID == "" && *input.ApproverEmail != "" {
-						g.GSI2PK = FormatApproverGSI2PK(*input.ApproverEmail)
-						g.GSI2SK = FormatApproverGSI2SK(g.Status, g.ID)
-					}
-				}
-				if input.ApproverID != nil {
-					g.ApproverID = *input.ApproverID
-					if *input.ApproverID != "" {
-						g.GSI2PK = FormatApproverGSI2PK(*input.ApproverID)
-						g.GSI2SK = FormatApproverGSI2SK(g.Status, g.ID)
-					}
-				}
-				if input.BlockedApps != nil {
-					g.BlockedApps = *input.BlockedApps
-				}
-				if input.BlockedDomains != nil {
-					g.BlockedDomains = *input.BlockedDomains
-				}
-				if input.ApplicationTargets != nil {
-					g.ApplicationTargets = *input.ApplicationTargets
-				}
-				r.memGoals[key] = g
-				r.saveLocalFallback()
-				cp := g
-				return &cp, nil
-			}
-		}
 		return nil, err
 	}
 
@@ -776,31 +768,30 @@ func (r *Repository) UpdateStatus(
 ) (*Goal, error) {
 	gsi2sk := FormatApproverGSI2SK(status, goalID)
 
-	r.mu.Lock()
-	var inMemGoal *Goal
-	if r.memGoals != nil {
-		key := ownerID + "#" + goalID
-		if g, ok := r.memGoals[key]; ok {
-			g.Status = status
-			if g.ApproverID != "" || g.ApproverEmail != "" {
-				g.GSI2SK = gsi2sk
-			}
-			r.memGoals[key] = g
-			r.saveLocalFallback()
-			cp := g
-			inMemGoal = &cp
-		}
-	}
-	r.mu.Unlock()
-
 	if r.db == nil {
+		r.mu.Lock()
+		var inMemGoal *Goal
+		if r.memGoals != nil {
+			key := ownerID + "#" + goalID
+			if g, ok := r.memGoals[key]; ok {
+				g.Status = status
+				if g.ApproverID != "" || g.ApproverEmail != "" {
+					g.GSI2SK = gsi2sk
+				}
+				r.memGoals[key] = g
+				r.saveLocalFallback()
+				cp := g
+				inMemGoal = &cp
+			}
+		}
+		r.mu.Unlock()
 		if inMemGoal != nil {
 			return inMemGoal, nil
 		}
 		return nil, fmt.Errorf("goal not found")
 	}
 
-	updateCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	updateCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	result, err := r.db.UpdateItem(updateCtx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(r.tableName),
@@ -831,18 +822,12 @@ func (r *Repository) UpdateStatus(
 	})
 
 	if err != nil {
-		if inMemGoal != nil {
-			return inMemGoal, nil
-		}
 		return nil, err
 	}
 
 	var goal Goal
 
 	if err := attributevalue.UnmarshalMap(result.Attributes, &goal); err != nil {
-		if inMemGoal != nil {
-			return inMemGoal, nil
-		}
 		return nil, err
 	}
 

@@ -27,7 +27,7 @@ func TestWebSocketRouteIntegration(t *testing.T) {
 	mux.HandleFunc("GET /ws", realtime.ServeWS(hub, jwtSecret))
 	mux.HandleFunc("GET /ws/", realtime.ServeWS(hub, jwtSecret))
 
-	handler := cors([]string{"http://localhost:5173", "http://127.0.0.1:5173"})(mux)
+	handler := cors("development", []string{"http://localhost:5173", "http://127.0.0.1:5173"})(mux)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 

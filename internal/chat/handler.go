@@ -36,10 +36,15 @@ type MessageBroadcaster interface {
 	SendToUser(userID string, event realtime.Event) error
 }
 
+type CommunityMemberChecker interface {
+	IsCommunityMember(ctx context.Context, userID, email, handle, communityID string) bool
+}
+
 type Handler struct {
-	repo         ChatRepository
-	userResolver UserResolver
-	broadcaster  MessageBroadcaster
+	repo             ChatRepository
+	userResolver     UserResolver
+	broadcaster      MessageBroadcaster
+	communityChecker CommunityMemberChecker
 }
 
 func NewHandler(repo ChatRepository) *Handler {
@@ -54,6 +59,10 @@ func (h *Handler) SetUserResolver(resolver UserResolver) {
 
 func (h *Handler) SetBroadcaster(b MessageBroadcaster) {
 	h.broadcaster = b
+}
+
+func (h *Handler) SetCommunityChecker(c CommunityMemberChecker) {
+	h.communityChecker = c
 }
 
 func normalizeHandleKey(handle string) string {
@@ -111,6 +120,10 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 
 	// Community chat messages
 	if isCommunityID(peer) {
+		if h.communityChecker != nil && !h.communityChecker.IsCommunityMember(r.Context(), callerIDKey, callerEmailKey, callerHandle, peer) {
+			http.Error(w, "forbidden: you are not a member of this community", http.StatusForbidden)
+			return
+		}
 		commMsgs, err := h.repo.GetCommunityHistory(r.Context(), peer, int32(limit), before)
 		if err != nil {
 			http.Error(w, "failed to load community messages: "+err.Error(), http.StatusInternalServerError)
@@ -333,13 +346,17 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	msgID := "msg-" + uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	ownerID := req.OwnerID
-	if ownerID == "" && req.IsProof {
+	ownerID := ""
+	if req.IsProof {
 		ownerID = callerID
 	}
 
 	// Community message handling
 	if isCommunityID(cleanRecipient) {
+		if h.communityChecker != nil && !h.communityChecker.IsCommunityMember(r.Context(), callerID, callerEmail, callerHandle, cleanRecipient) {
+			http.Error(w, "forbidden: you are not a member of this community", http.StatusForbidden)
+			return
+		}
 		stored := realtime.StoredMessage{
 			ID:           msgID,
 			SenderID:     callerID,
@@ -385,11 +402,6 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 				SendToCommunity(string, realtime.Event) error
 			}); ok {
 				_ = cb.SendToCommunity(cleanRecipient, evt)
-			}
-			if bc, ok := h.broadcaster.(interface {
-				Broadcast(realtime.Event)
-			}); ok {
-				bc.Broadcast(evt)
 			}
 		}
 

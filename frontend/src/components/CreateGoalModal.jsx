@@ -6,10 +6,27 @@ import { notifyExtensionSync } from "../lib/extensionSync";
 import { playLockEngageSound } from "../lib/sound";
 
 export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initialCustomTarget = null }) {
+  if (!isOpen) return null;
+  const modalKey = initialCustomTarget?.value ? `custom-${initialCustomTarget.value}` : "default";
+  return (
+    <CreateGoalModalInner
+      key={modalKey}
+      onClose={onClose}
+      onGoalCreated={onGoalCreated}
+      initialCustomTarget={initialCustomTarget}
+    />
+  );
+}
+
+function CreateGoalModalInner({ onClose, onGoalCreated, initialCustomTarget = null }) {
   const [taskDescription, setTaskDescription] = useState("");
   const [taskDetails, setTaskDetails] = useState("");
-  const [selectedCatalogIds, setSelectedCatalogIds] = useState(["instagram", "twitter"]);
-  const [customTargets, setCustomTargets] = useState([]);
+  const [selectedCatalogIds, setSelectedCatalogIds] = useState(() =>
+    initialCustomTarget && initialCustomTarget.value ? [] : ["instagram", "twitter"]
+  );
+  const [customTargets, setCustomTargets] = useState(() =>
+    initialCustomTarget && initialCustomTarget.value ? [initialCustomTarget] : []
+  );
   const [customInput, setCustomInput] = useState("");
   const [customType, setCustomType] = useState("desktop"); // "desktop", "domain", "app"
   const [customTargetError, setCustomTargetError] = useState("");
@@ -21,37 +38,16 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
 
   const hasTargets = selectedCatalogIds.length > 0 || customTargets.length > 0;
 
-  useEffect(() => {
-    if (!isOpen) return;
-    setTaskDescription("");
-    setTaskDetails("");
-    if (initialCustomTarget && initialCustomTarget.value) {
-      setSelectedCatalogIds([]);
-      setCustomTargets([initialCustomTarget]);
-    } else {
-      setSelectedCatalogIds(["instagram", "twitter"]);
-      setCustomTargets([]);
-    }
-    setCustomInput("");
-    setCustomTargetError("");
-    setShowCustomInput(false);
-    setApprovalType("friend");
-    setApproverEmail("");
-    setFormError("");
-  }, [isOpen, initialCustomTarget]);
-
   // Handle escape key
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === "Escape" && isOpen && !submitting) {
+      if (e.key === "Escape" && !submitting) {
         onClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, submitting, onClose]);
-
-  if (!isOpen) return null;
+  }, [submitting, onClose]);
 
   const toggleCatalogApp = (appId) => {
     setSelectedCatalogIds((prev) => {

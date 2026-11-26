@@ -74,28 +74,32 @@ func (g *Goal) IsApprover(callerID, callerEmail, callerHandle string) bool {
 	if g == nil {
 		return false
 	}
-	if g.ApproverID == "COMMUNITY" || g.ApprovalType == "community" {
-		return true
+	callerID = strings.TrimSpace(callerID)
+	if callerID == "" || g.OwnerID == callerID {
+		return false
+	}
+	// Community goals do not grant global approver access to arbitrary callers;
+	// only an explicitly assigned approver ID (or legacy email-only goal) may approve.
+	if strings.EqualFold(g.ApproverID, "COMMUNITY") || strings.EqualFold(g.ApprovalType, "community") {
+		return false
 	}
 	if g.ApproverID != "" {
-		cleanAppID := strings.TrimPrefix(strings.ToLower(g.ApproverID), "partner-")
-		if g.ApproverID == callerID || cleanAppID == strings.ToLower(callerID) {
-			return true
-		}
-		cleanHandle := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(callerHandle)), "@")
-		if cleanHandle != "" && (cleanAppID == cleanHandle || g.ApproverID == cleanHandle) {
-			return true
-		}
-	}
-	if g.ApproverEmail != "" {
-		if callerEmail != "" && strings.EqualFold(g.ApproverEmail, callerEmail) {
-			return true
-		}
-		cleanHandle := strings.TrimPrefix(strings.TrimSpace(callerHandle), "@")
-		if cleanHandle != "" {
-			if strings.EqualFold(g.ApproverEmail, cleanHandle) || strings.EqualFold(g.ApproverEmail, "@"+cleanHandle) || strings.EqualFold(g.ApproverEmail, "partner-"+cleanHandle) {
+		if strings.HasPrefix(strings.ToLower(g.ApproverID), "partner-") {
+			if g.ApproverID == callerID {
 				return true
 			}
+			// Legacy offline partner fallback: allow immutable verified email match only (never mutable @handle).
+			if callerEmail != "" && g.ApproverEmail != "" && !strings.HasPrefix(strings.TrimSpace(g.ApproverEmail), "@") && strings.EqualFold(g.ApproverEmail, callerEmail) {
+				return true
+			}
+			return false
+		}
+		return g.ApproverID == callerID
+	}
+	// Legacy goals created before ApproverID existed: match immutable verified email only (never mutable @handle).
+	if g.ApproverEmail != "" && !strings.HasPrefix(strings.TrimSpace(g.ApproverEmail), "@") {
+		if callerEmail != "" && strings.EqualFold(g.ApproverEmail, callerEmail) {
+			return true
 		}
 	}
 	return false
@@ -126,4 +130,3 @@ func FormatApproverGSI2SK(status, goalID string) string {
 	}
 	return "STATUS#" + s + "#GOAL#" + strings.TrimSpace(goalID)
 }
-

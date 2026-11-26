@@ -89,7 +89,6 @@ export function clearAuth() {
 
   // Asynchronously instruct backend to clear HttpOnly session cookie
   try {
-    const envBase = typeof import.meta !== "undefined" ? import.meta.env?.VITE_API_BASE_URL : "";
     const baseUrl =
       typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL !== undefined
         ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")

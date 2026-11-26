@@ -14,7 +14,7 @@ import {
   Settings,
 } from "lucide-react";
 import { getToken, getUser } from "../lib/auth";
-import { getBlocklist, resolveApiOrigin } from "../lib/api";
+import { API_BASE_URL, getBlocklist, resolveApiOrigin } from "../lib/api";
 import { notifyExtensionSync } from "../lib/extensionSync";
 
 // Deterministic Extension ID from manifest.json public key
@@ -359,7 +359,9 @@ export default function ConnectExtension() {
             window.chrome.runtime.sendMessage(extensionId, { type: "ONUSLY_SYNC" }, (resp) => {
               if (!window.chrome.runtime.lastError && resp?.success) finish(resp);
             });
-          } catch {}
+          } catch {
+            // Fall back to window.postMessage bridge below
+          }
         }
         window.postMessage({ type: "ONUSLY_SYNC" }, "*");
       });

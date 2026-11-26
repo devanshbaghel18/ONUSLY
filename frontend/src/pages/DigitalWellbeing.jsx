@@ -67,6 +67,7 @@ export default function DigitalWellbeing() {
 
   const scheduleDirtyRef = useRef(false);
   const requestSeqRef = useRef(0);
+  const prefillSeqRef = useRef(0);
 
   const loadAll = useCallback(async (selectedRange = range, selectedDevice = deviceId, silent = false) => {
     const seq = ++requestSeqRef.current;
@@ -109,7 +110,10 @@ export default function DigitalWellbeing() {
   }, [range, deviceId]);
 
   useEffect(() => {
-    loadAll(range, deviceId, false);
+    const timer = setTimeout(() => {
+      void loadAll(range, deviceId, false);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [range, deviceId, loadAll]);
 
   useWebSocket((event) => {
@@ -225,8 +229,9 @@ export default function DigitalWellbeing() {
   };
 
   const openGoalLockForDomain = (domain) => {
+    prefillSeqRef.current += 1;
     setGoalPrefill({
-      id: `wb-dom-${Date.now()}`,
+      id: `wb-dom-${prefillSeqRef.current}`,
       type: "domain",
       value: domain,
     });
@@ -235,8 +240,9 @@ export default function DigitalWellbeing() {
   const openGoalLockForApp = (app) => {
     const lower = (app.appId || "").toLowerCase();
     const isAndroidPkg = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/.test(lower);
+    prefillSeqRef.current += 1;
     setGoalPrefill({
-      id: `wb-app-${Date.now()}`,
+      id: `wb-app-${prefillSeqRef.current}`,
       type: isAndroidPkg ? "app" : "desktop",
       value: app.appId,
     });

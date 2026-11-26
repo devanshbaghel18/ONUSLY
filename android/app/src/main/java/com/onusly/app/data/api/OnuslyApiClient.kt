@@ -82,7 +82,11 @@ class OnuslyApiClient(
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
         .build(),
-    var defaultBaseUrl: String = "http://10.0.2.2:8080",
+    var defaultBaseUrl: String = if (com.onusly.app.BuildConfig.DEBUG) {
+        "http://10.0.2.2:8080"
+    } else {
+        com.onusly.app.BuildConfig.API_BASE_URL
+    },
     var defaultJwtToken: String = ""
 ) {
 

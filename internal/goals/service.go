@@ -169,14 +169,7 @@ func (s *Service) CreateWithInput(
 				}
 				approvalType = "friend"
 			} else {
-				// Permit partner handle / email during local development or when partner is offline
-				approverID = "partner-" + cleanedHandle
-				if strings.Contains(inputVal, "@") && strings.Contains(inputVal, ".") {
-					approverEmail = strings.ToLower(inputVal)
-				} else {
-					approverEmail = "@" + cleanedHandle
-				}
-				approvalType = "friend"
+				return nil, errors.New("accountability partner not found by handle or email")
 			}
 		} else {
 			approvalType = "friend"
@@ -223,14 +216,7 @@ func (s *Service) CreateWithInput(
 							}
 							approvalType = "friend"
 						} else {
-							// Permit partner handle / email during local development or when partner is offline
-							approverID = "partner-" + cleanedHandle
-							if strings.Contains(inputVal, "@") && strings.Contains(inputVal, ".") {
-								approverEmail = strings.ToLower(inputVal)
-							} else {
-								approverEmail = "@" + cleanedHandle
-							}
-							approvalType = "friend"
+							return nil, errors.New("accountability partner not found by handle or email")
 						}
 					} else {
 						approvalType = "friend"
@@ -245,16 +231,16 @@ func (s *Service) CreateWithInput(
 	goalID := uuid.NewString()
 
 	goal := Goal{
-		PK:             "USER#" + ownerID,
-		SK:             "GOAL#" + goalID,
-		ID:             goalID,
-		OwnerID:        ownerID,
-		ApproverID:     approverID,
-		ApproverEmail:  approverEmail,
-		ApprovalType:   approvalType,
-		Title:          title,
-		Description:    description,
-		Status:         "active",
+		PK:                 "USER#" + ownerID,
+		SK:                 "GOAL#" + goalID,
+		ID:                 goalID,
+		OwnerID:            ownerID,
+		ApproverID:         approverID,
+		ApproverEmail:      approverEmail,
+		ApprovalType:       approvalType,
+		Title:              title,
+		Description:        description,
+		Status:             "active",
 		CreatedAt:          time.Now().UTC().Format(time.RFC3339),
 		BlockedApps:        apps,
 		BlockedDomains:     domains,
@@ -372,6 +358,10 @@ func (s *Service) Delete(
 		return ErrGoalInReview
 	}
 
+	if goal.Status != "completed" && (len(goal.BlockedApps) > 0 || len(goal.BlockedDomains) > 0 || len(goal.ApplicationTargets) > 0) {
+		return ErrGoalLocked
+	}
+
 	return s.repo.Delete(ctx, ownerID, goalID)
 }
 
@@ -396,12 +386,31 @@ func (s *Service) Update(
 		return nil, err
 	}
 
-	hasExistingTargets := len(goal.BlockedApps) > 0 || len(goal.BlockedDomains) > 0
+	hasExistingTargets := len(goal.BlockedApps) > 0 || len(goal.BlockedDomains) > 0 || len(goal.ApplicationTargets) > 0
 
 	if goal.Status == "completed" {
-		if input.BlockedApps != nil || input.BlockedDomains != nil {
+		if input.BlockedApps != nil || input.BlockedDomains != nil || input.ApplicationTargets != nil {
 			return nil, errors.New("cannot modify targets on a completed goal")
 		}
+	}
+
+	if input.ApplicationTargets != nil {
+		normalizedTargets, err := NormalizeAndValidateApplicationTargets(*input.ApplicationTargets)
+		if err != nil {
+			return nil, err
+		}
+		input.ApplicationTargets = &normalizedTargets
+		// Merge any explicit applicationTargets identifiers into BlockedApps so enforcement/locking remain consistent
+		mergedApps := make([]string, 0)
+		if input.BlockedApps != nil {
+			mergedApps = append(mergedApps, *input.BlockedApps...)
+		} else {
+			mergedApps = append(mergedApps, goal.BlockedApps...)
+		}
+		for _, at := range normalizedTargets {
+			mergedApps = append(mergedApps, at.Identifier)
+		}
+		input.BlockedApps = &mergedApps
 	}
 
 	if input.BlockedApps != nil || input.BlockedDomains != nil {

@@ -278,7 +278,7 @@ func (s *Server) dispatch(ctx context.Context, req core.IPCRequest, callerSID st
 			client = auth.NewPairingClient(nil)
 		}
 
-		code, expiresAt, err := client.RequestCode(ctx, apiURL, "desktop_agent", "windows", deviceID)
+		code, expiresAt, err := client.RequestCode(ctx, apiURL, "desktop_agent", runtime.GOOS, deviceID)
 		if err != nil {
 			_, _ = s.pairingMgr.Transition(auth.StatusInstalledUnpaired, "")
 			return core.IPCResponse{

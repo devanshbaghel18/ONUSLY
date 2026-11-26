@@ -134,7 +134,7 @@ func writeWarmHealthResponse(w http.ResponseWriter, healthy, cached bool) {
 	})
 }
 
-func isAllowedOrigin(origin, host string, allowedOrigins []string) bool {
+func isAllowedOrigin(origin, host, envMode string, allowedOrigins []string) bool {
 	if origin == "" {
 		return true // Direct non-browser clients (CLI, agents, mobile apps)
 	}
@@ -147,14 +147,16 @@ func isAllowedOrigin(origin, host string, allowedOrigins []string) bool {
 		}
 	}
 
-	// Always permit local development and testing origins
-	if originLower == "http://localhost:3000" ||
-		originLower == "http://localhost:5173" ||
-		originLower == "http://127.0.0.1:3000" ||
-		originLower == "http://127.0.0.1:5173" ||
-		originLower == "http://localhost:8080" ||
-		originLower == "http://127.0.0.1:8080" {
-		return true
+	// Permit local development origins only outside production
+	if !strings.EqualFold(strings.TrimSpace(envMode), "production") {
+		if originLower == "http://localhost:3000" ||
+			originLower == "http://localhost:5173" ||
+			originLower == "http://127.0.0.1:3000" ||
+			originLower == "http://127.0.0.1:5173" ||
+			originLower == "http://localhost:8080" ||
+			originLower == "http://127.0.0.1:8080" {
+			return true
+		}
 	}
 
 	// Same-origin check
@@ -168,12 +170,13 @@ func isAllowedOrigin(origin, host string, allowedOrigins []string) bool {
 	return false
 }
 
-func cors(allowedOrigins []string) func(http.Handler) http.Handler {
+func cors(envMode string, allowedOrigins []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Vary", "Origin")
 			origin := r.Header.Get("Origin")
 			if origin != "" {
-				if isAllowedOrigin(origin, r.Host, allowedOrigins) {
+				if isAllowedOrigin(origin, r.Host, envMode, allowedOrigins) {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
 					w.Header().Set("Access-Control-Allow-Credentials", "true")
 				} else {
@@ -270,13 +273,14 @@ func main() {
 	mux.HandleFunc("GET /health/warm", newWarmHealthHandler(db, tableName, 60*time.Second))
 	mux.HandleFunc("GET /metrics", metrics.DefaultRegistry.Handler())
 	mux.Handle("POST /auth/google", authLimiter.Limit(http.HandlerFunc(authHandler.GoogleLogin)))
+	mux.Handle("GET /auth/google/login", authLimiter.Limit(http.HandlerFunc(authHandler.GoogleLoginRedirect)))
 	mux.Handle("GET /auth/google/callback", authLimiter.Limit(http.HandlerFunc(authHandler.GoogleCallback)))
 	mux.HandleFunc("POST /auth/logout", authHandler.Logout)
 
 	// Downloads & Enterprise Extension CRX / Update Manifest with path-traversal guard
 	downloadsDir := "frontend/public/downloads"
 	fileServer := http.FileServer(http.Dir(downloadsDir))
-	mux.Handle("GET /downloads/", http.StripPrefix("/downloads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	downloadsHandler := http.StripPrefix("/downloads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cleanPath := strings.TrimSpace(r.URL.Path)
 		if strings.Contains(cleanPath, "..") || strings.Contains(cleanPath, "%2e") || strings.Contains(cleanPath, "\x00") {
 			http.Error(w, "invalid path", http.StatusBadRequest)
@@ -288,24 +292,38 @@ func main() {
 			w.Header().Set("Content-Type", "application/xml")
 		}
 		fileServer.ServeHTTP(w, r)
-	})))
+	}))
+	mux.Handle("GET /downloads/", downloadsHandler)
 
-	// Proof & Media Uploads Static Server with path-traversal guard
+	// Proof & Media Uploads Static Server (authenticated + path-traversal & XSS guard)
 	uploadsDir := "uploads"
 	_ = os.MkdirAll(filepath.Join(uploadsDir, "proofs"), 0755)
 	uploadFileServer := http.FileServer(http.Dir(uploadsDir))
-	mux.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cleanPath := strings.TrimSpace(r.URL.Path)
-		if strings.Contains(cleanPath, "..") || strings.Contains(cleanPath, "%2e") || strings.Contains(cleanPath, "\x00") {
-			http.Error(w, "invalid path", http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Cache-Control", "public, max-age=86400")
-		w.Header().Del("X-Frame-Options")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://onusly.com https://*.onusly.com https://onusly.app https://*.onusly.app https://onusly.duckdns.org;")
-		uploadFileServer.ServeHTTP(w, r)
-	})))
+	protectedUploads := middleware.Auth(cfg.JWTSecret, middleware.WithSessionValidator(authRepo))(
+		http.StripPrefix("/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cleanPath := strings.TrimSpace(r.URL.Path)
+			if strings.Contains(cleanPath, "..") || strings.Contains(cleanPath, "%2e") || strings.Contains(cleanPath, "\x00") {
+				http.Error(w, "invalid path", http.StatusBadRequest)
+				return
+			}
+			ext := strings.ToLower(filepath.Ext(cleanPath))
+			switch ext {
+			case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf":
+				w.Header().Set("Content-Disposition", "inline")
+			case ".txt":
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.Header().Set("Content-Disposition", "attachment")
+			default:
+				http.Error(w, "unsupported file type", http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Cache-Control", "private, max-age=3600")
+			w.Header().Del("X-Frame-Options")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; object-src 'self'; script-src 'none'; sandbox; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://onusly.com https://*.onusly.com https://onusly.app https://*.onusly.app https://onusly.duckdns.org;")
+			uploadFileServer.ServeHTTP(w, r)
+		})),
+	)
+	mux.Handle("GET /uploads/", protectedUploads)
 
 	// Real-time WebSocket Hub
 	wsHub := realtime.NewHub()
@@ -401,6 +419,10 @@ func main() {
 	friendsService := friends.NewService(friendsRepo, chatResolver, wsHub)
 	friendsService.SetNotificationSender(notifService)
 	friendsHandler := friends.NewHandler(friendsService)
+	chatHandler.SetCommunityChecker(&serverCommunityChecker{
+		friendsRepo: friendsRepo,
+		hub:         wsHub,
+	})
 
 	// Digital Wellbeing Analytics Repository, Service & Handler
 	wellbeingRepo := wellbeing.NewDynamoRepository(db, tableName)
@@ -677,12 +699,44 @@ func main() {
 		var uploadedItems []UploadedFileItem
 
 		for _, fh := range files {
+			ext := strings.ToLower(filepath.Ext(fh.Filename))
+			switch ext {
+			case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt":
+			default:
+				http.Error(w, "unsupported file extension: allowed png, jpg, webp, gif, pdf, txt", http.StatusBadRequest)
+				return
+			}
+
 			src, err := fh.Open()
 			if err != nil {
 				continue
 			}
 
-			ext := strings.ToLower(filepath.Ext(fh.Filename))
+			// Sniff leading bytes to verify actual MIME content matches allowed proof types
+			sniffBuf := make([]byte, 512)
+			n, _ := io.ReadFull(src, sniffBuf)
+			detectedMIME := strings.ToLower(http.DetectContentType(sniffBuf[:n]))
+			mimeValid := false
+			switch ext {
+			case ".png":
+				mimeValid = detectedMIME == "image/png"
+			case ".jpg", ".jpeg":
+				mimeValid = detectedMIME == "image/jpeg"
+			case ".webp":
+				mimeValid = detectedMIME == "image/webp"
+			case ".gif":
+				mimeValid = detectedMIME == "image/gif"
+			case ".pdf":
+				mimeValid = detectedMIME == "application/pdf"
+			case ".txt":
+				mimeValid = strings.HasPrefix(detectedMIME, "text/plain")
+			}
+			if !mimeValid {
+				src.Close()
+				http.Error(w, "file content does not match allowed extension MIME type", http.StatusBadRequest)
+				return
+			}
+
 			baseName := strings.TrimSuffix(filepath.Base(fh.Filename), ext)
 			safeBase := strings.Map(func(r rune) rune {
 				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
@@ -703,29 +757,30 @@ func main() {
 				continue
 			}
 
-			copiedSize, err := io.Copy(dst, src)
-			src.Close()
-			dst.Close()
-			if err != nil {
+			if _, err := dst.Write(sniffBuf[:n]); err != nil {
+				src.Close()
+				dst.Close()
+				_ = os.Remove(destPath)
 				continue
 			}
 
+			copiedRest, err := io.Copy(dst, src)
+			src.Close()
+			dst.Close()
+			if err != nil {
+				_ = os.Remove(destPath)
+				continue
+			}
+			copiedSize := int64(n) + copiedRest
+
 			fileURL := fmt.Sprintf("/uploads/proofs/%s", uniqueFileName)
-			contentType := fh.Header.Get("Content-Type")
-			if contentType == "" {
-				if ext == ".pdf" {
-					contentType = "application/pdf"
-				} else if ext == ".png" {
-					contentType = "image/png"
-				} else if ext == ".jpg" || ext == ".jpeg" {
-					contentType = "image/jpeg"
-				} else {
-					contentType = "application/octet-stream"
-				}
+			contentType := detectedMIME
+			if ext == ".txt" {
+				contentType = "text/plain"
 			}
 
-			isImage := strings.HasPrefix(contentType, "image/") || ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" || ext == ".gif"
-			isPdf := contentType == "application/pdf" || ext == ".pdf"
+			isImage := strings.HasPrefix(contentType, "image/")
+			isPdf := contentType == "application/pdf"
 
 			formattedSize := fmt.Sprintf("%d KB", copiedSize/1024)
 			if copiedSize > 1024*1024 {
@@ -792,7 +847,7 @@ func main() {
 	// 3. Strict origin-whitelisted CORS
 	rootHandler := middleware.SecurityHeaders(
 		middleware.MaxBytesLimiter(50 * 1024 * 1024)(
-			cors(cfg.AllowedOrigins)(mux),
+			cors(cfg.Env, cfg.AllowedOrigins)(mux),
 		),
 	)
 
@@ -814,16 +869,22 @@ func main() {
 		}
 	}()
 
-	// Secondary enterprise update listener on 127.0.0.1:8765 for Windows browser force-install policies
-	go func() {
-		fixtureServer := &http.Server{
+	var fixtureServer *http.Server
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ENABLE_FIXTURE_SERVER")), "true") {
+		fixtureMux := http.NewServeMux()
+		fixtureMux.Handle("GET /downloads/", downloadsHandler)
+		fixtureServer = &http.Server{
 			Addr:         "127.0.0.1:8765",
-			Handler:      rootHandler,
+			Handler:      middleware.SecurityHeaders(fixtureMux),
 			ReadTimeout:  15 * time.Second,
 			WriteTimeout: 15 * time.Second,
 		}
-		_ = fixtureServer.ListenAndServe()
-	}()
+		go func() {
+			if err := fixtureServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("Secondary downloads listener (:8765) stopped: %v", err)
+			}
+		}()
+	}
 
 	<-stopCtx.Done()
 	log.Println("Gracefully stopping server...")
@@ -834,10 +895,35 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	if fixtureServer != nil {
+		_ = fixtureServer.Shutdown(shutdownCtx)
+	}
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
 	}
 	log.Println("Server stopped cleanly.")
+}
+
+type serverCommunityChecker struct {
+	friendsRepo *friends.Repository
+	hub         *realtime.Hub
+}
+
+func (c *serverCommunityChecker) IsCommunityMember(ctx context.Context, userID, email, handle, communityID string) bool {
+	if c.hub != nil && c.hub.IsCommunityMember(ctx, userID, email, handle, communityID) {
+		return true
+	}
+	if c.friendsRepo != nil && userID != "" {
+		joined, err := c.friendsRepo.GetJoinedCommunities(ctx, userID)
+		if err == nil {
+			for _, id := range joined {
+				if id == communityID {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 type serverGoalVerifier struct {

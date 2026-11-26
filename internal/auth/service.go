@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 	"unicode"
@@ -38,18 +37,26 @@ func (s *Service) SetSessionDisconnecter(d SessionDisconnecter) {
 	s.disconnecter = d
 }
 
-func (s *Service) HandleCallback(ctx context.Context, code string) (string, error) {
+func (s *Service) oauthConfig() *oauth2.Config {
 	redirectURL := strings.TrimSpace(s.cfg.GoogleRedirectURL)
 	if redirectURL == "" {
 		redirectURL = "http://localhost:8080/auth/google/callback"
 	}
-	conf := &oauth2.Config{
+	return &oauth2.Config{
 		ClientID:     s.cfg.GoogleClientID,
 		ClientSecret: s.cfg.GoogleClientSecret,
 		RedirectURL:  redirectURL,
 		Scopes:       []string{"email", "profile"},
 		Endpoint:     google.Endpoint,
 	}
+}
+
+func (s *Service) GetAuthURL(state string) string {
+	return s.oauthConfig().AuthCodeURL(state, oauth2.AccessTypeOnline)
+}
+
+func (s *Service) HandleCallback(ctx context.Context, code string) (string, error) {
+	conf := s.oauthConfig()
 
 	token, err := conf.Exchange(ctx, code)
 	if err != nil {
@@ -166,8 +173,7 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 
 	existingUser, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
-		log.Printf("[Auth] Remote database lookup error: %v (falling back to verified Google identity)", err)
-		existingUser = nil
+		return nil, fmt.Errorf("failed to look up user: %w", err)
 	}
 
 	var user User
@@ -185,16 +191,17 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 	} else {
 		handle, _ := s.generateUniqueHandle(ctx, name, email)
 		user = User{
-			ID:        payload.Subject,
-			Email:     email,
-			Handle:    handle,
-			Name:      name,
-			Picture:   picture,
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			ID:           payload.Subject,
+			Email:        email,
+			Handle:       handle,
+			Name:         name,
+			Picture:      picture,
+			TokenVersion: 1,
+			CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 		}
 
 		if err := s.repo.CreateUser(ctx, &user); err != nil {
-			log.Printf("[Auth] Remote database user persist error: %v (continuing with verified session)", err)
+			return nil, fmt.Errorf("failed to create user: %w", err)
 		}
 	}
 
@@ -346,20 +353,23 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID string) (int, er
 
 // GenerateDeviceToken creates an authenticated JWT for a specific paired device.
 func (s *Service) GenerateDeviceToken(userID, email, handle, name, deviceID string) (string, error) {
-	tokenType := "device"
-	if deviceID == "" {
-		tokenType = "user"
+	cleanDeviceID := strings.TrimSpace(deviceID)
+	if cleanDeviceID == "" {
+		return "", errors.New("device ID is required to generate device token")
+	}
+	version, err := s.repo.GetTokenVersion(context.Background(), userID)
+	if err != nil || version <= 0 {
+		version = 1
 	}
 	claims := jwt.MapClaims{
-		"sub":        userID,
-		"email":      email,
-		"handle":     handle,
-		"name":       name,
-		"token_type": tokenType,
-		"exp":        time.Now().Add(30 * 24 * time.Hour).Unix(),
-	}
-	if deviceID != "" {
-		claims["device_id"] = deviceID
+		"sub":           userID,
+		"email":         email,
+		"handle":        handle,
+		"name":          name,
+		"token_type":    "device",
+		"token_version": version,
+		"device_id":     cleanDeviceID,
+		"exp":           time.Now().Add(30 * 24 * time.Hour).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.cfg.JWTSecret))

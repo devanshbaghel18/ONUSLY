@@ -30,7 +30,7 @@ func getDefaultDataDir() string {
 }
 
 func getDefaultIPCPath() string {
-	return `\\.\pipe\OnuslyDesktopPipe`
+	return `\\.\pipe\OnuslyAgentIPC`
 }
 
 func newPlatformCredentialStore(configDir string) core.CredentialStore {

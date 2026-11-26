@@ -192,25 +192,21 @@ export default function SubmitProofModal({
       const rawFilesToUpload = attachedFiles.filter((f) => f.rawFile);
 
       if (rawFilesToUpload.length > 0) {
-        try {
-          const uploadedResults = await uploadProofFiles(
-            rawFilesToUpload.map((f) => f.rawFile)
-          );
-          finalFiles = attachedFiles.map((f) => {
-            const match = uploadedResults.find((u) => u.name === f.name);
-            if (match && match.url) {
-              const fullUrl = resolveApiUrl(match.url);
-              return {
-                ...f,
-                url: fullUrl,
-                dataUrl: fullUrl,
-              };
-            }
-            return f;
-          });
-        } catch (uploadErr) {
-          console.warn("Direct upload error, falling back to data URL:", uploadErr);
-        }
+        const uploadedResults = await uploadProofFiles(
+          rawFilesToUpload.map((f) => f.rawFile)
+        );
+        finalFiles = attachedFiles.map((f) => {
+          const match = uploadedResults.find((u) => u.name === f.name);
+          if (match && match.url) {
+            const fullUrl = resolveApiUrl(match.url);
+            return {
+              ...f,
+              url: fullUrl,
+              dataUrl: fullUrl,
+            };
+          }
+          return f;
+        });
       }
 
       // 2. Prepare structured files payload

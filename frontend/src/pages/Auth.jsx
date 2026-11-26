@@ -29,9 +29,10 @@ export default function Auth() {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    // 1. Check if token returned via redirect query params (?token=...)
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("token");
+    // 1. Check if token returned via redirect fragment (#token=...) or query params (?token=...)
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const searchParams = new URLSearchParams(window.location.search);
+    const token = hashParams.get("token") || searchParams.get("token");
     if (token) {
       setAuth(token, null);
       window.history.replaceState({}, document.title, window.location.pathname);

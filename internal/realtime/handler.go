@@ -39,18 +39,28 @@ func isAllowedWebSocketOrigin(r *http.Request) bool {
 		}
 	}
 
-	if originLower == "http://localhost:3000" ||
-		originLower == "http://localhost:5173" ||
-		originLower == "http://127.0.0.1:3000" ||
-		originLower == "http://127.0.0.1:5173" ||
-		originLower == "http://localhost:8080" ||
-		originLower == "http://127.0.0.1:8080" ||
-		originLower == "http://localhost:8081" ||
-		originLower == "http://127.0.0.1:8081" ||
-		originLower == "https://onusly.com" ||
+	envMode := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
+	if envMode == "" {
+		envMode = strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	}
+	if envMode != "production" {
+		if originLower == "http://localhost:3000" ||
+			originLower == "http://localhost:5173" ||
+			originLower == "http://127.0.0.1:3000" ||
+			originLower == "http://127.0.0.1:5173" ||
+			originLower == "http://localhost:8080" ||
+			originLower == "http://127.0.0.1:8080" ||
+			originLower == "http://localhost:8081" ||
+			originLower == "http://127.0.0.1:8081" {
+			return true
+		}
+	}
+
+	if originLower == "https://onusly.com" ||
 		originLower == "https://www.onusly.com" ||
 		originLower == "https://onusly.app" ||
-		originLower == "https://www.onusly.app" {
+		originLower == "https://www.onusly.app" ||
+		originLower == "https://onusly.duckdns.org" {
 		return true
 	}
 
@@ -131,9 +141,14 @@ func ValidateToken(tokenString, jwtSecret string) (*AuthUser, error) {
 	handle, _ := claims["handle"].(string)
 	name, _ := claims["name"].(string)
 
-	tokenType, _ := claims["token_type"].(string)
-	if tokenType == "" {
-		if devID, ok := claims["device_id"].(string); ok && devID != "" {
+	rawType, _ := claims["token_type"].(string)
+	tokenType := strings.ToLower(strings.TrimSpace(rawType))
+	if tokenType != "" {
+		if tokenType != "user" && tokenType != "device" {
+			return nil, errors.New("invalid token claims: unrecognized token type")
+		}
+	} else {
+		if devID, ok := claims["device_id"].(string); ok && strings.TrimSpace(devID) != "" {
 			tokenType = "device"
 		} else {
 			tokenType = "user"
@@ -198,8 +213,11 @@ func ExtractAndValidateToken(r *http.Request, jwtSecret string) (string, error) 
 }
 
 func checkUserTokenNotRevoked(ctx context.Context, user *AuthUser, validator SessionVersionValidator) error {
-	if validator == nil || user == nil || user.TokenType != "user" {
+	if validator == nil || user == nil {
 		return nil
+	}
+	if user.TokenType != "user" && user.TokenType != "device" {
+		return errors.New("unrecognized token type")
 	}
 	expectedVer, err := validator.GetTokenVersion(ctx, user.ID)
 	if err == nil && expectedVer > 0 && user.TokenVersion < expectedVer {

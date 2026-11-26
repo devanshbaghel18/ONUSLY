@@ -12,8 +12,8 @@ import (
 	"time"
 	"unsafe"
 
-	win "github.com/devanshbaghel18/ONUSLY/desktop/core/windows"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
+	win "github.com/devanshbaghel18/ONUSLY/desktop/core/windows"
 )
 
 const (
@@ -101,7 +101,6 @@ func (s *Server) namedPipeAcceptLoop(ctx context.Context) {
 		var sa win.SECURITY_ATTRIBUTES
 		var pSA uintptr
 		if rConv != 0 && pSD != 0 {
-			defer win.ProcLocalFree.Call(pSD)
 			sa.NLength = uint32(unsafe.Sizeof(sa))
 			sa.LpSecurityDescriptor = pSD
 			sa.BInheritHandle = 0
@@ -121,6 +120,9 @@ func (s *Server) namedPipeAcceptLoop(ctx context.Context) {
 			5000,
 			pSA,
 		)
+		if pSD != 0 {
+			win.ProcLocalFree.Call(pSD)
+		}
 		if hPipe == uintptr(syscall.InvalidHandle) || hPipe == 0 {
 			select {
 			case <-s.stopChan:
@@ -160,7 +162,7 @@ func (s *Server) namedPipeAcceptLoop(ctx context.Context) {
 				waitRes, _, _ := win.ProcWaitForMultipleObjects.Call(
 					waitCount,
 					uintptr(unsafe.Pointer(&waitHandles[0])),
-					0, // bWaitAll = FALSE
+					0,          // bWaitAll = FALSE
 					0xFFFFFFFF, // INFINITE
 				)
 

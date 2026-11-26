@@ -163,8 +163,13 @@ func (m *WindowsServiceManager) InstallServiceNative() error {
 		return fmt.Errorf("ChangeServiceConfig2W(SERVICE_CONFIG_SERVICE_SID_INFO) failed: %w", errSID)
 	}
 
-	// 3. Configure Required Privileges: SeChangeNotifyPrivilege only
-	privsUTF16, _ := syscall.UTF16FromString("SeChangeNotifyPrivilege")
+	// 3. Configure Required Privileges: SeChangeNotifyPrivilege + SeDebugPrivilege
+	// SeDebugPrivilege is required under NT AUTHORITY\LocalService to open and terminate blocked interactive processes.
+	priv1UTF16, _ := syscall.UTF16FromString("SeChangeNotifyPrivilege")
+	priv2UTF16, _ := syscall.UTF16FromString("SeDebugPrivilege")
+	privsUTF16 := make([]uint16, 0, len(priv1UTF16)+len(priv2UTF16)+1)
+	privsUTF16 = append(privsUTF16, priv1UTF16...)
+	privsUTF16 = append(privsUTF16, priv2UTF16...)
 	privsUTF16 = append(privsUTF16, 0) // double null terminator for multi-string
 	privsInfo := SERVICE_REQUIRED_PRIVILEGES_INFO{PmszRequiredPrivileges: &privsUTF16[0]}
 	rPrivs, _, errPrivs := ProcChangeServiceConfig2W.Call(
@@ -580,4 +585,3 @@ func (m *WindowsServiceManager) QueryConfig() (*ServiceConfig, error) {
 
 	return cfg, nil
 }
-

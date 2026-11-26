@@ -159,14 +159,24 @@ func (r *Repository) MarkAsRead(ctx context.Context, recipientID, notifID string
 
 // MarkAllAsRead marks all unread notifications as read for a given recipient.
 func (r *Repository) MarkAllAsRead(ctx context.Context, recipientID string) error {
-	notifs, err := r.List(ctx, recipientID, 100)
-	if err != nil {
-		return err
-	}
+	for {
+		notifs, err := r.List(ctx, recipientID, 100)
+		if err != nil {
+			return err
+		}
 
-	for _, n := range notifs {
-		if !n.Read {
-			_ = r.MarkAsRead(ctx, recipientID, n.ID)
+		markedAny := false
+		for _, n := range notifs {
+			if !n.Read {
+				if err := r.MarkAsRead(ctx, recipientID, n.ID); err != nil {
+					return err
+				}
+				markedAny = true
+			}
+		}
+
+		if !markedAny || len(notifs) < 100 {
+			break
 		}
 	}
 

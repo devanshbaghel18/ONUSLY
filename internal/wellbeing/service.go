@@ -23,17 +23,34 @@ type LimitNotifier interface {
 type Service struct {
 	repo          Repository
 	nowFn         func() time.Time
-	rulesMu       sync.Mutex
+	userLocksMu   sync.Mutex
+	userLocks     map[string]*sync.Mutex
 	limitNotifier LimitNotifier
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{
-		repo: repo,
+		repo:      repo,
+		userLocks: make(map[string]*sync.Mutex),
 		nowFn: func() time.Time {
 			return time.Now().UTC()
 		},
 	}
+}
+
+func (s *Service) lockUserRules(userID string) func() {
+	s.userLocksMu.Lock()
+	if s.userLocks == nil {
+		s.userLocks = make(map[string]*sync.Mutex)
+	}
+	mu, ok := s.userLocks[userID]
+	if !ok {
+		mu = &sync.Mutex{}
+		s.userLocks[userID] = mu
+	}
+	s.userLocksMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
 }
 
 // SetLimitNotifier attaches an optional callback for real-time daily limit exceeded pushes.
@@ -227,14 +244,14 @@ func (s *Service) Ingest(ctx context.Context, userID string, req IngestRequest) 
 			effectiveOffset = *req.TimezoneOffsetMinutes
 			hasEffectiveOffset = true
 			if rulesRec.LastTimezoneOffsetMinutes == nil || *rulesRec.LastTimezoneOffsetMinutes != effectiveOffset {
-				s.rulesMu.Lock()
+				unlockRules := s.lockUserRules(userID)
 				latest, gErr := s.repo.GetRulesRecord(ctx, userID)
 				if gErr == nil && latest != nil {
 					tz := effectiveOffset
 					latest.LastTimezoneOffsetMinutes = &tz
 					_ = s.repo.SaveRulesRecord(ctx, *latest)
 				}
-				s.rulesMu.Unlock()
+				unlockRules()
 			}
 		} else {
 			effectiveOffset = resolveEffectiveTzOffset(rulesRec, nil, false)
@@ -689,13 +706,13 @@ func (s *Service) getRulesInternal(ctx context.Context, userID string, explicitT
 	effectiveOffset := resolveEffectiveTzOffset(rulesRec, explicitTz, explicitProvided)
 	if explicitProvided && explicitTz != nil && *explicitTz >= -840 && *explicitTz <= 840 {
 		if rulesRec.LastTimezoneOffsetMinutes == nil || *rulesRec.LastTimezoneOffsetMinutes != effectiveOffset {
-			s.rulesMu.Lock()
+			unlockRules := s.lockUserRules(userID)
 			if latest, gErr := s.repo.GetRulesRecord(ctx, userID); gErr == nil && latest != nil {
 				tz := effectiveOffset
 				latest.LastTimezoneOffsetMinutes = &tz
 				_ = s.repo.SaveRulesRecord(ctx, *latest)
 			}
-			s.rulesMu.Unlock()
+			unlockRules()
 		}
 	}
 	appSec, domSec := s.computeTodayUsageMaps(ctx, userID, effectiveOffset)
@@ -750,8 +767,8 @@ func (s *Service) UpsertLimit(ctx context.Context, userID string, req UpsertLimi
 		enabled = *req.Enabled
 	}
 
-	s.rulesMu.Lock()
-	defer s.rulesMu.Unlock()
+	unlockRules := s.lockUserRules(userID)
+	defer unlockRules()
 
 	rulesRec, err := s.repo.GetRulesRecord(ctx, userID)
 	if err != nil {
@@ -783,8 +800,8 @@ func (s *Service) DeleteLimit(ctx context.Context, userID, ruleID string) error 
 	if cleanID == "" {
 		return ErrInvalidLimit
 	}
-	s.rulesMu.Lock()
-	defer s.rulesMu.Unlock()
+	unlockRules := s.lockUserRules(userID)
+	defer unlockRules()
 
 	rulesRec, err := s.repo.GetRulesRecord(ctx, userID)
 	if err != nil {
@@ -827,8 +844,8 @@ func (s *Service) SaveSchedule(ctx context.Context, userID string, cfg FocusSche
 		}
 	}
 
-	s.rulesMu.Lock()
-	defer s.rulesMu.Unlock()
+	unlockRules := s.lockUserRules(userID)
+	defer unlockRules()
 
 	rulesRec, err := s.repo.GetRulesRecord(ctx, userID)
 	if err != nil {

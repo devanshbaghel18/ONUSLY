@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -85,7 +84,18 @@ func (r *DynamoRepository) GetUserByEmail(ctx context.Context, email string) (*U
 		return nil, nil
 	}
 
-	queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	if r.client == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if uid, ok := r.memEmails[cleanEmail]; ok {
+			if u, exists := r.memUsers[uid]; exists {
+				return &u, nil
+			}
+		}
+		return nil, nil
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	out, err := r.client.Query(queryCtx, &dynamodb.QueryInput{
@@ -101,24 +111,10 @@ func (r *DynamoRepository) GetUserByEmail(ctx context.Context, email string) (*U
 	})
 
 	if err != nil {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		if uid, ok := r.memEmails[cleanEmail]; ok {
-			if u, exists := r.memUsers[uid]; exists {
-				return &u, nil
-			}
-		}
-		return nil, nil
+		return nil, err
 	}
 
 	if len(out.Items) == 0 {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		if uid, ok := r.memEmails[cleanEmail]; ok {
-			if u, exists := r.memUsers[uid]; exists {
-				return &u, nil
-			}
-		}
 		return nil, nil
 	}
 
@@ -146,7 +142,16 @@ func (r *DynamoRepository) GetUserByID(ctx context.Context, userID string) (*Use
 		return nil, nil
 	}
 
-	getCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	if r.client == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if u, exists := r.memUsers[userID]; exists {
+			return &u, nil
+		}
+		return nil, nil
+	}
+
+	getCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	out, err := r.client.GetItem(getCtx, &dynamodb.GetItemInput{
@@ -157,19 +162,9 @@ func (r *DynamoRepository) GetUserByID(ctx context.Context, userID string) (*Use
 		},
 	})
 	if err != nil {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		if u, exists := r.memUsers[userID]; exists {
-			return &u, nil
-		}
-		return nil, nil
+		return nil, err
 	}
 	if len(out.Item) == 0 {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		if u, exists := r.memUsers[userID]; exists {
-			return &u, nil
-		}
 		return nil, nil
 	}
 	var user User
@@ -199,8 +194,19 @@ func (r *DynamoRepository) GetUserByHandle(ctx context.Context, handle string) (
 		return nil, nil
 	}
 
+	if r.client == nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if uid, ok := r.memHandles[cleaned]; ok {
+			if u, exists := r.memUsers[uid]; exists {
+				return &u, nil
+			}
+		}
+		return nil, nil
+	}
+
 	// 1. Direct O(1) lookup on HANDLE#<clean> reservation item
-	getCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	getCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	resOut, err := r.client.GetItem(getCtx, &dynamodb.GetItemInput{
@@ -211,23 +217,9 @@ func (r *DynamoRepository) GetUserByHandle(ctx context.Context, handle string) (
 		},
 	})
 	if err != nil {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		if uid, ok := r.memHandles[cleaned]; ok {
-			if u, exists := r.memUsers[uid]; exists {
-				return &u, nil
-			}
-		}
-		return nil, nil
+		return nil, err
 	}
 	if len(resOut.Item) == 0 {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		if uid, ok := r.memHandles[cleaned]; ok {
-			if u, exists := r.memUsers[uid]; exists {
-				return &u, nil
-			}
-		}
 		return nil, nil
 	}
 
@@ -251,24 +243,31 @@ func (r *DynamoRepository) CreateUser(ctx context.Context, user *User) error {
 		user.TokenVersion = 1
 	}
 
-	// Always cache in memory immediately
-	r.mu.Lock()
-	r.memUsers[user.ID] = *user
-	if user.Email != "" {
-		r.memEmails[strings.ToLower(user.Email)] = user.ID
-	}
 	cleanHandle := strings.TrimPrefix(strings.TrimSpace(strings.ToLower(user.Handle)), "@")
-	if cleanHandle != "" {
-		r.memHandles[cleanHandle] = user.ID
+
+	cacheInMem := func() {
+		r.mu.Lock()
+		r.memUsers[user.ID] = *user
+		if user.Email != "" {
+			r.memEmails[strings.ToLower(user.Email)] = user.ID
+		}
+		if cleanHandle != "" {
+			r.memHandles[cleanHandle] = user.ID
+		}
+		r.mu.Unlock()
 	}
-	r.mu.Unlock()
+
+	if r.client == nil {
+		cacheInMem()
+		return nil
+	}
 
 	item, err := attributevalue.MarshalMap(user)
 	if err != nil {
 		return err
 	}
 
-	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	putCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	if cleanHandle != "" {
@@ -302,9 +301,9 @@ func (r *DynamoRepository) CreateUser(ctx context.Context, user *User) error {
 			if isConflictError(err) {
 				return errors.New("this handle is already taken, please choose another")
 			}
-			log.Printf("[AuthRepo] Remote TransactWriteItems notice: %v (cached in local memory)", err)
-			return nil
+			return err
 		}
+		cacheInMem()
 		return nil
 	}
 
@@ -313,10 +312,10 @@ func (r *DynamoRepository) CreateUser(ctx context.Context, user *User) error {
 		Item:      item,
 	})
 	if err != nil {
-		log.Printf("[AuthRepo] Remote PutItem notice: %v (cached in local memory)", err)
-		return nil
+		return err
 	}
 
+	cacheInMem()
 	return nil
 }
 
@@ -332,16 +331,23 @@ func (r *DynamoRepository) UpdateUserHandle(ctx context.Context, userID, oldHand
 		return nil
 	}
 
-	r.mu.Lock()
-	if u, exists := r.memUsers[userID]; exists {
-		u.Handle = cleanNew
-		r.memUsers[userID] = u
+	if r.client == nil {
+		r.mu.Lock()
+		if existing, exists := r.memHandles[cleanNew]; exists && existing != userID {
+			r.mu.Unlock()
+			return errors.New("this handle is already taken, please choose another")
+		}
+		if u, exists := r.memUsers[userID]; exists {
+			u.Handle = cleanNew
+			r.memUsers[userID] = u
+		}
+		if cleanOld != "" {
+			delete(r.memHandles, cleanOld)
+		}
+		r.memHandles[cleanNew] = userID
+		r.mu.Unlock()
+		return nil
 	}
-	if cleanOld != "" {
-		delete(r.memHandles, cleanOld)
-	}
-	r.memHandles[cleanNew] = userID
-	r.mu.Unlock()
 
 	handleItem := map[string]types.AttributeValue{
 		"PK":        &types.AttributeValueMemberS{Value: "HANDLE#" + cleanNew},
@@ -396,7 +402,7 @@ func (r *DynamoRepository) UpdateUserHandle(ctx context.Context, userID, oldHand
 		})
 	}
 
-	txCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	txCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	_, err := r.client.TransactWriteItems(txCtx, &dynamodb.TransactWriteItemsInput{
@@ -406,52 +412,85 @@ func (r *DynamoRepository) UpdateUserHandle(ctx context.Context, userID, oldHand
 		if isConflictError(err) {
 			return errors.New("this handle is already taken, please choose another")
 		}
-		log.Printf("[AuthRepo] Remote UpdateUserHandle notice: %v (cached in local memory)", err)
-		return nil
+		return err
 	}
+
+	r.mu.Lock()
+	if u, exists := r.memUsers[userID]; exists {
+		u.Handle = cleanNew
+		r.memUsers[userID] = u
+	}
+	if cleanOld != "" {
+		delete(r.memHandles, cleanOld)
+	}
+	r.memHandles[cleanNew] = userID
+	r.mu.Unlock()
 
 	return nil
 }
 
-// IncrementTokenVersion increments the user's token version in memory and DynamoDB,
+// IncrementTokenVersion increments the user's token version in DynamoDB and memory,
 // invalidating all prior active sessions and cookies across all devices.
 func (r *DynamoRepository) IncrementTokenVersion(ctx context.Context, userID string) (int, error) {
 	if userID == "" {
 		return 0, errors.New("userID is required")
 	}
 
-	r.mu.Lock()
-	newVer := 1
-	if u, exists := r.memUsers[userID]; exists {
-		if u.TokenVersion <= 0 {
-			u.TokenVersion = 1
+	if r.client == nil {
+		r.mu.Lock()
+		newVer := 2
+		if u, exists := r.memUsers[userID]; exists {
+			if u.TokenVersion <= 0 {
+				u.TokenVersion = 1
+			}
+			u.TokenVersion++
+			newVer = u.TokenVersion
+			r.memUsers[userID] = u
+		} else {
+			r.memUsers[userID] = User{ID: userID, TokenVersion: newVer}
 		}
-		u.TokenVersion++
-		newVer = u.TokenVersion
-		r.memUsers[userID] = u
-	} else {
-		newVer = 2
-		r.memUsers[userID] = User{ID: userID, TokenVersion: newVer}
+		r.mu.Unlock()
+		return newVer, nil
 	}
-	r.mu.Unlock()
 
-	txCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	txCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	_, err := r.client.UpdateItem(txCtx, &dynamodb.UpdateItemInput{
+	out, err := r.client.UpdateItem(txCtx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(r.tableName),
 		Key: map[string]types.AttributeValue{
 			"PK": &types.AttributeValueMemberS{Value: "USER#" + userID},
 			"SK": &types.AttributeValueMemberS{Value: "PROFILE"},
 		},
-		UpdateExpression: aws.String("ADD TokenVersion :inc"),
+		UpdateExpression: aws.String("SET TokenVersion = if_not_exists(TokenVersion, :one) + :inc"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":one": &types.AttributeValueMemberN{Value: "1"},
 			":inc": &types.AttributeValueMemberN{Value: "1"},
 		},
+		ReturnValues: types.ReturnValueAllNew,
 	})
 	if err != nil {
-		log.Printf("[AuthRepo] Remote IncrementTokenVersion notice: %v (cached in local memory)", err)
+		return 0, err
 	}
+
+	var updated User
+	if err := attributevalue.UnmarshalMap(out.Attributes, &updated); err != nil {
+		return 0, err
+	}
+	newVer := updated.TokenVersion
+	if newVer <= 0 {
+		newVer = 2
+	}
+
+	r.mu.Lock()
+	if existing, exists := r.memUsers[userID]; exists {
+		existing.TokenVersion = newVer
+		r.memUsers[userID] = existing
+	} else if updated.Email != "" || updated.Handle != "" {
+		updated.ID = userID
+		r.memUsers[userID] = updated
+	}
+	r.mu.Unlock()
 
 	return newVer, nil
 }

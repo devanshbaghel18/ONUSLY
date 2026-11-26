@@ -55,23 +55,6 @@ type dbItem struct {
 
 // SaveFriendRequest writes both incoming (for recipient) and outgoing (for sender) friend request records.
 func (r *Repository) SaveFriendRequest(ctx context.Context, req FriendRequest) error {
-	r.mu.Lock()
-	if r.memReqs == nil {
-		r.memReqs = make(map[string]FriendRequest)
-		r.memUserReqsIn = make(map[string]map[string]bool)
-		r.memUserReqsOut = make(map[string]map[string]bool)
-	}
-	r.memReqs[req.ID] = req
-	if r.memUserReqsIn[req.RecipientID] == nil {
-		r.memUserReqsIn[req.RecipientID] = make(map[string]bool)
-	}
-	r.memUserReqsIn[req.RecipientID][req.ID] = true
-	if r.memUserReqsOut[req.SenderID] == nil {
-		r.memUserReqsOut[req.SenderID] = make(map[string]bool)
-	}
-	r.memUserReqsOut[req.SenderID][req.ID] = true
-	r.mu.Unlock()
-
 	inItem := struct {
 		dbItem
 		FriendRequest
@@ -105,7 +88,7 @@ func (r *Repository) SaveFriendRequest(ctx context.Context, req FriendRequest) e
 	}
 
 	if r.db != nil {
-		putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		putCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		_, err = r.db.TransactWriteItems(putCtx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: []types.TransactWriteItem{
@@ -124,9 +107,27 @@ func (r *Repository) SaveFriendRequest(ctx context.Context, req FriendRequest) e
 			},
 		})
 		if err != nil {
-			log.Printf("[FriendsRepo] Remote DynamoDB friend request notice: %v (cached in local memory)", err)
+			return fmt.Errorf("save friend request: %w", err)
 		}
 	}
+
+	r.mu.Lock()
+	if r.memReqs == nil {
+		r.memReqs = make(map[string]FriendRequest)
+		r.memUserReqsIn = make(map[string]map[string]bool)
+		r.memUserReqsOut = make(map[string]map[string]bool)
+	}
+	r.memReqs[req.ID] = req
+	if r.memUserReqsIn[req.RecipientID] == nil {
+		r.memUserReqsIn[req.RecipientID] = make(map[string]bool)
+	}
+	r.memUserReqsIn[req.RecipientID][req.ID] = true
+	if r.memUserReqsOut[req.SenderID] == nil {
+		r.memUserReqsOut[req.SenderID] = make(map[string]bool)
+	}
+	r.memUserReqsOut[req.SenderID][req.ID] = true
+	r.mu.Unlock()
+
 	return nil
 }
 
@@ -268,31 +269,6 @@ func (r *Repository) AcceptFriendRequest(ctx context.Context, req FriendRequest)
 		CreatedAt:    now,
 	}
 
-	r.mu.Lock()
-	if r.memFriends == nil {
-		r.memFriends = make(map[string]map[string]Friend)
-	}
-	if r.memFriends[req.RecipientID] == nil {
-		r.memFriends[req.RecipientID] = make(map[string]Friend)
-	}
-	r.memFriends[req.RecipientID][req.SenderID] = recipientFriendObj
-
-	if r.memFriends[req.SenderID] == nil {
-		r.memFriends[req.SenderID] = make(map[string]Friend)
-	}
-	r.memFriends[req.SenderID][req.RecipientID] = senderFriendObj
-
-	if r.memUserReqsIn != nil && r.memUserReqsIn[req.RecipientID] != nil {
-		delete(r.memUserReqsIn[req.RecipientID], req.ID)
-	}
-	if r.memUserReqsOut != nil && r.memUserReqsOut[req.SenderID] != nil {
-		delete(r.memUserReqsOut[req.SenderID], req.ID)
-	}
-	if r.memReqs != nil {
-		delete(r.memReqs, req.ID)
-	}
-	r.mu.Unlock()
-
 	// DynamoDB transaction
 	recipientFriend := struct {
 		dbItem
@@ -327,7 +303,7 @@ func (r *Repository) AcceptFriendRequest(ctx context.Context, req FriendRequest)
 	}
 
 	if r.db != nil {
-		txCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		txCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		_, err = r.db.TransactWriteItems(txCtx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: []types.TransactWriteItem{
@@ -365,15 +341,24 @@ func (r *Repository) AcceptFriendRequest(ctx context.Context, req FriendRequest)
 			},
 		})
 		if err != nil {
-			log.Printf("[FriendsRepo] Remote DynamoDB accept friend notice: %v (cached in local memory)", err)
+			return fmt.Errorf("accept friend request: %w", err)
 		}
 	}
-	return nil
-}
 
-// RejectFriendRequest removes the incoming and outgoing friend request items.
-func (r *Repository) RejectFriendRequest(ctx context.Context, req FriendRequest) error {
 	r.mu.Lock()
+	if r.memFriends == nil {
+		r.memFriends = make(map[string]map[string]Friend)
+	}
+	if r.memFriends[req.RecipientID] == nil {
+		r.memFriends[req.RecipientID] = make(map[string]Friend)
+	}
+	r.memFriends[req.RecipientID][req.SenderID] = recipientFriendObj
+
+	if r.memFriends[req.SenderID] == nil {
+		r.memFriends[req.SenderID] = make(map[string]Friend)
+	}
+	r.memFriends[req.SenderID][req.RecipientID] = senderFriendObj
+
 	if r.memUserReqsIn != nil && r.memUserReqsIn[req.RecipientID] != nil {
 		delete(r.memUserReqsIn[req.RecipientID], req.ID)
 	}
@@ -385,8 +370,13 @@ func (r *Repository) RejectFriendRequest(ctx context.Context, req FriendRequest)
 	}
 	r.mu.Unlock()
 
+	return nil
+}
+
+// RejectFriendRequest removes the incoming and outgoing friend request items.
+func (r *Repository) RejectFriendRequest(ctx context.Context, req FriendRequest) error {
 	if r.db != nil {
-		txCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		txCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		_, err := r.db.TransactWriteItems(txCtx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: []types.TransactWriteItem{
@@ -412,9 +402,22 @@ func (r *Repository) RejectFriendRequest(ctx context.Context, req FriendRequest)
 			},
 		})
 		if err != nil {
-			log.Printf("[FriendsRepo] Remote DynamoDB reject friend notice: %v", err)
+			return fmt.Errorf("reject friend request: %w", err)
 		}
 	}
+
+	r.mu.Lock()
+	if r.memUserReqsIn != nil && r.memUserReqsIn[req.RecipientID] != nil {
+		delete(r.memUserReqsIn[req.RecipientID], req.ID)
+	}
+	if r.memUserReqsOut != nil && r.memUserReqsOut[req.SenderID] != nil {
+		delete(r.memUserReqsOut[req.SenderID], req.ID)
+	}
+	if r.memReqs != nil {
+		delete(r.memReqs, req.ID)
+	}
+	r.mu.Unlock()
+
 	return nil
 }
 
@@ -461,19 +464,8 @@ func (r *Repository) GetFriends(ctx context.Context, userID string) ([]Friend, e
 
 // DeleteFriend removes mutual friendship between two users.
 func (r *Repository) DeleteFriend(ctx context.Context, userID, friendID string) error {
-	r.mu.Lock()
-	if r.memFriends != nil {
-		if r.memFriends[userID] != nil {
-			delete(r.memFriends[userID], friendID)
-		}
-		if r.memFriends[friendID] != nil {
-			delete(r.memFriends[friendID], userID)
-		}
-	}
-	r.mu.Unlock()
-
 	if r.db != nil {
-		txCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		txCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		_, err := r.db.TransactWriteItems(txCtx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: []types.TransactWriteItem{
@@ -498,9 +490,21 @@ func (r *Repository) DeleteFriend(ctx context.Context, userID, friendID string) 
 			},
 		})
 		if err != nil {
-			log.Printf("[FriendsRepo] Remote DynamoDB delete friend notice: %v", err)
+			return fmt.Errorf("delete friend: %w", err)
 		}
 	}
+
+	r.mu.Lock()
+	if r.memFriends != nil {
+		if r.memFriends[userID] != nil {
+			delete(r.memFriends[userID], friendID)
+		}
+		if r.memFriends[friendID] != nil {
+			delete(r.memFriends[friendID], userID)
+		}
+	}
+	r.mu.Unlock()
+
 	return nil
 }
 

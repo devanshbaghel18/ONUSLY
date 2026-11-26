@@ -522,6 +522,24 @@ func (s *Service) InitiatePairing(ctx context.Context, clientType, platform, dev
 		return nil, errors.New("device repository not configured")
 	}
 
+	cleanClientType := strings.ToLower(strings.TrimSpace(clientType))
+	if cleanClientType == "desktop-agent" {
+		cleanClientType = "desktop_agent"
+	}
+	if !validClientTypes[cleanClientType] {
+		return nil, errors.New("invalid clientType: must be extension, desktop_agent, or android")
+	}
+
+	cleanPlatform := strings.ToLower(strings.TrimSpace(platform))
+	if !validPlatforms[cleanPlatform] {
+		return nil, errors.New("invalid platform: must be android, linux, windows, or macos")
+	}
+
+	cleanDeviceID := strings.TrimSpace(deviceID)
+	if !uuidRegex.MatchString(cleanDeviceID) {
+		return nil, fmt.Errorf("%w: deviceId must be a valid UUID", ErrInvalidUUID)
+	}
+
 	code, err := generatePairingCode()
 	if err != nil {
 		return nil, err
@@ -530,9 +548,9 @@ func (s *Service) InitiatePairing(ctx context.Context, clientType, platform, dev
 	now := time.Now().UTC()
 	session := PairingSession{
 		Code:       code,
-		DeviceID:   deviceID,
-		Platform:   platform,
-		ClientType: clientType,
+		DeviceID:   cleanDeviceID,
+		Platform:   cleanPlatform,
+		ClientType: cleanClientType,
 		Confirmed:  false,
 		CreatedAt:  now.Format(time.RFC3339),
 		ExpiresAt:  now.Add(10 * time.Minute).Unix(),
@@ -563,7 +581,10 @@ func (s *Service) ConfirmPairing(ctx context.Context, code, userID, userEmail, u
 	}
 
 	var token string
-	if devGen, ok := s.tokenGenerator.(DeviceTokenGenerator); ok && session.DeviceID != "" {
+	if strings.TrimSpace(session.DeviceID) == "" {
+		return errors.New("pairing session missing device ID")
+	}
+	if devGen, ok := s.tokenGenerator.(DeviceTokenGenerator); ok {
 		token, err = devGen.GenerateDeviceToken(userID, userEmail, userHandle, userName, session.DeviceID)
 	} else {
 		token, err = s.tokenGenerator.GenerateToken(userID, userEmail, userHandle, userName)

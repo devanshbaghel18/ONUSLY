@@ -800,8 +800,9 @@ try {
             if (-not $extKeyExisted) {
                 New-Item -Path $extKey -Force | Out-Null
             }
+            $firefoxInstallUrl = "$($ApiUrl.TrimEnd('/'))/downloads/onusly-firefox.xpi"
             Set-ItemProperty -Path $extKey -Name "installation_mode" -Value "force_installed" -Type String
-            Set-ItemProperty -Path $extKey -Name "install_url" -Value $UpdateUrl -Type String
+            Set-ItemProperty -Path $extKey -Name "install_url" -Value $firefoxInstallUrl -Type String
             $backupEntries += @{
                 browser = "firefox"
                 keyPath = $extKey

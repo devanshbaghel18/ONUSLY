@@ -31,6 +31,8 @@ type DynamoRepository struct {
 	db         *dynamodb.Client
 	tableName  string
 	mu         sync.RWMutex
+	userLocks  sync.Mutex
+	userMu     map[string]*sync.Mutex
 	memDaily   map[string]map[string]DailyDeviceRecord // userID -> SK -> record
 	memAllTime map[string]AllTimeRecord                // userID -> AllTimeRecord
 	memRules   map[string]WellbeingRulesRecord         // userID -> Rules
@@ -40,10 +42,26 @@ func NewDynamoRepository(db *dynamodb.Client, tableName string) *DynamoRepositor
 	return &DynamoRepository{
 		db:         db,
 		tableName:  tableName,
+		userMu:     make(map[string]*sync.Mutex),
 		memDaily:   make(map[string]map[string]DailyDeviceRecord),
 		memAllTime: make(map[string]AllTimeRecord),
 		memRules:   make(map[string]WellbeingRulesRecord),
 	}
+}
+
+func (r *DynamoRepository) lockUser(userID string) func() {
+	r.userLocks.Lock()
+	if r.userMu == nil {
+		r.userMu = make(map[string]*sync.Mutex)
+	}
+	um, ok := r.userMu[userID]
+	if !ok {
+		um = &sync.Mutex{}
+		r.userMu[userID] = um
+	}
+	r.userLocks.Unlock()
+	um.Lock()
+	return um.Unlock
 }
 
 func FormatDailySK(date, deviceID string) string {
@@ -53,6 +71,9 @@ func FormatDailySK(date, deviceID string) string {
 // UpsertDailyDevice merges incoming cumulative usage monotonically (max per metric)
 // and propagates any positive delta into the user's AllTimeRecord.
 func (r *DynamoRepository) UpsertDailyDevice(ctx context.Context, incoming DailyDeviceRecord) (DailyDeviceRecord, error) {
+	unlock := r.lockUser(incoming.UserID)
+	defer unlock()
+
 	pk := "USER#" + incoming.UserID
 	sk := FormatDailySK(incoming.Date, incoming.DeviceID)
 	incoming.PK = pk
@@ -70,8 +91,6 @@ func (r *DynamoRepository) UpsertDailyDevice(ctx context.Context, incoming Daily
 	}
 
 	merged, deltas := mergeMonotonicDaily(existing, incoming)
-	r.memDaily[incoming.UserID][sk] = merged
-
 	allTime, hasMemAll := r.memAllTime[incoming.UserID]
 	if hasMemAll {
 		allTime = cloneAllTime(allTime)
@@ -87,16 +106,24 @@ func (r *DynamoRepository) UpsertDailyDevice(ctx context.Context, incoming Daily
 		}
 	}
 	updatedAllTime := applyDeltasToAllTime(allTime, incoming.UserID, pk, deltas, incoming.UpdatedAt)
-	r.memAllTime[incoming.UserID] = cloneAllTime(updatedAllTime)
 
 	mergedCopy := cloneDaily(merged)
 	allTimeCopy := cloneAllTime(updatedAllTime)
 	r.mu.Unlock()
 
 	if r.db != nil {
-		r.persistItem(ctx, mergedCopy)
-		r.persistItem(ctx, allTimeCopy)
+		if err := r.persistItem(ctx, mergedCopy); err != nil {
+			return DailyDeviceRecord{}, err
+		}
+		if err := r.persistItem(ctx, allTimeCopy); err != nil {
+			return DailyDeviceRecord{}, err
+		}
 	}
+
+	r.mu.Lock()
+	r.memDaily[incoming.UserID][sk] = mergedCopy
+	r.memAllTime[incoming.UserID] = cloneAllTime(allTimeCopy)
+	r.mu.Unlock()
 
 	return mergedCopy, nil
 }
@@ -263,21 +290,21 @@ func (r *DynamoRepository) fetchAllTimeFromDBIfNotCached(ctx context.Context, us
 	return nil
 }
 
-func (r *DynamoRepository) persistItem(ctx context.Context, v any) {
+func (r *DynamoRepository) persistItem(ctx context.Context, v any) error {
 	item, err := attributevalue.MarshalMap(v)
 	if err != nil {
-		log.Printf("[WellbeingRepo] Marshal error: %v", err)
-		return
+		return fmt.Errorf("marshal wellbeing item: %w", err)
 	}
-	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	putCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	if _, err := r.db.PutItem(putCtx, &dynamodb.PutItemInput{
 		TableName: aws.String(r.tableName),
 		Item:      item,
 	}); err != nil {
-		log.Printf("[WellbeingRepo] Remote PutItem notice: %v (cached in local memory)", err)
+		return fmt.Errorf("persist wellbeing item: %w", err)
 	}
+	return nil
 }
 
 type dailyDeltas struct {
@@ -455,17 +482,8 @@ func cloneAllTime(src AllTimeRecord) AllTimeRecord {
 func (r *DynamoRepository) GetRulesRecord(ctx context.Context, userID string) (*WellbeingRulesRecord, error) {
 	pk := "USER#" + userID
 
-	r.mu.RLock()
-	memRec, hasMem := r.memRules[userID]
-	r.mu.RUnlock()
-
-	if hasMem {
-		cp := cloneRules(memRec)
-		return &cp, nil
-	}
-
 	if r.db != nil {
-		gCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		gCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		out, err := r.db.GetItem(gCtx, &dynamodb.GetItemInput{
 			TableName: aws.String(r.tableName),
 			Key: map[string]types.AttributeValue{
@@ -474,18 +492,30 @@ func (r *DynamoRepository) GetRulesRecord(ctx context.Context, userID string) (*
 			},
 		})
 		cancel()
-		if err == nil && out.Item != nil {
+		if err != nil {
+			return nil, fmt.Errorf("get wellbeing rules: %w", err)
+		}
+		if out.Item != nil {
 			var rec WellbeingRulesRecord
-			if uErr := attributevalue.UnmarshalMap(out.Item, &rec); uErr == nil {
-				if rec.Limits == nil {
-					rec.Limits = make(map[string]TimeLimitRule)
-				}
-				r.mu.Lock()
-				r.memRules[userID] = rec
-				r.mu.Unlock()
-				cp := cloneRules(rec)
-				return &cp, nil
+			if uErr := attributevalue.UnmarshalMap(out.Item, &rec); uErr != nil {
+				return nil, fmt.Errorf("unmarshal wellbeing rules: %w", uErr)
 			}
+			if rec.Limits == nil {
+				rec.Limits = make(map[string]TimeLimitRule)
+			}
+			r.mu.Lock()
+			r.memRules[userID] = rec
+			r.mu.Unlock()
+			cp := cloneRules(rec)
+			return &cp, nil
+		}
+	} else {
+		r.mu.RLock()
+		memRec, hasMem := r.memRules[userID]
+		r.mu.RUnlock()
+		if hasMem {
+			cp := cloneRules(memRec)
+			return &cp, nil
 		}
 	}
 
@@ -510,13 +540,16 @@ func (r *DynamoRepository) SaveRulesRecord(ctx context.Context, record Wellbeing
 		record.Limits = make(map[string]TimeLimitRule)
 	}
 
+	if r.db != nil {
+		if err := r.persistItem(ctx, record); err != nil {
+			return err
+		}
+	}
+
 	r.mu.Lock()
 	r.memRules[record.UserID] = cloneRules(record)
 	r.mu.Unlock()
 
-	if r.db != nil {
-		r.persistItem(ctx, record)
-	}
 	return nil
 }
 

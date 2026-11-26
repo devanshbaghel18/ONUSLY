@@ -12,8 +12,6 @@ import {
   CheckCircle2,
   Pin,
   RotateCcw,
-  Clock,
-  Sparkles,
   Activity,
 } from "lucide-react";
 import { getUser } from "../lib/auth";

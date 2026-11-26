@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -155,18 +156,17 @@ func (r *Repository) CreateWithGoalTransition(
 		},
 	}
 
-	r.mu.Lock()
-	if r.memProofs == nil {
-		r.memProofs = make(map[string]Proof)
-	}
-	r.memProofs[p.OwnerID+"#"+p.GoalID+"#"+p.ID] = p
-	r.mu.Unlock()
-
 	if r.db == nil {
+		r.mu.Lock()
+		if r.memProofs == nil {
+			r.memProofs = make(map[string]Proof)
+		}
+		r.memProofs[p.OwnerID+"#"+p.GoalID+"#"+p.ID] = p
+		r.mu.Unlock()
 		return nil
 	}
 
-	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	putCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	_, err = r.db.TransactWriteItems(putCtx, &dynamodb.TransactWriteItemsInput{
@@ -176,9 +176,15 @@ func (r *Repository) CreateWithGoalTransition(
 		if isConditionCheckFailed(err) {
 			return ErrProofAlreadySubmitted
 		}
-		log.Printf("[ProofRepo] Remote database transact notice: %v (cached in local memory)", err)
-		return nil
+		return fmt.Errorf("submit proof transaction: %w", err)
 	}
+
+	r.mu.Lock()
+	if r.memProofs == nil {
+		r.memProofs = make(map[string]Proof)
+	}
+	r.memProofs[p.OwnerID+"#"+p.GoalID+"#"+p.ID] = p
+	r.mu.Unlock()
 
 	return nil
 }
@@ -271,6 +277,15 @@ func (r *Repository) GetByID(ctx context.Context, ownerID, goalID, proofID strin
 	return &p, nil
 }
 
+func sortProofsDescending(proofs []Proof) {
+	sort.SliceStable(proofs, func(i, j int) bool {
+		if proofs[i].SubmittedAt != proofs[j].SubmittedAt {
+			return proofs[i].SubmittedAt > proofs[j].SubmittedAt
+		}
+		return proofs[i].ID > proofs[j].ID
+	})
+}
+
 func (r *Repository) ListByGoal(ctx context.Context, ownerID, goalID string) ([]Proof, error) {
 	if r.db == nil {
 		r.mu.RLock()
@@ -282,13 +297,14 @@ func (r *Repository) ListByGoal(ctx context.Context, ownerID, goalID string) ([]
 				proofs = append(proofs, p)
 			}
 		}
+		sortProofsDescending(proofs)
 		return proofs, nil
 	}
 
 	pk := "USER#" + ownerID
 	skPrefix := "PROOF#" + goalID + "#"
 
-	queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	queryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	out, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
@@ -300,16 +316,7 @@ func (r *Repository) ListByGoal(ctx context.Context, ownerID, goalID string) ([]
 		},
 	})
 	if err != nil {
-		r.mu.RLock()
-		defer r.mu.RUnlock()
-		var proofs []Proof
-		prefix := ownerID + "#" + goalID + "#"
-		for k, p := range r.memProofs {
-			if strings.HasPrefix(k, prefix) {
-				proofs = append(proofs, p)
-			}
-		}
-		return proofs, nil
+		return nil, fmt.Errorf("list proofs: %w", err)
 	}
 
 	var proofs []Proof
@@ -317,5 +324,6 @@ func (r *Repository) ListByGoal(ctx context.Context, ownerID, goalID string) ([]
 		return nil, fmt.Errorf("unmarshal proofs: %w", err)
 	}
 
+	sortProofsDescending(proofs)
 	return proofs, nil
 }

@@ -1,0 +1,467 @@
+ONUSLY Codebase & Deployment Issue Report
+Generated from branch: main (commit 80cb6b19f7de574ae73a4dd6555428ee5c17a50f)
+
+================================================================================
+VERIFICATION BASELINE OBSERVED
+================================================================================
+- Go test suite (`go test ./...`): FAILED in `internal/goals`:
+    `TestTargetMutationSecurity_TargetLocking` (`internal/goals/security_test.go:146`):
+    expected 409 Conflict when deleting active locked goal, got 204.
+- Frontend lint (`cd frontend && npm run lint`): FAILED with 10 ESLint errors across
+    `ConnectExtension.jsx`, `CreateGoalModal.jsx`, `auth.js`, `Communities.jsx`,
+    `Dashboard.jsx`, and `DigitalWellbeing.jsx`.
+- Frontend build (`cd frontend && npm run build`): Succeeded (`vite v8.3.8`), though
+    it modifies tracked extension zip/crx artifacts in `frontend/public/downloads/`.
+- JS unit tests (`node --test frontend/tests/*.test.js extension/tests/*.test.js`):
+    139/139 passed (27 suites).
+
+================================================================================
+CRITICAL ISSUES
+================================================================================
+
+[CRIT-01] Active locked goals can be deleted (bypassing 409 goal_locked + failing security test)
+- Files: `internal/goals/service.go:352-376`, `internal/goals/repository.go:446-490`,
+         `internal/goals/security_test.go:137-157`
+- Symbols: `(*Service).Delete`, `(*Repository).Delete`, `TestTargetMutationSecurity_TargetLocking`
+- Details:
+  1. `Service.Delete` only checks `goal.Status == "proof_submitted"` (`ErrGoalInReview`) and does
+     not check whether an active/rejected goal has locked `BlockedApps`/`BlockedDomains`.
+  2. `Repository.Delete` deletes the goal from `r.memGoals` and `local_goals_fallback.json` BEFORE
+     executing DynamoDB `DeleteItem`, uses an 800ms timeout, includes `attribute_not_exists(PK) OR ...`
+     in `ConditionExpression`, and swallows non-conditional DynamoDB errors (`return nil` at line 486).
+  3. If `PutItem` timed out during `Create` (falling back to `memGoals`) or `DeleteItem` times out,
+     deleting an active locked goal returns HTTP 204 instead of 409 `goal_locked`.
+     Reproduced directly by `go test ./...` (`security_test.go:146`).
+
+[CRIT-02] Any user can view and unilaterally approve/reject any "community" goal
+- Files: `internal/goals/models.go:73-79`, `internal/goals/service.go:193-195`,
+         `internal/approval/service.go:127-132`, `internal/proof/service.go:351,382`,
+         `internal/enforcement/service.go:447`
+- Symbols: `(*Goal).IsApprover`, `(*Goal).CanAccess`, `(*Service).CreateWithInput`, `(*Service).Decide`
+- Details:
+  `Goal.IsApprover` returns `true` unconditionally whenever `g.ApproverID == "COMMUNITY" ||
+  g.ApprovalType == "community"`. Any authenticated user (other than the owner) can view private
+  proofs (`GET /goals/{id}`, `GET /goals/{id}/proofs`, `GET /goals/{id}/submissions`) and
+  approve/reject/unlock any community goal (`POST /goals/{id}/proofs/{proofId}/approval`).
+  Also violates `AGENTS.md` ("single approver per goal", no community/quorum mode).
+
+[CRIT-03] Approver impersonation via mutable/recycled @handle and "partner-" ID matching
+- Files: `internal/goals/models.go:80-100`, `internal/goals/service.go:146-180,200-234`,
+         `internal/auth/service.go:230-284`, `internal/auth/repository.go:323-414`
+- Symbols: `(*Goal).IsApprover`, `(*Service).CreateWithInput`, `(*Service).UpdateUserHandle`,
+           `(*DynamoRepository).UpdateUserHandle`
+- Details:
+  1. `IsApprover` grants approval authority if `callerHandle` matches `g.ApproverID` (with
+     `"partner-"` stripped) or `g.ApproverEmail`.
+  2. `UpdateUserHandle` (`auth/repository.go:383-397`) deletes the old `HANDLE#<old>` reservation
+     when a user changes handles. A third party can claim the freed handle via `PATCH /users/handle`,
+     re-login to mint a JWT with that handle claim, and approve/reject all goals referencing it.
+  3. `UpdateUserHandle` (`auth/repository.go:335-344,405-410`) mutates `r.memHandles` / `r.memUsers`
+     before `TransactWriteItems` and does not roll back on `ConditionalCheckFailed`.
+
+[CRIT-04] Server crash (panic: send on closed channel) in WebSocket Hub
+- Files: `internal/realtime/hub.go:212-253,772-800,1359-1394`
+- Symbols: `(*Hub).Unregister`, `(*Hub).HandleClientMessage` (`"chat.message"`, `"community.message"`)
+- Details:
+  `Unregister` closes `c.send` under `h.mu.Lock()`. Both `"chat.message"` (lines 772-800) and
+  `"community.message"` (lines 1359-1394) collect target `*Client` pointers under `h.mu.RLock()`,
+  call `h.mu.RUnlock()`, and then send on `target.send <- data` outside the lock without `recover()`.
+  Concurrent disconnect between `RUnlock()` and send panics the server process.
+
+[CRIT-05] Backend /enforcement/desktop/* routes operate on the EC2 server host instead of the user's PC
+- Files: `internal/enforcement/handler.go:294-526`, `cmd/server/main.go:383-387`,
+         `frontend/src/lib/api.js:474-499`, `frontend/src/components/DeviceCoverageSection.jsx:133,185,214,246`
+- Symbols: `GetDesktopStatus`, `ToggleDesktopDNS`, `SyncDesktop`, `AutoPairDesktop`, `ReconnectDesktop`
+- Details:
+  These HTTP handlers query local named pipes / Unix sockets (`queryLocalAgent`), spawn `netsh`
+  (`handler.go:319`), read `C:\ProgramData\Onusly\config\dns_backup.json` (`handler.go:325`), and
+  start `onusly-agent` on the API server host itself. When deployed on Linux EC2, every dashboard
+  poll/action hits the EC2 host instead of the user's workstation.
+
+[CRIT-06] POST /goals and PATCH /goals/{id} silently drop `applicationTargets`
+- Files: `internal/goals/handler.go:23-30,196-203`, `frontend/src/lib/api.js:153,167`,
+         `android/app/src/main/java/com/onusly/app/data/model/GoalParser.kt:126-135,159-167`
+- Symbols: `createGoalRequest`, `(*Handler).Create`, `(*Handler).Update`
+- Details:
+  Neither `createGoalRequest` nor the anonymous `Update` request struct declares an
+  `ApplicationTargets` (`json:"applicationTargets"`) field. Explicitly typed `"desktop_app"` /
+  `"android_package"` targets sent by Frontend and Android are silently dropped during JSON decode.
+
+[CRIT-07] Windows & Linux desktop agents send unrecognized heartbeat issue codes (HTTP 400)
+- Files: `desktop/agent/cmd/runner_linux.go:294,299`, `desktop/agent/cmd/runner_windows.go:331,336`,
+         `internal/enforcement/models.go:71-77`
+- Symbols: `validIssues`, heartbeat ticker loops in `runner_linux.go` / `runner_windows.go`
+- Details:
+  Agents report `"dns_resolver_offline"` and `"app_enforcement_failed"`, neither of which is in
+  backend `validIssues` (`accessibility_disabled`, `policy_missing`, `incognito_allowed`,
+  `dns_drift`, `service_degraded`), causing `POST /enforcement/heartbeat` to fail with HTTP 400.
+
+[CRIT-08] GUI `onusly-installer` never completes pairing and mismatches named pipe targets
+- Files: `desktop/installer/cmd/installer/main.go:28-29,200-239,267-272,349-374`,
+         `desktop/agent/internal/ipc/server_windows.go:20`, `desktop/agent/cmd/paths_windows.go:32-34`
+- Symbols: `main`, `DefaultWindowsNamedPipe`
+- Details:
+  1. `installer/main.go:349-374` calls `queryIPC("pair-request")`, opens the dashboard URL, and exits
+     without ever calling `pair-poll`; the agent never fetches or stores its device JWT.
+  2. `installer/main.go` passes `-socket \\.\pipe\OnuslyDesktopPipe` whereas `server_windows.go:20`
+     defaults to `\\.\pipe\OnuslyAgentIPC` (used by `install.ps1` / `service_windows.go`).
+  3. `installer/main.go:201-204` registers HKCU native messaging only for Chrome/Edge (omitting
+     Brave/Chromium/Firefox) and installs a HKCU Run VBScript instead of the Windows Service.
+
+[CRIT-09] Android in-chat Approve/Reject passes chat `msg.id` as `proofId`
+- Files: `android/app/src/main/java/com/onusly/app/ui/ChatFragment.kt:567-625`,
+         `internal/approval/service.go:146-157`, `internal/chat/handler.go:333`
+- Symbols: `handleApproveProof`, `handleRejectProof`, `(*Service).Decide`
+- Details:
+  `ChatFragment.kt` uses `msg.id` (e.g. `msg-<uuid>` or `msg-<unixNano>`) directly as `proofId`
+  in `decideApproval(...)` instead of fetching the goal's actual `proofId`. `POST
+  /goals/{id}/proofs/{proofId}/approval` rejects it with 404/400 because no `PROOF#<goalId>#<proofId>`
+  item exists for that message ID.
+
+================================================================================
+HIGH ISSUES
+================================================================================
+
+[HIGH-01] Stored XSS on API origin and unauthenticated public exposure of `/uploads`
+- Files: `cmd/server/main.go:294-308,644-750`, `internal/middleware/security_headers.go:18-20`,
+         `internal/proof/service.go:57-111,215-250`
+- Symbols: `main` (`/uploads/`, `POST /uploads`), `SecurityHeaders`, `(*Service).SubmitWithFiles`
+- Details:
+  1. `POST /uploads` accepts arbitrary file extensions (including `.html`, `.htm`, `.svg`, `.js`)
+     with no extension/MIME allowlist or content verification. `GET /uploads/` serves them on the
+     API origin with CSP `default-src 'self'`, allowing uploaded HTML/JS to execute on the API
+     origin with credentials (`HttpOnly` cookie).
+  2. `GET /uploads/` has no JWT auth or ownership/approver check and sets `Access-Control-Allow-Origin: *`.
+  3. `SubmitWithFiles` (`proof/service.go:237-250`) skips MIME/size validation on `files[].dataUrl`
+     before `saveBase64ToFile`.
+
+[HIGH-02] Unhandled `ReferenceError: API_BASE_URL is not defined` in `ConnectExtension.jsx`
+- Files: `frontend/src/components/ConnectExtension.jsx:17,275-293`
+- Symbols: `sendViaBridge`, `handleConnect`
+- Details:
+  Line 17 imports `{ getBlocklist, resolveApiOrigin }` without `API_BASE_URL`, while line 280 passes
+  `baseUrl: API_BASE_URL` in `window.postMessage(...)`. Calling `sendViaBridge()` immediately throws
+  `ReferenceError` and fails extension bridge pairing (`Promise.all` rejects). Also reported by ESLint.
+
+[HIGH-03] Frontend ESLint suite currently fails with 10 errors
+- Files:
+  - `frontend/src/components/ConnectExtension.jsx:280:22` (`no-undef`: `API_BASE_URL`), `362:19` (`no-empty`)
+  - `frontend/src/components/CreateGoalModal.jsx:26:5` (`react-hooks/set-state-in-effect`)
+  - `frontend/src/lib/auth.js:92:11` (`no-unused-vars`: `envBase`)
+  - `frontend/src/pages/Communities.jsx:313:9` (`react-hooks/immutability`: `setShowAddFriendModal`
+    accessed at line 313 before `useState` declaration at line 1300)
+  - `frontend/src/pages/Dashboard.jsx:15:3,16:3` (`no-unused-vars`: `Clock`, `Sparkles`)
+  - `frontend/src/pages/DigitalWellbeing.jsx:112:5` (`react-hooks/set-state-in-effect`),
+    `229:21` & `239:21` (`react-hooks/purity`: `Date.now()`)
+
+[HIGH-04] `revokeAllSessions()` fails silently due to missing Bearer header and `SameSite=Lax`
+- Files: `frontend/src/lib/api.js:122-132`, `internal/auth/handler.go:56-64,93-101`
+- Symbols: `revokeAllSessions`, `GoogleLogin`, `GoogleCallback`
+- Details:
+  `revokeAllSessions()` sends `POST /auth/revoke-all` with `credentials: "include"` and no
+  `Authorization: Bearer <token>` header, swallowing errors in `catch {}`. When frontend and API
+  are on different sites (`onusly.app` vs `api.onusly.com`), `SameSite=Lax` cookies are withheld on
+  cross-site `POST`, causing `/auth/revoke-all` to fail with `401` without revoking sessions.
+
+[HIGH-05] Wrong/arbitrary proof selected when approving/rejecting in `GoalDetail` and `Communities`
+- Files: `frontend/src/pages/GoalDetail.jsx:968`, `frontend/src/pages/Communities.jsx:945-975`,
+         `internal/proof/models.go:3-16`, `internal/proof/repository.go:274-321`
+- Symbols: `Proof`, `(*Repository).ListByGoal`, `handleApproveChatProof`
+- Details:
+  Frontend selects `proofs.find((p) => p.status === "pending" || p.status === "proof_submitted") || proofs[0]?.id`.
+  `Proof` has no `status` field, and `ListByGoal` returns proofs ordered by UUID v4 sort key rather
+  than timestamp, so `proofs[0]` can pick an older rejected proof instead of the latest submission.
+  In `Communities.jsx:947-975`, `.catch()` swallows approval API failures and still marks the card
+  approved in UI/localStorage and broadcasts `chat.message.approved`.
+
+[HIGH-06] OAuth Login CSRF and JWT leakage in redirect URL (`GET /auth/google/callback`)
+- Files: `internal/auth/handler.go:69-105`, `internal/auth/service.go:41-69`,
+         `frontend/src/pages/Auth.jsx:33-38`
+- Symbols: `(*Handler).GoogleCallback`, `(*Service).HandleCallback`
+- Details:
+  1. `GoogleCallback` does not generate or verify an OAuth `state` parameter (Login CSRF).
+  2. Redirects to `frontendURL + "/?token=" + token`, exposing the 7-day JWT in browser history,
+     access logs, and `Referer` headers.
+
+[HIGH-07] `RevokeAllSessions` bypass via DynamoDB fallback/cache overwrite & device tokens
+- Files: `internal/auth/service.go:167-199`, `internal/auth/repository.go:103-112,254-308,418-482`,
+         `internal/middleware/auth.go:132-138,153-157`, `internal/realtime/handler.go:134-141,200-209`
+- Symbols: `(*Service).GoogleLogin`, `(*DynamoRepository).GetUserByEmail`,
+           `(*DynamoRepository).IncrementTokenVersion`, `(*DynamoRepository).GetTokenVersion`,
+           `Auth`, `ValidateToken`, `checkUserTokenNotRevoked`
+- Details:
+  1. Transient DynamoDB error in `GetUserByEmail` returns `nil, nil`; `GoogleLogin` treats user as
+     new and resets `memUsers[user.ID].TokenVersion = 1`.
+  2. Cold-cache `IncrementTokenVersion` writes `User{ID: userID, TokenVersion: 2}` into `memUsers`
+     and `GetTokenVersion` reads only from `memUsers` without querying DynamoDB.
+  3. Non-`"user"` token types skip `TokenVersion` checks in `middleware.Auth` and
+     `checkUserTokenNotRevoked`; `ValidateToken` does not restrict `token_type` to `{"user", "device"}`.
+  4. `middleware.Auth` (`auth.go:155-156`) accepts spoofable `X-Device-ID` header if `device_id` claim
+     is absent on a `"device"` token.
+
+[HIGH-08] DynamoDB write errors swallowed & non-atomic double-writes corrupt goal/proof/approval state
+- Files: `internal/proof/repository.go:175-181`, `internal/proof/service.go:283-291`,
+         `internal/approval/repository.go:165-171`, `internal/approval/service.go:184-192`,
+         `internal/goals/repository.go:104-113,281-294,637-682,716-759,796-849`
+- Symbols: `(*Repository).CreateWithGoalTransition`, `(*Repository).CreateDecision`, `(*Service).Decide`,
+           `(*Repository).List`, `(*Repository).Update`, `(*Repository).UpdateStatus`
+- Details:
+  1. `proof.Repository.CreateWithGoalTransition` and `approval.Repository.CreateDecision` log and
+     return `nil` on non-conditional DynamoDB errors (e.g., timeouts/throttling), causing `Decide`
+     to emit `goal.unlocked` and return success even when the approval was never persisted.
+  2. Both services issue a second unconditional `goalService.UpdateStatus` after the transaction.
+  3. `goals.Repository.List` merges `local_goals_fallback.json` into DynamoDB results, potentially
+     resurrecting deleted goals; `goals.Repository.Update` does not clear `GSI2PK`/`GSI2SK` when
+     changing `ApprovalType` from `"friend"` to `"none"`.
+
+[HIGH-09] Unauthorized community chat access, global WebSocket broadcast leak, and `OwnerID` spoofing
+- Files: `internal/chat/handler.go:113-125,336-412`, `internal/chat/repository.go:419-466,528-537`
+- Symbols: `(*Handler).GetHistory`, `(*Handler).SendMessage`, `(*Repository).ClearConversation`,
+           `(*Repository).DeleteMessage`
+- Details:
+  1. `GET /chat/messages?peer=comm-...` and `POST /chat/messages` do not verify community membership.
+  2. `POST /chat/messages` (`handler.go:384-393`) calls BOTH `SendToCommunity` and `bc.Broadcast(evt)`,
+     broadcasting every community message to ALL connected WebSocket users globally.
+  3. `SendMessage` trusts non-empty `req.OwnerID` from the request body, and `DeleteMessage` allows
+     `foundItem.OwnerID == callerID` to delete the message.
+  4. `ClearConversation` deletes both `user#peer` and `peer#user` from `r.memMessages`, wiping the
+     peer's in-memory history.
+
+[HIGH-10] WebSocket community hijacking and arbitrary `chat.message` ID overwrite
+- Files: `internal/realtime/hub.go:738-741,978-1071`, `internal/chat/repository.go:135`
+- Symbols: `(*Hub).HandleClientMessage` (`"community.register"`, `"chat.message"`)
+- Details:
+  1. `"community.register"` lets any authenticated user claim `CreatorID` of an unregistered
+     `community.id` and unconditionally overwrites `h.commByCode[cleanCode]`.
+  2. `"chat.message"` trusts client-supplied `req.ID`, allowing overwriting existing `memAllMessages[msg.ID]`.
+
+[HIGH-11] Hardcoded `localhost` / `127.0.0.1` CORS & WebSocket origins allowed in production
+- Files: `cmd/server/main.go:150-158,178`, `internal/realtime/handler.go:42-55`,
+         `internal/config/config.go:143-147`
+- Symbols: `isAllowedOrigin`, `cors`, `isAllowedWebSocketOrigin`
+- Details:
+  Despite `config.Validate()` rejecting localhost in `ALLOWED_ORIGINS` in production, both
+  `isAllowedOrigin` and `isAllowedWebSocketOrigin` unconditionally allow `http://localhost:*` and
+  `http://127.0.0.1:*` (ports 3000, 5173, 8080, plus 8081 for WS) with `Access-Control-Allow-Credentials: true`
+  and omit `Vary: Origin`.
+
+[HIGH-12] Pairing endpoint issues `"user"` JWT when `DeviceID` is empty & lacks input validation
+- Files: `internal/enforcement/handler.go:213-234`, `internal/enforcement/service.go:520-602`,
+         `internal/auth/service.go:348-366`, `internal/enforcement/repository.go:235-302,418-421`
+- Symbols: `(*Handler).RequestPairing`, `(*Service).InitiatePairing`, `(*Service).GenerateDeviceToken`,
+           `(*DynamoRepository).RevokeDevice`, `(*DynamoRepository).ConfirmPairingSession`
+- Details:
+  1. If `session.DeviceID == ""`, `GenerateDeviceToken` downgrades `tokenType` to `"user"`, issuing
+     a 30-day user-type JWT instead of a device-scoped JWT.
+  2. `ConfirmPairingSession` and `RevokeDevice` swallow non-conditional DynamoDB errors and return `nil`.
+
+[HIGH-13] Idempotency middleware key collisions across endpoints & CORS header cache poisoning
+- Files: `internal/middleware/idempotency.go:190-195,224-226,262-265`
+- Symbols: `Idempotency`
+- Details:
+  1. Authenticated idempotency scope (`"user:" + userID`) omits HTTP method and path; reusing an
+     `Idempotency-Key` across two endpoints (e.g., empty-body POSTs) replays the wrong response.
+  2. Replays cached `Access-Control-Allow-Origin` headers across different request origins.
+
+[HIGH-14] Race condition, lost updates & global lock contention in Digital Wellbeing service/repo
+- Files: `internal/wellbeing/repository.go:55-102,455-521`, `internal/wellbeing/service.go:229-272,690-700`
+- Symbols: `(*DynamoRepository).UpsertDailyDevice`, `(*DynamoRepository).GetRulesRecord`,
+           `(*Service).Ingest`, `(*Service).getRulesInternal`
+- Details:
+  1. `UpsertDailyDevice` reads DynamoDB and calls `persistItem` outside `r.mu.Lock()`, risking lost
+     increments on concurrent ingestion or out-of-order writes.
+  2. `GetRulesRecord` serves indefinitely from `r.memRules` without checking DynamoDB; `persistItem`
+     and `SaveRulesRecord` swallow DynamoDB errors.
+  3. `Service.rulesMu` is a single global mutex across all users held during synchronous DynamoDB calls.
+
+[HIGH-15] Extension `onMessage` + `http://localhost/*` bridge allows any local port to hijack auth/sync
+- Files: `extension/background.js:599-624`, `extension/manifest.json:102-115`
+- Symbols: `chrome.runtime.onMessage` listener, `dashboardBridge.js` content script
+- Details:
+  `manifest.json` injects `dashboardBridge.js` on `"http://localhost/*"` and `"http://127.0.0.1/*"`
+  (all ports), and `chrome.runtime.onMessage` handles `ONUSLY_AUTH_HANDOFF`, `ONUSLY_DISCONNECT`,
+  `ONUSLY_SYNC`, and `ONUSLY_PING` without calling `isAuthorizedOrigin(sender)`.
+
+[HIGH-16] Expired JWT session blocks subsequent user's blocklist cache in extension storage
+- Files: `extension/background.js:338-343`, `extension/src/storage.js:85-96,147-162`
+- Symbols: `processAuthHandoff`, `getSession`, `saveBlocklistCache`
+- Details:
+  When User A's JWT expires, `storage.getSession()` returns `null`. `processAuthHandoff` only clears
+  storage `if (currentSession && currentSession.userId !== userId)`, leaving User A's cache intact.
+  When User B logs in, `saveBlocklistCache` rejects saving because `existing.userId !== userB`.
+
+[HIGH-17] Extension `pairDesktopAgent()` sets managed mode on unconfirmed `pair-request`
+- Files: `extension/background.js:505-548`, `desktop/core/models.go:118-121`,
+         `desktop/agent/internal/ipc/server.go:237-294`
+- Symbols: `pairDesktopAgent`, `IPCRequest`
+- Details:
+  `IPCRequest` ignores `extensionId`/`userId`/`token`, and `pair-request` only returns a 6-char
+  code without pairing the agent. `pairDesktopAgent()` treats `response.success === true` as paired
+  and enables `storage.setManagedMode(true)`.
+
+[HIGH-18] Native messaging host permits privileged DNS & pairing mutations contrary to policy comment
+- Files: `desktop/native-host/main.go:25-35`
+- Symbols: `handleNativeFrame`
+- Details:
+  Allows `"dns-enable"`, `"dns-restore"`, and `"pair-request"` from browser native messaging despite
+  comment asserting read-only queries only.
+
+[HIGH-19] Windows Service runs as `LocalService` without `SeDebugPrivilege` while terminating user apps
+- Files: `desktop/core/windows/service_manager.go:90,124,145`, `desktop/installer/windows/install.ps1:611-619`,
+         `desktop/agent/internal/apps/enforcer_windows.go:57-89`
+- Symbols: `WindowsServiceManager`, `(*WindowsAppEnforcer).Enforce`
+- Details:
+  `OnuslyDesktopAgent` runs under `NT AUTHORITY\LocalService` (without `SeDebugPrivilege`), so
+  `OpenProcess(PROCESS_TERMINATE)` against interactive user desktop processes fails with `ERROR_ACCESS_DENIED`.
+
+[HIGH-20] Android release build uses debug signing, disables minification, and defaults to emulator URL
+- Files: `android/app/build.gradle.kts:52-59`,
+         `android/app/src/main/java/com/onusly/app/data/SyncRepository.kt:24`,
+         `android/app/src/main/java/com/onusly/app/data/api/OnuslyApiClient.kt:85`
+- Symbols: `buildTypes.release`, `DEFAULT_BASE_URL`, `defaultBaseUrl`
+- Details:
+  Release APK is signed with debug keystore, has `isMinifyEnabled = false`, and defaults API URL
+  to `"http://10.0.2.2:8080"` on physical devices.
+
+[HIGH-21] `deploy/setup_ec2.sh` Let's Encrypt single-domain cert mismatch & skipped extension rebuilds
+- Files: `deploy/setup_ec2.sh:295,307-320,496-507,559-566`, `deploy/nginx/onusly.conf:135-142`
+- Details:
+  1. With `CERT_MODE=letsencrypt`, `certbot` issues a cert only for `PUBLIC_DOMAIN` (default
+     `api.onusly.com`, or `onusly.duckdns.org` on the current EC2 host), while `setup_ec2.sh:560-563`
+     substitutes that cert path into all Nginx `server` blocks (including `onusly.com`/`onusly.app`).
+  2. `setup_ec2.sh:496-499` skips `npm run build` (`package-extension.py`) whenever
+     `onusly-extension.zip` and `updates.xml` already exist in `frontend/public/downloads/`,
+     shipping stale extension archives after `extension/` changes.
+
+[HIGH-22] `deploy/setup_mumbai.sh` produces a broken Nginx/production deployment
+- Files: `deploy/setup_mumbai.sh:19-39`, `internal/config/config.go:125-154`,
+         `deploy/aws/ec2_dynamodb_policy.json:19-34`
+- Details:
+  Omits `ENV=production`, `HOST=127.0.0.1`, `ALLOWED_ORIGINS`, `FRONTEND_URL`, `GOOGLE_REDIRECT_URL`;
+  runs `nginx -t` without TLS cert/key files; targets `ap-south-1` while IAM policy locks to
+  `eu-north-1`; and never builds `frontend/dist`.
+
+================================================================================
+MEDIUM ISSUES
+================================================================================
+
+[MED-01] Unprotected `/metrics` endpoint when `ONUSLY_METRICS_TOKEN` is unset
+- Files: `internal/metrics/metrics.go:683-709`, `cmd/server/main.go:271`
+- Symbols: `isAuthorizedMetricsRequest`
+- Details: Returns `true` for all remote IPs when `ONUSLY_METRICS_TOKEN` is empty, and `config.Validate()`
+  does not require it in production. (Mitigated externally only if Nginx blocks `/metrics`.)
+
+[MED-02] Rate limiter trivially bypassed via spoofed `X-Forwarded-For` header
+- Files: `internal/middleware/ratelimit.go:54-72`
+- Symbols: `(*RateLimiter).getClientIP`
+- Details: Trusts `X-Forwarded-For` unconditionally without checking trusted proxy IP, bypassing
+  `authLimiter` and `pairingLimiter`.
+
+[MED-03] `approval.Decide` sets `"rejected"` goal status (`AGENTS.md` violation) & broken `GetSubmissions` stats
+- Files: `internal/approval/service.go:179-182,545-570`, `internal/goals/repository.go:328-329`,
+         `internal/proof/service.go:262`
+- Symbols: `(*Service).Decide`, `(*Service).GetSubmissions`
+- Details:
+  1. `Decide` sets goal status to `"rejected"` instead of `"active"`, conflicting with `AGENTS.md`.
+  2. `GetSubmissions` computes `TotalRejected = len(auditLog) - completedCount` (subtracting global
+     completed goals from a single goal's audit log) and computes `CurrentStreak` over unsorted map order.
+
+[MED-04] Friends repository swallows DynamoDB errors & non-atomic `SendRequest`
+- Files: `internal/friends/repository.go:126-129,367-370,414-416,500-503`, `internal/friends/service.go:56-98`
+- Symbols: `SaveFriendRequest`, `AcceptFriendRequest`, `RejectFriendRequest`, `SendRequest`
+- Details: Mutates in-memory state before `TransactWriteItems` and swallows `ConditionalCheckFailed` /
+  DB errors; `SendRequest` does not prevent concurrent duplicate or reciprocal requests.
+
+[MED-05] Notifications: `MarkAllAsRead` capped at 100, tight 250ms retry loop, unreachable targets
+- Files: `internal/notifications/repository.go:161-174`, `internal/notifications/worker.go:142-170`,
+         `internal/notifications/service.go:32-36`
+- Symbols: `MarkAllAsRead`, `processProofMessage`, `processApprovalMessage`, `CreateFromProofSubmitted`
+- Details: `MarkAllAsRead` only fetches 100 items and ignores errors; `Worker` retries failed
+  messages in `MemoryQueue` every 250ms without backoff; `CreateFromProofSubmitted` writes
+  notifications for `"COMMUNITY"` / `"partner-*"` IDs that have no user.
+
+[MED-06] Duplicate chat messages when sending attachments in `Communities.jsx`
+- Files: `frontend/src/pages/Communities.jsx:811-843,855-889`, `internal/realtime/hub.go:738-741`,
+         `internal/chat/handler.go:333`
+- Symbols: `handleSendAttachment`, `SendMessage`
+- Details: Attachment sends emit both a WebSocket event and a separate `POST /chat/messages` call
+  with different generated IDs and mismatched attachment fields, producing duplicates on history sync.
+
+[MED-07] Broken Windows download links & hardcoded developer paths in `.bat` files
+- Files: `frontend/src/components/DeviceCoverageSection.jsx:384-402`,
+         `frontend/public/downloads/ONUSLY_Setup_Edge.bat:14,21`,
+         `frontend/public/downloads/onusly-shield-toggle.bat:46,107`
+- Details: Links `/downloads/OnuslySetup.exe` and `/downloads/ONUSLY_Shield_Toggle.exe` do not exist
+  in `frontend/public/downloads/`; `.bat` scripts reference `C:\onusly\ONUSLY\...` and `localhost:5173`.
+
+[MED-08] `uploadProofFiles()` omits `credentials: "include"` and `401` handling
+- Files: `frontend/src/lib/api.js:205-227`, `frontend/src/components/approvals/SubmitProofModal.jsx:196-214`
+- Symbols: `uploadProofFiles`
+- Details: Omits `credentials: "include"` and `401` handling; `SubmitProofModal` silently falls back
+  to inline `data:` URLs on upload failure.
+
+[MED-09] `onusly.crx` built with `0600` permissions & `updates.xml` hardcoded to `api.onusly.com`
+- Files: `scripts/package-extension.py:113-133`, `frontend/public/downloads/onusly.crx`,
+         `frontend/public/downloads/updates.xml:4`
+- Details: `shutil.move` from `TemporaryDirectory()` leaves `onusly.crx` mode `0600`; `updates.xml`
+  defaults `codebase` to `https://api.onusly.com/downloads/onusly.crx` (mismatching `onusly.duckdns.org`
+  unless overridden during build).
+
+[MED-10] Windows named-pipe accept loop leaks Security Descriptor memory
+- Files: `desktop/agent/internal/ipc/server_windows.go:78-109`
+- Symbols: `namedPipeAcceptLoop`
+- Details: `defer win.ProcLocalFree.Call(pSD)` (line 104) is inside the infinite `for {}` loop, so
+  `pSD` is never freed until process exit.
+
+[MED-11] `pair-request` over IPC hardcodes platform `"windows"` on Linux
+- Files: `desktop/agent/internal/ipc/server.go:281`
+- Details: `client.RequestCode(ctx, apiURL, "desktop_agent", "windows", deviceID)` hardcodes `"windows"`
+  instead of `runtime.GOOS`.
+
+[MED-12] `LinuxAdapterManager.BackupDNS` overwrites `dns_backup.json` unconditionally
+- Files: `desktop/agent/internal/dns/adapter_linux.go:115-151,163`
+- Symbols: `(*LinuxAdapterManager).BackupDNS`
+- Details: Unlike Windows, Linux overwrites `dns_backup.json` even if current DNS is already `127.0.0.1`.
+
+[MED-13] Windows `install.ps1` points Firefox `install_url` at Omaha `updates.xml`; CLI `update` defaults to HTTP
+- Files: `desktop/installer/windows/install.ps1:7,803-804`, `desktop/agent/cmd/update_commands.go:88,190`
+- Details: Firefox `ExtensionSettings.install_url` expects an `.xpi`, not Google Omaha `updates.xml`;
+  `update check`/`stage` default `-feed-url` to plaintext `http://localhost:8080/downloads/update_manifest.json`.
+
+[MED-14] Go CSP header blocks Google GSI/Fonts if serving HTML; Nginx static block sets no CSP
+- Files: `internal/middleware/security_headers.go:23`, `deploy/nginx/onusly.conf:216-225`
+- Details: `SecurityHeaders` lacks `accounts.google.com/gsi/client` and `fonts.googleapis.com` in CSP;
+  Nginx serves `frontend/dist` directly without adding a CSP header.
+
+[MED-15] `deploy/dynamodb/migrate.go` ignores `UnprocessedItems` and writes DB dump into repo
+- Files: `deploy/dynamodb/migrate.go:65-66,122-125`
+- Details: Discards `BatchWriteItem` `UnprocessedItems` and writes `deploy/dynamodb/stockholm_items.json`
+  with `0644` permissions inside the repo.
+
+[MED-16] Operational runbooks out of sync with codebase CLI flags, schema, and routes
+- Files: `docs/runbooks/UPDATE_ROLLBACK_RUNBOOK.md`, `docs/runbooks/installation_and_pairing.md`,
+         `docs/runbooks/dns_recovery.md`
+- Details: Documents non-existent flags/commands (`update build-manifest`, `--manifest-url`,
+  `--staging-dir`), old manifest schema (`desktop/core/update/manifest.go`), wrong pipe name
+  (`onusly-agent` vs `OnuslyAgentIPC`), non-existent `/devices/pair` and `/api/v1/enforcement/device/policy`
+  routes, and wrong `dns_backup.json` path.
+
+================================================================================
+LOW ISSUES
+================================================================================
+
+[LOW-01] Unmanaged secondary HTTP listener on `127.0.0.1:8765` & partial upload files left on disk
+- Files: `cmd/server/main.go:706-711,818-826`
+- Details: `fixtureServer` on `:8765` exposes all `rootHandler` routes, ignores `ListenAndServe()`
+  errors, and is never shut down gracefully; failed `io.Copy` in `POST /uploads` leaves partial files.
+
+[LOW-02] Extension `detectBrowser()` `"opera"` mismatch with backend heartbeat allowlist
+- Files: `extension/background.js:24-31`, `extension/src/syncService.js:7-14`,
+         `internal/enforcement/models.go:63-69`
+- Details: `background.js` can emit `"opera"`, which is rejected by backend `validBrowsers`.
+
+[LOW-03] Production EC2 Nginx emits deprecated `listen ... http2` warnings & `GOOGLE_CLIENT_SECRET` unset
+- Files: `deploy/nginx/onusly.conf:47-48,136-137`, EC2 `/etc/onusly/onusly.env`
+- Details: `nginx -t` warns that `listen ... http2` is deprecated in favor of `http2 on;`.
+  On the live EC2 instance, `GOOGLE_CLIENT_SECRET` is empty in `/etc/onusly/onusly.env` (causing
+  `/auth/google/callback` redirect logins to fail until configured, though ID-token login works).

@@ -10,12 +10,12 @@ The ONUSLY Desktop Agent intercepts domain resolution for restricted domains via
 
 ## 2. DNS Adapter Configuration & Backup Storage
 Before reconfiguring network adapter DNS settings to point to `127.0.0.1`, the agent takes a snapshot of the original adapter configuration:
-- **Backup Path:** `C:\ProgramData\Onusly\dns_backup.json`
+- **Backup Path:** `C:\ProgramData\Onusly\config\dns_backup.json` (with legacy fallback check at `C:\ProgramData\Onusly\dns_backup.json`)
 - **Protection Guard:** The agent verifies the discovered upstream servers and skips backing up any adapter that already points to loopback (`127.0.0.1` or `::1`), preventing loopback pollution of backup state.
 
 Inspect current DNS backup state:
 ```powershell
-Get-Content -Path "C:\ProgramData\Onusly\dns_backup.json" | ConvertFrom-Json | Format-Table
+Get-Content -Path "C:\ProgramData\Onusly\config\dns_backup.json" | ConvertFrom-Json | Format-Table
 ```
 
 ---

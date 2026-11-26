@@ -121,12 +121,11 @@ export async function logout() {
 
 export async function revokeAllSessions() {
   try {
-    await fetch(`${API_BASE_URL}/auth/revoke-all`, {
+    await request("/auth/revoke-all", {
       method: "POST",
-      credentials: "include",
     });
   } catch {
-    // Ignore network failure on revoke-all
+    // Ensure local auth is still cleared even if network/session already invalidated
   }
   clearAuth();
 }
@@ -212,11 +211,17 @@ export async function uploadProofFiles(files) {
 
   const res = await fetch(`${API_BASE_URL}/uploads`, {
     method: "POST",
+    credentials: "include",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: formData,
   });
+
+  if (res.status === 401) {
+    clearAuth();
+    throw new Error("Session expired. Please sign in again.");
+  }
 
   if (!res.ok) {
     const errorText = await res.text();

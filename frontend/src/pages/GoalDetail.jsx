@@ -965,7 +965,12 @@ export default function GoalDetail() {
                         Boolean(user?.email && goal?.approverEmail && user.email.toLowerCase() === goal.approverEmail.toLowerCase()) ||
                         Boolean(user?.id && goal?.approverId && user.id === goal.approverId);
                       const canDecide = isApproverUser && goal.status === "proof_submitted";
-                      const pendingProof = proofs.find((p) => p.status === "pending" || p.status === "proof_submitted") || proofs[0];
+                      const sortedProofs = [...proofs].sort(
+                        (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
+                      );
+                      const pendingProof =
+                        sortedProofs.find((p) => p.status === "pending" || p.status === "proof_submitted") ||
+                        sortedProofs[0];
 
                       if (!canDecide || !pendingProof) return null;
 

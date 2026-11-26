@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -54,37 +55,55 @@ func (s *Service) SetPublisher(p events.Publisher) {
 	}
 }
 
+const maxProofUploadBytes = 10 * 1024 * 1024 // 10MB decoded ceiling per proof upload
+
 func saveBase64ToFile(dataURI, prefix string) (string, error) {
-	if !strings.HasPrefix(dataURI, "data:") {
+	if !strings.HasPrefix(strings.ToLower(dataURI), "data:") {
 		return dataURI, nil
 	}
 
 	commaIdx := strings.Index(dataURI, ",")
 	if commaIdx == -1 {
-		return dataURI, nil
+		return "", errors.New("malformed data URI")
 	}
 
 	header := strings.ToLower(dataURI[:commaIdx])
+	if !strings.Contains(header, ";base64") {
+		return "", errors.New("data URI must be base64-encoded")
+	}
 	payload := dataURI[commaIdx+1:]
+	if len(payload) > (maxProofUploadBytes*4/3)+4 {
+		return "", errors.New("uploaded proof file exceeds 10MB limit")
+	}
 
 	rawBytes, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil {
-		return dataURI, nil
+		return "", errors.New("invalid base64 proof payload")
+	}
+	if len(rawBytes) == 0 {
+		return "", errors.New("empty proof payload")
+	}
+	if len(rawBytes) > maxProofUploadBytes {
+		return "", errors.New("uploaded proof file exceeds 10MB limit")
 	}
 
-	ext := ".bin"
-	if strings.Contains(header, "image/jpeg") || strings.Contains(header, "image/jpg") {
+	detectedType := strings.ToLower(http.DetectContentType(rawBytes))
+	ext := ""
+	switch {
+	case (strings.Contains(header, "image/jpeg") || strings.Contains(header, "image/jpg")) && detectedType == "image/jpeg":
 		ext = ".jpg"
-	} else if strings.Contains(header, "image/png") {
+	case strings.Contains(header, "image/png") && detectedType == "image/png":
 		ext = ".png"
-	} else if strings.Contains(header, "image/webp") {
+	case strings.Contains(header, "image/webp") && detectedType == "image/webp":
 		ext = ".webp"
-	} else if strings.Contains(header, "image/gif") {
+	case strings.Contains(header, "image/gif") && detectedType == "image/gif":
 		ext = ".gif"
-	} else if strings.Contains(header, "application/pdf") {
+	case strings.Contains(header, "application/pdf") && detectedType == "application/pdf":
 		ext = ".pdf"
-	} else if strings.Contains(header, "text/plain") {
+	case strings.Contains(header, "text/plain") && strings.HasPrefix(detectedType, "text/plain"):
 		ext = ".txt"
+	default:
+		return "", errors.New("unsupported or mismatched proof file MIME type")
 	}
 
 	uploadsDir := filepath.Join("uploads", "proofs")
@@ -104,7 +123,7 @@ func saveBase64ToFile(dataURI, prefix string) (string, error) {
 	filePath := filepath.Join(uploadsDir, filename)
 
 	if err := os.WriteFile(filePath, rawBytes, 0644); err != nil {
-		return dataURI, nil
+		return "", err
 	}
 
 	return "/uploads/proofs/" + filename, nil
@@ -227,23 +246,25 @@ func (s *Service) SubmitWithFiles(
 	}
 
 	// Auto-offload large base64 data to disk in uploads/proofs to stay well below DynamoDB's 400KB limit
-	if strings.HasPrefix(photoURL, "data:") {
+	if strings.HasPrefix(strings.ToLower(photoURL), "data:") {
 		savedURL, err := saveBase64ToFile(photoURL, "proof")
-		if err == nil {
-			photoURL = savedURL
+		if err != nil {
+			return nil, err
 		}
+		photoURL = savedURL
 	}
 
 	if fileList, ok := files.([]interface{}); ok {
 		for _, item := range fileList {
 			if fileMap, isMap := item.(map[string]interface{}); isMap {
-				if dUrl, hasDUrl := fileMap["dataUrl"].(string); hasDUrl && strings.HasPrefix(dUrl, "data:") {
+				if dUrl, hasDUrl := fileMap["dataUrl"].(string); hasDUrl && strings.HasPrefix(strings.ToLower(dUrl), "data:") {
 					nameStr, _ := fileMap["name"].(string)
 					saved, err := saveBase64ToFile(dUrl, nameStr)
-					if err == nil {
-						fileMap["dataUrl"] = saved
-						fileMap["url"] = saved
+					if err != nil {
+						return nil, err
 					}
+					fileMap["dataUrl"] = saved
+					fileMap["url"] = saved
 				}
 			}
 		}
@@ -288,7 +309,6 @@ func (s *Service) SubmitWithFiles(
 	); err != nil {
 		return nil, err
 	}
-	_, _ = s.goalService.UpdateStatus(ctx, ownerID, goalID, "proof_submitted")
 
 	if s.publisher != nil {
 		submittedTime, _ := time.Parse(time.RFC3339, now)

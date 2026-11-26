@@ -42,8 +42,12 @@ if ($isCurrentlyActive) {
     Write-Host '---------------------------------------------------------' -ForegroundColor Yellow
     
     # 1. Restore DNS via backup or reset to DHCP
-    if (Test-Path $backupPath) {
-        & 'C:\onusly\ONUSLY\build\bin\onusly-agent.exe' dns restore
+    $agentBin = Join-Path $env:ProgramFiles 'Onusly\onusly-agent.exe'
+    if (-not (Test-Path $agentBin)) {
+        $agentBin = Join-Path $PSScriptRoot 'onusly-agent.exe'
+    }
+    if ((Test-Path $backupPath) -and (Test-Path $agentBin)) {
+        & $agentBin dns restore
     }
     
     # Ensure all active adapters are restored
@@ -104,7 +108,7 @@ if ($isCurrentlyActive) {
 
 echo.
 echo =========================================================================
-echo  The Web Dashboard (http://localhost:5173) will reflect this state.
+echo  The ONUSLY Web Dashboard (https://onusly.duckdns.org/dashboard) will reflect this state.
 echo =========================================================================
 echo.
 timeout /t 3

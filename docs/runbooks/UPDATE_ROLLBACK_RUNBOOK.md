@@ -57,17 +57,16 @@ To guarantee byte-for-byte reproducibility regardless of JSON encoder formatting
 
 ### 2.3 Signing Procedure (Release Pipeline)
 ```bash
-# Example automated signing script using onusly-agent release builder:
-onusly-agent update build-manifest \
-  --dir ./build/windows_amd64 \
-  --version 1.0.0 \
-  --security-version 1 \
-  --platform windows \
-  --arch amd64 \
-  --channel stable \
-  --valid-days 30 \
-  --private-key-file /run/secrets/release_ed25519.key \
-  --output ./dist/manifest.json
+# Generate and sign release manifest using cmd/manifest_generator:
+go run ./cmd/manifest_generator \
+  -dir ./build/windows_amd64 \
+  -version 1.0.0 \
+  -security-version 1 \
+  -platform windows \
+  -arch amd64 \
+  -channel stable \
+  -private-key-file /run/secrets/release_ed25519.key \
+  -out ./dist/update_manifest.json
 ```
 
 ---
@@ -102,7 +101,7 @@ onusly-agent update build-manifest \
    - Release `N+2` removes `Key-A` trust anchor.
 3. **Emergency Key Compromise Playbook:**
    - If a signing key compromise is suspected:
-     1. Revoke the key immediately in backend device sync policies (`/api/v1/enforcement/device/policy`).
+     1. Revoke the compromised update key in deployment configuration and rotate `ONUSLY_UPDATE_PUBLIC_KEY` / `HKLM:\SOFTWARE\Onusly\UpdatePublicKey`.
      2. Dispatch an out-of-band enterprise policy update via MDM/GPO updating `UpdatePublicKey` registry values.
      3. Issue emergency hotfix signed with secondary recovery key invalidating all prior manifests via elevated `security_version` counter.
 
@@ -132,16 +131,15 @@ Prior to accepting any staged update, `desktop/core/update/verifier.go` enforces
 ## 5. Windows Operator Update Workflow
 
 ### 5.1 Step 1: Agent Background Staging (Unprivileged)
-The unprivileged background service or operator CLI downloads and validates the update payload in `%ProgramData%\Onusly\staging`:
+The unprivileged background service or operator CLI downloads and validates the update payload into `<data-dir>\staging`:
 
 ```powershell
 # Check for available updates
-onusly-agent.exe update check --manifest-url https://updates.onusly.com/v1/windows/amd64/manifest.json
+onusly-agent.exe update check -feed-url https://api.onusly.com/downloads/update_manifest.json
 
-# Download and cryptographically stage components to %ProgramData%\Onusly\staging
-onusly-agent.exe update stage \
-  --manifest-url https://updates.onusly.com/v1/windows/amd64/manifest.json \
-  --staging-dir "C:\ProgramData\Onusly\staging"
+# Download and cryptographically stage components into C:\ProgramData\Onusly\data\staging
+onusly-agent.exe -data-dir "C:\ProgramData\Onusly\data" update stage `
+  -feed-url https://api.onusly.com/downloads/update_manifest.json
 ```
 
 ### 5.2 Step 2: Elevation Boundary Verification & Installation
@@ -150,17 +148,17 @@ An elevated administrator or scheduled deployment script executes the upgrade us
 ```powershell
 # Run from elevated Administrator PowerShell prompt:
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\desktop\installer\windows\install.ps1 -Upgrade -StagedDir "C:\ProgramData\Onusly\staging" -Verbose
+.\desktop\installer\windows\install.ps1 -Upgrade -StagedDir "C:\ProgramData\Onusly\data\staging" -Verbose
 ```
 
 ### 5.3 Automated Actions During Windows Upgrade
-1. **Pre-flight Boundary Dual-Verification:** Runs `onusly-agent update verify` on the staged directory. If signature or digests do not match, aborts immediately without touching active services or files.
+1. **Pre-flight Boundary Dual-Verification:** Runs `onusly-agent update verify -manifest <staged>\manifest.json -dir <staged>` on the staged directory. If signature or digests do not match, aborts immediately without touching active services or files.
 2. **Service Cessation:** Stops `OnuslyDesktopAgent` SCM service cleanly (waiting up to 30s).
 3. **Transactional Backup:** Copies active binaries from `C:\Program Files\Onusly` to `C:\Program Files\Onusly\backup_<timestamp>`.
 4. **Atomic Binary Deployment:** Moves staged, verified binaries into `C:\Program Files\Onusly`.
 5. **ACL Enforcement:** Restores strict ACLs (`SYSTEM` & `Administrators`: Full Control; `LocalService`: Read & Execute).
 6. **SCM Service Start:** Launches `OnuslyDesktopAgent` under `NT AUTHORITY\LocalService`.
-7. **Health Verification:** Verifies service status is `RUNNING` and probes named pipe `\\.\pipe\onusly-agent`.
+7. **Health Verification:** Verifies service status is `RUNNING` and probes named pipe `\\.\pipe\OnuslyAgentIPC`.
 8. **Cleanup / Rollback:** On success, removes staging files and temporary backups. On failure, triggers automatic transactional rollback.
 
 ---
@@ -170,9 +168,8 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ### 6.1 Step 1: Daemon Background Staging (Unprivileged)
 ```bash
 # Stage update components in /var/lib/onusly/staging
-/usr/local/bin/onusly-agent update stage \
-  --manifest-url https://updates.onusly.com/v1/linux/amd64/manifest.json \
-  --staging-dir /var/lib/onusly/staging
+/usr/local/bin/onusly-agent -data-dir /var/lib/onusly update stage \
+  -feed-url https://api.onusly.com/downloads/update_manifest.json
 ```
 
 ### 6.2 Step 2: Elevated Installer Execution

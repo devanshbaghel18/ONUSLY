@@ -25,9 +25,10 @@ import (
 var assetsFS embed.FS
 
 const (
-	pipePath         = `\\.\pipe\OnuslyDesktopPipe`
-	fallbackPipePath = `\\.\pipe\OnuslyAgentIPC`
+	pipePath         = `\\.\pipe\OnuslyAgentIPC`
+	fallbackPipePath = `\\.\pipe\OnuslyDesktopPipe`
 	extensionID      = "jifigaejbinmdhnljobkodcgeaplojmg"
+	firefoxExtID     = "extension@onusly.com"
 )
 
 var (
@@ -37,6 +38,7 @@ var (
 
 type ipcRequest struct {
 	Action string `json:"action"`
+	Code   string `json:"code,omitempty"`
 }
 
 type ipcResponse struct {
@@ -47,6 +49,10 @@ type ipcResponse struct {
 }
 
 func queryIPC(action string, timeout time.Duration) (*ipcResponse, error) {
+	return queryIPCWithCode(action, "", timeout)
+}
+
+func queryIPCWithCode(action, code string, timeout time.Duration) (*ipcResponse, error) {
 	candidates := []string{pipePath, fallbackPipePath}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -57,7 +63,7 @@ func queryIPC(action string, timeout time.Duration) (*ipcResponse, error) {
 			}
 			if err == nil {
 				timer := time.AfterFunc(timeout, func() { _ = conn.Close() })
-				req := ipcRequest{Action: action}
+				req := ipcRequest{Action: action, Code: code}
 				data, _ := json.Marshal(req)
 				if _, wErr := conn.Write(append(data, '\n')); wErr != nil {
 					timer.Stop()
@@ -181,11 +187,15 @@ func registerNativeMessagingManifest(manifestPath, nativeHostBinPath string) err
 	}
 
 	m := manifest{
-		Name:           "com.onusly.desktop_agent",
-		Description:    "ONUSLY Desktop Protection Native Host",
-		Path:           nativeHostBinPath,
-		Type:           "stdio",
-		AllowedOrigins: []string{fmt.Sprintf("chrome-extension://%s/", extensionID)},
+		Name:        "com.onusly.desktop_agent",
+		Description: "ONUSLY Desktop Protection Native Host",
+		Path:        nativeHostBinPath,
+		Type:        "stdio",
+		AllowedOrigins: []string{
+			fmt.Sprintf("chrome-extension://%s/", extensionID),
+			"chrome-extension://gkichkblphmdbojdjnonljlegnmjcnhg/",
+			"chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/",
+		},
 	}
 
 	data, err := json.MarshalIndent(m, "", "  ")
@@ -197,16 +207,47 @@ func registerNativeMessagingManifest(manifestPath, nativeHostBinPath string) err
 		return err
 	}
 
-	// Register in HKCU for Chrome and Edge
+	// Register in HKCU for Chrome, Edge, Brave, and Chromium
 	hives := []string{
 		`Software\Google\Chrome\NativeMessagingHosts\com.onusly.desktop_agent`,
 		`Software\Microsoft\Edge\NativeMessagingHosts\com.onusly.desktop_agent`,
+		`Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.onusly.desktop_agent`,
+		`Software\BraveSoftware\Brave\NativeMessagingHosts\com.onusly.desktop_agent`,
+		`Software\Chromium\NativeMessagingHosts\com.onusly.desktop_agent`,
 	}
 
 	for _, hive := range hives {
 		k, _, err := registry.CreateKey(registry.CURRENT_USER, hive, registry.SET_VALUE)
 		if err == nil {
 			_ = k.SetStringValue("", manifestPath)
+			k.Close()
+		}
+	}
+
+	// Also register Mozilla/Firefox native messaging manifest (uses allowed_extensions)
+	type firefoxManifest struct {
+		Name              string   `json:"name"`
+		Description       string   `json:"description"`
+		Path              string   `json:"path"`
+		Type              string   `json:"type"`
+		AllowedExtensions []string `json:"allowed_extensions"`
+	}
+	ffManifestPath := filepath.Join(filepath.Dir(manifestPath), "com.onusly.desktop_agent.firefox.json")
+	ffData, err := json.MarshalIndent(firefoxManifest{
+		Name:              "com.onusly.desktop_agent",
+		Description:       "ONUSLY Desktop Protection Native Host",
+		Path:              nativeHostBinPath,
+		Type:              "stdio",
+		AllowedExtensions: []string{firefoxExtID},
+	}, "", "  ")
+	if err == nil && os.WriteFile(ffManifestPath, ffData, 0644) == nil {
+		k, _, err := registry.CreateKey(
+			registry.CURRENT_USER,
+			`Software\Mozilla\NativeMessagingHosts\com.onusly.desktop_agent`,
+			registry.SET_VALUE,
+		)
+		if err == nil {
+			_ = k.SetStringValue("", ffManifestPath)
 			k.Close()
 		}
 	}
@@ -360,16 +401,25 @@ func main() {
 	code := pairResp.PairCode
 	dashboardURL := fmt.Sprintf("%s/dashboard?pairCode=%s", dashboardBaseURL, code)
 
-	// 7. Automatically open Chrome/browser with pairing code pre-filled
+	// 7. Automatically open browser with pairing code pre-filled and poll until paired
 	openBrowser(dashboardURL)
 
-	// 8. Show sleek confirmation message with the code
+	pollResp, pollErr := queryIPCWithCode("pair-poll", code, 3*time.Minute)
+	if pollErr == nil && pollResp != nil && pollResp.Success {
+		showMessageBox("ONUSLY Desktop Protection Setup",
+			"✅ ONUSLY Desktop Protection is now ACTIVE, PAIRED, and protecting this PC!\n\nYou can now close this window.",
+			0x40,
+		)
+		return
+	}
+
+	// Fallback confirmation with pairing code if user hasn't finished browser sign-in yet
 	msg := fmt.Sprintf(
-		"✅ ONUSLY Desktop Protection is now ACTIVE and protecting this PC!\n\n"+
+		"ONUSLY Desktop Protection is installed and running.\n\n"+
 			"🔑 Your 6-Character Pairing Code:\n\n         [ %s ]\n\n"+
-			"Your ONUSLY dashboard has been opened in your browser to complete pairing with one click.\n\n"+
+			"Complete pairing in your ONUSLY dashboard (%s/dashboard) using this code.\n\n"+
 			"You can now close this window.",
-		code,
+		code, dashboardBaseURL,
 	)
 	showMessageBox("ONUSLY Desktop Protection Setup", msg, 0x40)
 }

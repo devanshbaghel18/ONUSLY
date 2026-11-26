@@ -52,23 +52,29 @@ func NewUserRateLimiter(limit int, window time.Duration) *RateLimiter {
 }
 
 func (rl *RateLimiter) getClientIP(r *http.Request) string {
-	// If X-Forwarded-For is provided, extract the first client IP
-	xff := r.Header.Get("X-Forwarded-For")
-	if xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			ip := strings.TrimSpace(parts[0])
-			if ip != "" {
-				return ip
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = strings.TrimSpace(r.RemoteAddr)
+	}
+	remoteIP := net.ParseIP(strings.TrimSpace(host))
+
+	// Only trust X-Forwarded-For when the immediate TCP peer is a trusted loopback proxy (e.g. local Nginx)
+	if remoteIP != nil && remoteIP.IsLoopback() {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			if len(parts) > 0 {
+				ip := strings.TrimSpace(parts[0])
+				if parsed := net.ParseIP(ip); parsed != nil {
+					return parsed.String()
+				}
 			}
 		}
 	}
 
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return strings.TrimSpace(r.RemoteAddr)
+	if host != "" {
+		return host
 	}
-	return host
+	return strings.TrimSpace(r.RemoteAddr)
 }
 
 // Limit returns a middleware handler that enforces the rate limit.

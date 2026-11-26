@@ -145,18 +145,17 @@ func (r *Repository) CreateDecision(
 		},
 	}
 
-	r.mu.Lock()
-	if r.memApprovals == nil {
-		r.memApprovals = make(map[string]Approval)
-	}
-	r.memApprovals[approval.OwnerID+"#"+approval.GoalID+"#"+approval.ID] = approval
-	r.mu.Unlock()
-
 	if r.db == nil {
+		r.mu.Lock()
+		if r.memApprovals == nil {
+			r.memApprovals = make(map[string]Approval)
+		}
+		r.memApprovals[approval.OwnerID+"#"+approval.GoalID+"#"+approval.ID] = approval
+		r.mu.Unlock()
 		return nil
 	}
 
-	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	putCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	_, err = r.db.TransactWriteItems(putCtx, &dynamodb.TransactWriteItemsInput{
@@ -166,9 +165,15 @@ func (r *Repository) CreateDecision(
 		if isConditionCheckFailed(err) {
 			return ErrAlreadyDecided
 		}
-		log.Printf("[ApprovalRepo] Remote database decision notice: %v (cached in local memory)", err)
-		return nil
+		return err
 	}
+
+	r.mu.Lock()
+	if r.memApprovals == nil {
+		r.memApprovals = make(map[string]Approval)
+	}
+	r.memApprovals[approval.OwnerID+"#"+approval.GoalID+"#"+approval.ID] = approval
+	r.mu.Unlock()
 
 	return nil
 }

@@ -31,8 +31,8 @@ func (s *Service) SetBroadcaster(b RealtimeNotificationBroadcaster) {
 // CreateFromProofSubmitted generates and persists a notification for the approver.
 func (s *Service) CreateFromProofSubmitted(ctx context.Context, event events.ProofSubmittedEvent) error {
 	approverID := strings.TrimSpace(event.ApproverID)
-	if approverID == "" {
-		return nil // Goal has no assigned approver; nothing to deliver
+	if approverID == "" || strings.EqualFold(approverID, "COMMUNITY") || strings.HasPrefix(strings.ToLower(approverID), "partner-") {
+		return nil // Goal has no resolvable user approver; nothing to deliver
 	}
 
 	submittedAt := event.SubmittedAt

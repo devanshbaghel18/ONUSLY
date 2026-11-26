@@ -34,6 +34,7 @@ type Client struct {
 	name             string
 	deliveredOffline bool
 	mu               sync.Mutex
+	closed           bool
 	send             chan []byte
 }
 
@@ -66,20 +67,44 @@ func (c *Client) Handle() string { return c.handle }
 // Name returns the immutable authenticated user display name.
 func (c *Client) Name() string { return c.name }
 
+// trySend sends pre-encoded payload bytes to the client without panicking if closed.
+func (c *Client) trySend(data []byte) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return false
+	}
+	select {
+	case c.send <- data:
+		return true
+	default:
+		return false
+	}
+}
+
+// closeSend marks the client send channel closed and closes it exactly once.
+func (c *Client) closeSend() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.closed {
+		c.closed = true
+		close(c.send)
+	}
+}
+
 // SendEvent serializes and sends an Event directly to this client.
 func (c *Client) SendEvent(event Event) {
-	defer func() {
-		// Prevent runtime panic if sending on closed channel during disconnect
-		_ = recover()
-	}()
 	data, err := json.Marshal(event)
 	if err != nil {
 		return
 	}
-	select {
-	case c.send <- data:
-	default:
-	}
+	_ = c.trySend(data)
 }
 
 // ReadPump pumps messages from the websocket connection to the hub.

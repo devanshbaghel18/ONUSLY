@@ -303,6 +303,15 @@ export default function Communities() {
   // Approval in-chat state
   const [approvingMsgId, setApprovingMsgId] = useState(null);
 
+  // Add friend modal state (declared before effects that reference setters)
+  const [showAddFriendModal, setShowAddFriendModal] = useState(false);
+  const [newFriendHandle, setNewFriendHandle] = useState("");
+  const [newFriendName, setNewFriendName] = useState("");
+  const [newFriendEmail, setNewFriendEmail] = useState("");
+  const [verifiedPartner, setVerifiedPartner] = useState(null);
+  const [verifyingHandle, setVerifyingHandle] = useState(false);
+  const [friendError, setFriendError] = useState("");
+
   // Navigation state handler (e.g. redirected from "Share for Verification")
   useEffect(() => {
     if (!location.state) return;
@@ -808,9 +817,11 @@ export default function Communities() {
 
     try {
       if (attachTargetType === "friend" && activeFriendId && activeFriend) {
-        send({
+        const msgId = generateMsgId("msg");
+        const wsSent = send({
           type: "chat.message",
           payload: {
+            id: msgId,
             recipientEmail: activeFriend.email || "",
             recipientHandle: activeFriend.handle || "",
             senderEmail,
@@ -824,14 +835,17 @@ export default function Communities() {
           },
         });
 
-        const peerTarget = activeFriend.handle ? `@${activeFriend.handle.replace(/^@/, "")}` : activeFriend.email || activeFriend.id;
-        if (peerTarget) {
-          sendChatMessageApi(peerTarget, text || "Sent an attachment", { replyTo: currentReplyTo }).catch(() => {});
+        if (!wsSent) {
+          const peerTarget = activeFriend.handle ? `@${activeFriend.handle.replace(/^@/, "")}` : activeFriend.email || activeFriend.id;
+          if (peerTarget) {
+            sendChatMessageApi(peerTarget, text || "Sent an attachment", { replyTo: currentReplyTo }).catch(() => {});
+          }
         }
 
         const updated = sendChatMessage(
           activeFriendId,
           {
+            id: msgId,
             text,
             images: imageUrls,
             files: docFiles,
@@ -854,7 +868,7 @@ export default function Communities() {
         }, 10);
       } else if (attachTargetType === "community" && selectedCommunity) {
         const msgId = generateMsgId("comm-msg");
-        send({
+        const wsSent = send({
           type: "community.message",
           payload: {
             id: msgId,
@@ -872,9 +886,11 @@ export default function Communities() {
           },
         });
 
-        sendChatMessageApi(selectedCommunity.id, text || "Sent an attachment", {
-          replyTo: currentReplyTo,
-        }).catch(() => {});
+        if (!wsSent) {
+          sendChatMessageApi(selectedCommunity.id, text || "Sent an attachment", {
+            replyTo: currentReplyTo,
+          }).catch(() => {});
+        }
 
         const updated = sendCommunityMessage(selectedCommunity.id, {
           id: msgId,
@@ -941,16 +957,26 @@ export default function Communities() {
           ownerId = goal.ownerId || "";
         }
 
-        let proofs = await getProofs(resolvedGoalId, ownerId).catch(() => []);
-        let targetProofId = proofs.find((p) => p.status === "pending" || p.status === "proof_submitted")?.id || proofs[0]?.id || "direct-approval";
+        const proofs = await getProofs(resolvedGoalId, ownerId);
+        const sortedProofs = [...(Array.isArray(proofs) ? proofs : [])].sort(
+          (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
+        );
+        const targetProofId =
+          msg.proofId ||
+          sortedProofs.find((p) => p.status === "pending" || p.status === "proof_submitted")?.id ||
+          sortedProofs[0]?.id;
+
+        if (!targetProofId) {
+          throw new Error("No submitted proof found for this goal.");
+        }
 
         await decideApproval(resolvedGoalId, targetProofId, {
           ownerId: ownerId,
           status: "approved",
           comment: "Approved from chat",
-        }).catch((decideErr) => {
-          console.warn("decideApproval returned:", decideErr.message);
         });
+      } else {
+        throw new Error("Could not resolve goal ID for this proof message.");
       }
 
       // Mark locally as approved
@@ -1295,15 +1321,6 @@ export default function Communities() {
       setSelectedCommunity(updated[0]);
     }
   };
-
-  // Add friend modal state
-  const [showAddFriendModal, setShowAddFriendModal] = useState(false);
-  const [newFriendHandle, setNewFriendHandle] = useState("");
-  const [newFriendName, setNewFriendName] = useState("");
-  const [newFriendEmail, setNewFriendEmail] = useState("");
-  const [verifiedPartner, setVerifiedPartner] = useState(null);
-  const [verifyingHandle, setVerifyingHandle] = useState(false);
-  const [friendError, setFriendError] = useState("");
 
   const handleVerifyTag = async () => {
     const clean = newFriendHandle.replace(/[@\s]/g, "").toLowerCase();

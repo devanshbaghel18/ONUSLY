@@ -150,10 +150,11 @@ func Auth(jwtSecret string, opts ...AuthOption) func(http.Handler) http.Handler 
 			if name, ok := claims["name"].(string); ok && name != "" {
 				ctx = context.WithValue(ctx, UserNameKey, strings.TrimSpace(name))
 			}
-			if devID, ok := claims["device_id"].(string); ok && devID != "" {
+			if devID, ok := claims["device_id"].(string); ok && strings.TrimSpace(devID) != "" {
 				ctx = context.WithValue(ctx, DeviceIDKey, strings.TrimSpace(devID))
-			} else if headerDevID := r.Header.Get("X-Device-ID"); headerDevID != "" && tokenType == "device" {
-				ctx = context.WithValue(ctx, DeviceIDKey, strings.TrimSpace(headerDevID))
+			} else if tokenType == "device" {
+				http.Error(w, "invalid token claims: device_id required for device token", http.StatusUnauthorized)
+				return
 			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))

@@ -93,12 +93,15 @@ func main() {
 		fmt.Println("Distraction domains are now blocked across Chrome, Edge, Brave, and Firefox.")
 	}
 
+	dashURL := strings.TrimSpace(os.Getenv("ONUSLY_DASHBOARD_URL"))
+	if dashURL == "" {
+		dashURL = "https://onusly.com"
+	}
 	fmt.Println()
 	fmt.Println("=========================================================")
-	fmt.Println(" Dashboard (http://localhost:5173) will reflect this state.")
+	fmt.Printf(" ONUSLY Dashboard (%s) will reflect this state.\n", dashURL)
 	fmt.Println("=========================================================")
 	fmt.Println()
 	fmt.Println("Closing in 4 seconds...")
 	time.Sleep(4 * time.Second)
 }
-

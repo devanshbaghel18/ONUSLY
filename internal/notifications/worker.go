@@ -19,10 +19,12 @@ type Worker struct {
 	approvalQueueName string
 	pollInterval      time.Duration
 
-	mu       sync.Mutex
-	running  bool
-	stopChan chan struct{}
-	doneChan chan struct{}
+	mu         sync.Mutex
+	running    bool
+	stopChan   chan struct{}
+	doneChan   chan struct{}
+	retryAfter map[string]time.Time
+	retryCount map[string]int
 }
 
 // NewWorker initializes a new background notification worker.
@@ -139,12 +141,18 @@ func (w *Worker) processProofMessage(ctx context.Context, msg queue.Message) boo
 		return false
 	}
 
-	if err := w.service.CreateFromProofSubmitted(ctx, ev); err != nil {
-		log.Printf("[Worker] Failed to persist proof notification for event %s: %v (will retry)", ev.EventID, err)
-		// Do NOT delete: message stays in queue for redelivery
+	if w.shouldSkipBackoff(msg.ID) {
 		return false
 	}
 
+	if err := w.service.CreateFromProofSubmitted(ctx, ev); err != nil {
+		delay := w.recordFailureBackoff(msg.ID)
+		log.Printf("[Worker] Failed to persist proof notification for event %s: %v (backoff %s)", ev.EventID, err, delay)
+		// Do NOT delete: message stays in queue for redelivery after backoff
+		return false
+	}
+
+	w.clearBackoff(msg.ID)
 	// Persisted (or already existed): delete from queue
 	_ = w.q.Delete(ctx, w.proofQueueName, msg.ReceiptHandle)
 	return true
@@ -159,13 +167,61 @@ func (w *Worker) processApprovalMessage(ctx context.Context, msg queue.Message) 
 		return false
 	}
 
-	if err := w.service.CreateFromApprovalDecided(ctx, ev); err != nil {
-		log.Printf("[Worker] Failed to persist approval notification for event %s: %v (will retry)", ev.EventID, err)
-		// Do NOT delete: message stays in queue for redelivery
+	if w.shouldSkipBackoff(msg.ID) {
 		return false
 	}
 
+	if err := w.service.CreateFromApprovalDecided(ctx, ev); err != nil {
+		delay := w.recordFailureBackoff(msg.ID)
+		log.Printf("[Worker] Failed to persist approval notification for event %s: %v (backoff %s)", ev.EventID, err, delay)
+		// Do NOT delete: message stays in queue for redelivery after backoff
+		return false
+	}
+
+	w.clearBackoff(msg.ID)
 	// Persisted (or already existed): delete from queue
 	_ = w.q.Delete(ctx, w.approvalQueueName, msg.ReceiptHandle)
 	return true
+}
+
+func (w *Worker) shouldSkipBackoff(msgID string) bool {
+	if msgID == "" {
+		return false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.retryAfter == nil {
+		return false
+	}
+	until, ok := w.retryAfter[msgID]
+	return ok && time.Now().Before(until)
+}
+
+func (w *Worker) recordFailureBackoff(msgID string) time.Duration {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.retryAfter == nil {
+		w.retryAfter = make(map[string]time.Time)
+		w.retryCount = make(map[string]int)
+	}
+	n := w.retryCount[msgID] + 1
+	if n > 6 {
+		n = 6
+	}
+	w.retryCount[msgID] = n
+	delay := time.Second << (n - 1) // 1s, 2s, 4s, 8s, 16s, 32s max
+	if msgID != "" {
+		w.retryAfter[msgID] = time.Now().Add(delay)
+	}
+	return delay
+}
+
+func (w *Worker) clearBackoff(msgID string) {
+	if msgID == "" {
+		return
+	}
+	w.mu.Lock()
+	delete(w.retryAfter, msgID)
+	delete(w.retryCount, msgID)
+	w.mu.Unlock()
 }

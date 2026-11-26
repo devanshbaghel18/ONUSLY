@@ -14,13 +14,12 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
-		// Allow embedded preview of uploaded verification proof documents in dashboard iframes
+		// Allow embedded preview of uploaded verification proof documents in dashboard iframes without script execution
 		if strings.HasPrefix(r.URL.Path, "/uploads/") {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://onusly.com https://*.onusly.com https://onusly.app https://*.onusly.app https://onusly.duckdns.org;")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; object-src 'self'; script-src 'none'; sandbox; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://onusly.com https://*.onusly.com https://onusly.app https://*.onusly.app https://onusly.duckdns.org;")
 		} else {
 			w.Header().Set("X-Frame-Options", "DENY")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws: wss: http: https:; frame-ancestors 'none';")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; frame-src 'self' https://accounts.google.com; connect-src 'self' ws: wss: http: https:; frame-ancestors 'none';")
 		}
 
 		next.ServeHTTP(w, r)

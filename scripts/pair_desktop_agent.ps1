@@ -9,7 +9,8 @@ Set-Location $workspaceRoot
 $binPath = "$workspaceRoot\build\bin\onusly-agent.exe"
 $configDir = "$env:LOCALAPPDATA\Onusly\config"
 $dataDir = "$env:LOCALAPPDATA\Onusly\data"
-$pipePath = "\\.\pipe\OnuslyDesktopPipe"
+$pipePath = "\\.\pipe\OnuslyAgentIPC"
 
-& $binPath pair -socket $pipePath -config-dir $configDir -data-dir $dataDir -api-url "http://localhost:8080"
+$apiUrl = if ($env:ONUSLY_API_URL) { $env:ONUSLY_API_URL } else { "https://api.onusly.com" }
+& $binPath pair -socket $pipePath -config-dir $configDir -data-dir $dataDir -api-url $apiUrl
 

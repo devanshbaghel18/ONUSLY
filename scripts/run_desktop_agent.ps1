@@ -1,4 +1,4 @@
-# ONUSLY Desktop Agent Console Runner
+﻿# ONUSLY Desktop Agent Console Runner
 # Starts the background process monitor (Steam, Epic Games, Discord, games) and IPC server
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +14,7 @@ if (-not (Test-Path $binPath)) {
 
 $configDir = "$env:LOCALAPPDATA\Onusly\config"
 $dataDir = "$env:LOCALAPPDATA\Onusly\data"
-$pipePath = "\\.\pipe\OnuslyDesktopPipe"
+$pipePath = "\\.\pipe\OnuslyAgentIPC"
 
 New-Item -ItemType Directory -Force -Path $configDir, $dataDir | Out-Null
 
