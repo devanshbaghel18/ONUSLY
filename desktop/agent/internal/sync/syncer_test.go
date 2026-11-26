@@ -201,3 +201,29 @@ func TestSyncer_DeviceRevokedAndCredentialExpired(t *testing.T) {
 		t.Fatalf("DEVICE_REVOKED must purge disk cache, got: %+v", cachedDisk)
 	}
 }
+
+func TestSyncer_UnpairedDoesNotLoadStaleDiskCache(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "onusly-syncer-unpaired-*")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cacheStore := cache.NewFileBlocklistCache(filepath.Join(tmpDir, "blocklist_cache.json"))
+	if err := cacheStore.Save(&core.BlocklistData{
+		UserID:  "previous-user-999",
+		Version: "v1-stale",
+		Targets: []core.TargetItem{{GoalID: "g1", Status: "active", Domains: []string{"instagram.com", "youtube.com"}}},
+	}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	// Unpaired agent has empty token in credStore
+	unpairedCreds := &mockCredStore{token: ""}
+	syncer := sync.NewSyncer("http://127.0.0.1:1", unpairedCreds, cacheStore, nil)
+
+	data, getErr := syncer.GetCachedBlocklist()
+	if !errors.Is(getErr, core.ErrUnauthenticated) || data != nil {
+		t.Fatalf("expected ErrUnauthenticated and nil blocklist for unpaired agent, got data=%+v err=%v", data, getErr)
+	}
+}

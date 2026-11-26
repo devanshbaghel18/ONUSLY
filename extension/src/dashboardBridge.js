@@ -51,7 +51,11 @@ window.addEventListener("message", (event) => {
     type === "ONUSLY_PING" ||
     type === "ONUSLY_AUTH_HANDOFF" ||
     type === "ONUSLY_DISCONNECT" ||
-    type === "ONUSLY_SYNC"
+    type === "ONUSLY_SYNC" ||
+    type === "ONUSLY_DESKTOP_STATUS" ||
+    type === "ONUSLY_DESKTOP_SYNC" ||
+    type === "ONUSLY_DESKTOP_PAIR_REQUEST" ||
+    type === "ONUSLY_DESKTOP_PAIR_POLL"
   ) {
     const rt = getExtRuntime();
     if (!rt) {

@@ -498,7 +498,7 @@ if command -v go >/dev/null 2>&1 && [ -d "${APP_DIR}/desktop" ]; then
   DASHBOARD_FOR_WIN="${FRONTEND_URL:-https://${PUBLIC_DOMAIN}}"
   (
     cd "$APP_DIR"
-    GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X 'main.defaultAPIURL=${VITE_API_FOR_WIN}'" \
+    GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X 'main.defaultAPIURL=${VITE_API_FOR_WIN}' -X 'main.defaultDashboardURL=${DASHBOARD_FOR_WIN}'" \
       -o "${WIN_STAGE_DIR}/onusly-agent.exe" ./desktop/agent/cmd
     GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" \
       -o "${WIN_STAGE_DIR}/onusly-native-host.exe" ./desktop/native-host

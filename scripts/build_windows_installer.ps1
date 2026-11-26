@@ -25,7 +25,7 @@ Write-Host "Dashboard URL: $DashboardUrl" -ForegroundColor Gray
 
 # 1. Compile core agent
 Write-Host "[1/4] Compiling onusly-agent.exe..." -ForegroundColor Yellow
-go build -ldflags "-s -w -X 'main.defaultAPIURL=$ApiUrl'" -o "$binDir\onusly-agent.exe" ./desktop/agent/cmd
+go build -ldflags "-s -w -X 'main.defaultAPIURL=$ApiUrl' -X 'main.defaultDashboardURL=$DashboardUrl'" -o "$binDir\onusly-agent.exe" ./desktop/agent/cmd
 if ($LASTEXITCODE -ne 0) { throw "Failed to build onusly-agent.exe" }
 
 # 2. Compile native messaging host

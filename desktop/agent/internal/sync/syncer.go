@@ -181,12 +181,19 @@ func (s *Syncer) GetCachedBlocklist() (*core.BlocklistData, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.cachedBlocklist != nil {
+	token, errTok := s.credStore.GetToken()
+	if errTok != nil || token == "" {
+		return nil, core.ErrUnauthenticated
+	}
+	userID, errUID := auth.ParseTokenUserID(token)
+	if userID == "" && errUID != nil {
+		return nil, core.ErrUnauthenticated
+	}
+
+	if s.cachedBlocklist != nil && (s.cachedBlocklist.UserID == "" || s.cachedBlocklist.UserID == userID) {
 		return s.cachedBlocklist, nil
 	}
 
-	token, _ := s.credStore.GetToken()
-	userID, _ := auth.ParseTokenUserID(token)
 	data, err := s.cache.Get(userID)
 	if err == nil && data != nil {
 		s.cachedBlocklist = data

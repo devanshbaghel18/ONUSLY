@@ -92,6 +92,26 @@ func IsDomainMatch(queryHostname, targetDomain string) bool {
 	return false
 }
 
+// IsPathScopedShortsRule returns true when the target string specifies a YouTube Shorts URL path
+// (e.g. "youtube.com/shorts", "m.youtube.com/shorts", "youtu.be/shorts").
+// Machine-wide DNS cannot filter URL paths; stripping "/shorts" would dangerously block all of youtube.com.
+func IsPathScopedShortsRule(raw string) bool {
+	d := strings.TrimSpace(strings.ToLower(raw))
+	if idx := strings.Index(d, "://"); idx != -1 {
+		d = d[idx+3:]
+	}
+	d = strings.TrimPrefix(d, "www.")
+	d = strings.SplitN(d, "?", 2)[0]
+	d = strings.SplitN(d, "#", 2)[0]
+	d = strings.TrimRight(d, "/")
+	return d == "youtube.com/shorts" ||
+		strings.HasPrefix(d, "youtube.com/shorts/") ||
+		d == "m.youtube.com/shorts" ||
+		strings.HasPrefix(d, "m.youtube.com/shorts/") ||
+		d == "youtu.be/shorts" ||
+		strings.HasPrefix(d, "youtu.be/shorts/")
+}
+
 // IsProtectedDomain returns true if the domain must NEVER be blocked by ONUSLY
 // (e.g. localhost, local LAN infrastructure, ONUSLY cloud dashboard/API endpoints).
 func IsProtectedDomain(domain string) bool {
@@ -120,10 +140,11 @@ func IsProtectedDomain(domain string) bool {
 	}
 
 	// ONUSLY production, staging, and API domains
-	if d == "onusly.com" || strings.HasSuffix(d, ".onusly.com") {
+	if d == "onusly.com" || strings.HasSuffix(d, ".onusly.com") ||
+		d == "onusly.app" || strings.HasSuffix(d, ".onusly.app") ||
+		d == "onusly.duckdns.org" {
 		return true
 	}
 
 	return false
 }
-

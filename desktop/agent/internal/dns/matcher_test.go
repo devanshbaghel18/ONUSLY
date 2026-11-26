@@ -2,6 +2,8 @@ package dns
 
 import (
 	"testing"
+
+	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 )
 
 func TestNormalizeDomain(t *testing.T) {
@@ -88,6 +90,8 @@ func TestIsProtectedDomain(t *testing.T) {
 		"onusly.com",
 		"api.onusly.com",
 		"dashboard.onusly.com",
+		"onusly.app",
+		"onusly.duckdns.org",
 	}
 
 	for _, p := range protected {
@@ -112,3 +116,32 @@ func TestIsProtectedDomain(t *testing.T) {
 	}
 }
 
+func TestIsPathScopedShortsRule_DoesNotBlockFullYouTube(t *testing.T) {
+	if !IsPathScopedShortsRule("youtube.com/shorts") || !IsPathScopedShortsRule("https://www.youtube.com/shorts/abc") {
+		t.Fatalf("expected youtube.com/shorts URLs to be recognized as path-scoped Shorts rules")
+	}
+	if IsPathScopedShortsRule("youtube.com") || IsPathScopedShortsRule("shorts.youtube.com") {
+		t.Fatalf("did not expect plain hostnames to be classified as path-scoped Shorts rules")
+	}
+
+	pm := NewPolicyManager(NewMemoryDNSCache(100))
+	_, err := pm.UpdateFromBlocklist(&core.BlocklistData{
+		Version: "v1-shorts-only",
+		Targets: []core.TargetItem{
+			{
+				GoalID:  "g-shorts",
+				Status:  "active",
+				Domains: []string{"youtube.com/shorts", "m.youtube.com/shorts", "shorts.youtube.com"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateFromBlocklist failed: %v", err)
+	}
+	if blocked, _ := pm.CheckBlocked("www.youtube.com"); blocked {
+		t.Fatalf("path-scoped youtube.com/shorts rule must NOT block www.youtube.com in DNS")
+	}
+	if blocked, _ := pm.CheckBlocked("shorts.youtube.com"); !blocked {
+		t.Fatalf("expected explicit shorts.youtube.com host to remain blocked")
+	}
+}

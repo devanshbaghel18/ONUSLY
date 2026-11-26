@@ -127,6 +127,10 @@ export default function DeviceCoverageSection() {
   const [dnsActionLoading, setDnsActionLoading] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [desktopActionMsg, setDesktopActionMsg] = useState({ text: "", type: "" });
+  const [manualPairCode, setManualPairCode] = useState("");
+  const [manualPairing, setManualPairing] = useState(false);
+  const [showPairInput, setShowPairInput] = useState(false);
+  const [fetchedAtMs, setFetchedAtMs] = useState(() => Date.now());
 
   const loadDesktopAgent = useCallback(async () => {
     try {
@@ -146,6 +150,7 @@ export default function DeviceCoverageSection() {
     try {
       const [res] = await Promise.all([getDevicesCoverage(), loadDesktopAgent()]);
       if (res) {
+        setFetchedAtMs(Date.now());
         setData({
           ...res,
           devices: Array.isArray(res.devices) ? res.devices : [],
@@ -168,6 +173,7 @@ export default function DeviceCoverageSection() {
           loadDesktopAgent(),
         ]);
         if (isMounted && res) {
+          setFetchedAtMs(Date.now());
           setData({
             ...res,
             devices: Array.isArray(res.devices) ? res.devices : [],
@@ -245,6 +251,7 @@ export default function DeviceCoverageSection() {
     try {
       const res = await reconnectDesktopAgent();
       if (res && res.success) {
+        setShowPairInput(false);
         setDesktopActionMsg({
           text: res.message || "Desktop agent successfully reconnected and protection started!",
           type: "success",
@@ -254,18 +261,44 @@ export default function DeviceCoverageSection() {
         }
         await loadCoverage(true);
       } else {
+        if (res?.requiresSetup) {
+          setShowPairInput(true);
+        }
         setDesktopActionMsg({
           text: res?.error || "Failed to start or connect to desktop agent.",
-          type: "error",
+          type: res?.requiresSetup ? "warning" : "error",
         });
       }
     } catch (err) {
+      setShowPairInput(true);
       setDesktopActionMsg({
         text: err.message || "Failed to connect to desktop agent.",
         type: "error",
       });
     } finally {
       setReconnecting(false);
+    }
+  };
+
+  const handleManualPairSubmit = async (e) => {
+    e.preventDefault();
+    const clean = manualPairCode.trim().toUpperCase();
+    if (clean.length !== 6) {
+      setPairingMsg({ text: "Enter the 6-character pairing code shown by OnuslySetup.exe or `onusly-agent pair`.", type: "error" });
+      return;
+    }
+    setManualPairing(true);
+    setPairingMsg({ text: "", type: "" });
+    try {
+      await confirmDevicePairing(clean);
+      setManualPairCode("");
+      setShowPairInput(false);
+      setPairingMsg({ text: `Device pairing confirmed for code ${clean}! Synchronizing fleet...`, type: "success" });
+      await loadCoverage(true);
+    } catch (err) {
+      setPairingMsg({ text: err.message || "Failed to confirm pairing code.", type: "error" });
+    } finally {
+      setManualPairing(false);
     }
   };
 
@@ -291,6 +324,15 @@ export default function DeviceCoverageSection() {
   const activeDevices = devicesList.filter(
     (d) => (d.status || "").toUpperCase() !== "REVOKED"
   );
+  const fleetDesktopOnline = activeDevices.some(
+    (d) =>
+      (d.clientType === "desktop_agent" || d.clientType === "desktop-agent") &&
+      d.lastHeartbeatAt &&
+      fetchedAtMs - new Date(d.lastHeartbeatAt).getTime() < 5 * 60 * 1000
+  );
+  const desktopDaemonActive =
+    (desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)) ||
+    fleetDesktopOnline;
   const allEnforcing =
     activeDevices.length > 0 &&
     activeDevices.every((d) => d.enforcing && (!d.issues || d.issues.length === 0));
@@ -324,15 +366,15 @@ export default function DeviceCoverageSection() {
               </span>
 
               {/* Desktop Daemon Status Pill */}
-              <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider ${desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
+              <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider ${desktopDaemonActive
                 ? "border-[#10b981]/30 bg-[#10b981]/10 text-[#10b981]"
                 : "border-[#26313d] bg-[#161c23] text-neutral-400"
                 }`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected)
+                <span className={`h-1.5 w-1.5 rounded-full ${desktopDaemonActive
                   ? "bg-[#10b981] animate-pulse"
                   : "bg-neutral-500"
                   }`} />
-                <span>Desktop Daemon: {desktopAgent.available && (desktopAgent.status?.enforcing || desktopAgent.status?.connected) ? "Active & Enforcing" : "Stopped / Inactive"}</span>
+                <span>Desktop Daemon: {desktopDaemonActive ? "Active & Enforcing" : "Not Connected"}</span>
               </span>
 
               {/* Machine-Wide DNS Shield Toggle Pill */}
@@ -413,6 +455,15 @@ export default function DeviceCoverageSection() {
 
           <button
             type="button"
+            onClick={() => setShowPairInput((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 rounded border border-[#26313d] bg-[#161c23] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-neutral-300 hover:text-white hover:border-[#384654] transition shadow-sm active:scale-95 shrink-0"
+            title="Pair a desktop agent using its 6-character code"
+          >
+            <span>Pair Code</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => loadCoverage(true)}
             disabled={refreshing}
             className="flex items-center justify-center rounded border border-[#26313d] bg-[#161c23] p-1.5 text-neutral-300 hover:text-white hover:border-[#384654] transition disabled:opacity-50 shrink-0"
@@ -446,6 +497,32 @@ export default function DeviceCoverageSection() {
           {pairingMsg.type === "success" ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
           <span>{pairingMsg.text}</span>
         </div>
+      )}
+
+      {showPairInput && (
+        <form
+          onSubmit={handleManualPairSubmit}
+          className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded border border-[#26313d] bg-[#0c0f14] p-3"
+        >
+          <span className="font-mono text-[11px] text-neutral-300 shrink-0">
+            Desktop 6-Char Pairing Code:
+          </span>
+          <input
+            type="text"
+            value={manualPairCode}
+            onChange={(e) => setManualPairCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+            placeholder="e.g. AB12CD"
+            maxLength={6}
+            className="w-full sm:w-40 rounded border border-[#2d3744] bg-[#161c23] px-3 py-1.5 font-mono text-xs font-bold uppercase tracking-widest text-white placeholder:text-neutral-500 focus:border-[#ff7843] focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={manualPairing || manualPairCode.trim().length !== 6}
+            className="inline-flex items-center justify-center rounded bg-[#ff7843] px-3.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-black hover:bg-[#ff8f5e] transition disabled:opacity-50"
+          >
+            {manualPairing ? "Pairing..." : "Confirm Pair"}
+          </button>
+        </form>
       )}
 
       {/* Devices List Table/Cards */}

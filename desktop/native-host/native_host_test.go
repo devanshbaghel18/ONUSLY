@@ -103,8 +103,8 @@ func TestNativeHost_SecurityActionAllowlist(t *testing.T) {
 		t.Fatalf("expected invalid json payload error, got: %+v", respMalformed)
 	}
 
-	// 2. Disallowed privileged actions must be strictly rejected
-	forbiddenActions := []string{"execute", "shell", "rm", "delete-cache", "sudo", "write-policy"}
+	// 2. Disallowed privileged actions (including DNS mutation) must be strictly rejected
+	forbiddenActions := []string{"execute", "shell", "rm", "delete-cache", "sudo", "write-policy", "dns-enable", "dns-restore"}
 	for _, action := range forbiddenActions {
 		payload, _ := json.Marshal(core.IPCRequest{Action: action})
 		resp := handleNativeFrame("dummy", payload)
@@ -113,6 +113,16 @@ func TestNativeHost_SecurityActionAllowlist(t *testing.T) {
 		}
 		if !strings.Contains(resp.Error, "unauthorized native host action") {
 			t.Fatalf("expected unauthorized action error for %q, got: %s", action, resp.Error)
+		}
+	}
+
+	// 3. Pairing and status queries pass the allowlist (and fail at unreachable IPC path, not allowlist)
+	allowedActions := []string{"ping", "get-status", "sync", "pair-request", "pair-poll"}
+	for _, action := range allowedActions {
+		payload, _ := json.Marshal(core.IPCRequest{Action: action, Code: "ABC123"})
+		resp := handleNativeFrame("non_existent_socket_xyz", payload)
+		if strings.Contains(resp.Error, "unauthorized native host action") {
+			t.Fatalf("action %q should have been allowed by native host allowlist, got: %s", action, resp.Error)
 		}
 	}
 }

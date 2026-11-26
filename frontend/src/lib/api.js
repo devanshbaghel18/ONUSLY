@@ -1,4 +1,5 @@
 import { getToken, clearAuth } from "./auth.js";
+import { sendExtensionBridgeMessage } from "./extensionBridge.js";
 
 export const API_BASE_URL =
   typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL !== undefined
@@ -476,15 +477,43 @@ export async function revokeDevice(deviceId, reason = "user_revoked") {
   });
 }
 
-export async function getDesktopAgentStatus() {
+export function isLoopbackApiOrigin() {
   try {
-    return await request("/enforcement/desktop/status", { method: "GET" });
-  } catch (err) {
-    return { available: false, error: err.message };
+    const parsed = new URL(resolveApiOrigin());
+    const h = (parsed.hostname || "").toLowerCase();
+    return h === "localhost" || h === "127.0.0.1" || h === "::1";
+  } catch {
+    return false;
   }
 }
 
+export async function getDesktopAgentStatus() {
+  // 1. Prefer local Browser Extension -> Native Messaging Host -> Desktop Agent pipe
+  const bridgeRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_STATUS", {}, 1500);
+  if (bridgeRes && bridgeRes.available) {
+    return { available: true, viaExtension: true, status: bridgeRes.status };
+  }
+
+  // 2. Only call backend /enforcement/desktop/status when running against localhost dev API
+  if (isLoopbackApiOrigin()) {
+    try {
+      return await request("/enforcement/desktop/status", { method: "GET" });
+    } catch (err) {
+      return { available: false, error: err.message };
+    }
+  }
+
+  return {
+    available: false,
+    remoteApi: true,
+    error: bridgeRes?.error || "Desktop agent not reachable via browser extension",
+  };
+}
+
 export async function toggleDesktopDNS(enabled) {
+  if (!isLoopbackApiOrigin()) {
+    throw new Error("PermissionDenied: use 1-Click Switcher (.exe) or ONUSLY Desktop CLI to toggle machine-wide DNS.");
+  }
   return request("/enforcement/desktop/dns", {
     method: "POST",
     body: JSON.stringify({ enabled }),
@@ -492,15 +521,86 @@ export async function toggleDesktopDNS(enabled) {
 }
 
 export async function syncDesktopAgent() {
-  return request("/enforcement/desktop/sync", { method: "POST" });
+  const bridgeRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_SYNC", {}, 4000);
+  if (bridgeRes?.success) {
+    return bridgeRes;
+  }
+  if (isLoopbackApiOrigin()) {
+    return request("/enforcement/desktop/sync", { method: "POST" });
+  }
+  throw new Error(bridgeRes?.error || "Desktop agent could not be reached via browser extension.");
 }
 
 export async function autoPairDesktopAgent() {
-  return request("/enforcement/desktop/pair", { method: "POST" });
+  const pairReq = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_PAIR_REQUEST", {}, 3000);
+  if (pairReq?.success && pairReq.pairCode) {
+    await confirmDevicePairing(pairReq.pairCode);
+    const pollRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_PAIR_POLL", { code: pairReq.pairCode }, 10000);
+    if (pollRes?.success) {
+      return {
+        success: true,
+        message: "Desktop agent successfully paired and synchronized!",
+        status: pollRes.status,
+      };
+    }
+  }
+  if (isLoopbackApiOrigin()) {
+    return request("/enforcement/desktop/pair", { method: "POST" });
+  }
+  throw new Error(pairReq?.error || "Install OnuslySetup.exe or run `onusly-agent pair` and enter the 6-character code.");
 }
 
 export async function reconnectDesktopAgent() {
-  return request("/enforcement/desktop/reconnect", { method: "POST" });
+  // 1. Try syncing / checking existing agent via Browser Extension -> Native Host -> IPC
+  const syncRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_SYNC", {}, 4000);
+  if (syncRes?.success) {
+    return {
+      success: true,
+      message: "Desktop agent connected and synchronized via browser extension!",
+      status: syncRes.status,
+    };
+  }
+
+  const statusRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_STATUS", {}, 1500);
+  if (statusRes?.available && statusRes?.status?.connected) {
+    return {
+      success: true,
+      message: "Desktop agent is active and enforcing!",
+      status: statusRes.status,
+    };
+  }
+
+  // 2. If native host reached an unpaired agent, complete 1-click pairing from the browser session
+  const pairReq = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_PAIR_REQUEST", {}, 3000);
+  if (pairReq?.success && pairReq.pairCode) {
+    await confirmDevicePairing(pairReq.pairCode);
+    const pollRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_PAIR_POLL", { code: pairReq.pairCode }, 10000);
+    if (pollRes?.success) {
+      await sendExtensionBridgeMessage("ONUSLY_DESKTOP_SYNC", {}, 3000);
+      return {
+        success: true,
+        message: "Desktop agent successfully paired and synchronized!",
+        status: pollRes.status,
+      };
+    }
+    return {
+      success: false,
+      requiresSetup: true,
+      error: pollRes?.error || "Pairing confirmation sent, but desktop agent did not finalize. Retry or use 6-char pairing code.",
+    };
+  }
+
+  // 3. Local dev server fallback (only on localhost)
+  if (isLoopbackApiOrigin()) {
+    return request("/enforcement/desktop/reconnect", { method: "POST" });
+  }
+
+  return {
+    success: false,
+    requiresSetup: true,
+    error:
+      "Could not reach a running local Desktop Agent via browser native messaging. Ensure ONUSLY Desktop is running (or install OnuslySetup.exe), then pair with its 6-character code below.",
+  };
 }
 
 export async function getWellbeingSummary({ range = "today", deviceId = "" } = {}) {

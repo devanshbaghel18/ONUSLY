@@ -25,7 +25,17 @@ import (
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
 )
 
-var defaultAPIURL = "https://api.onusly.com"
+var (
+	defaultAPIURL       = "https://api.onusly.com"
+	defaultDashboardURL = "https://onusly.duckdns.org"
+)
+
+func getDashboardURL() string {
+	if u := strings.TrimSpace(os.Getenv("ONUSLY_DASHBOARD_URL")); u != "" {
+		return strings.TrimRight(u, "/")
+	}
+	return strings.TrimRight(defaultDashboardURL, "/")
+}
 
 func main() {
 	initAPI := strings.TrimSpace(os.Getenv("ONUSLY_API_URL"))
@@ -240,7 +250,7 @@ func runPairing(
 		}
 		fmt.Println("-------------------------------------------------------")
 		fmt.Println("Enter this 6-character code in your ONUSLY Dashboard:")
-		fmt.Println("👉 http://localhost:5173 (under Active Device Coverage)")
+		fmt.Printf("👉 %s/dashboard (under Active Device Coverage)\n", getDashboardURL())
 		fmt.Println("Waiting for confirmation from service...")
 
 		pollResp, errPoll := ipc.Query(ipcPath, core.IPCRequest{Action: "pair-poll", Code: reqResp.PairCode}, 4*time.Minute)
@@ -310,7 +320,7 @@ func runPairing(
 	fmt.Printf("Expires in:   %s\n", time.Until(time.Unix(expiresAt, 0)).Round(time.Second))
 	fmt.Println("-------------------------------------------------------")
 	fmt.Println("Enter this 6-character code in your ONUSLY Dashboard:")
-	fmt.Println("👉 http://localhost:5173 (under Active Device Coverage)")
+	fmt.Printf("👉 %s/dashboard (under Active Device Coverage)\n", getDashboardURL())
 	fmt.Println("Waiting for confirmation...")
 
 	token, err := client.PollForToken(ctx, apiURL, code, 5*time.Minute)

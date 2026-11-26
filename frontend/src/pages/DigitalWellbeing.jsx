@@ -60,7 +60,7 @@ export default function DigitalWellbeing() {
   const [schedName, setSchedName] = useState("Wind-Down Focus Hours");
   const [schedStart, setSchedStart] = useState("23:00");
   const [schedEnd, setSchedEnd] = useState("07:00");
-  const [schedDomainsText, setSchedDomainsText] = useState("instagram.com, youtube.com, reddit.com, x.com");
+  const [schedDomainsText, setSchedDomainsText] = useState("");
   const [schedAppsText, setSchedAppsText] = useState("");
   const [savingSched, setSavingSched] = useState(false);
   const [schedSavedNotice, setSchedSavedNotice] = useState("");

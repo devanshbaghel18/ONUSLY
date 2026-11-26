@@ -82,6 +82,10 @@ func (pm *PolicyManager) UpdateFromBlocklist(data *core.BlocklistData) (*PolicyS
 		}
 
 		for _, d := range target.Domains {
+			if IsPathScopedShortsRule(d) {
+				// Path-level YouTube Shorts rules must be enforced in the browser extension, not full-domain DNS.
+				continue
+			}
 			cleanDomain := NormalizeDomain(d)
 			if cleanDomain == "" || IsProtectedDomain(cleanDomain) {
 				continue
@@ -149,4 +153,3 @@ func (pm *PolicyManager) CheckBlocked(hostname string) (blocked bool, rule Block
 
 	return false, BlockedRule{}
 }
-

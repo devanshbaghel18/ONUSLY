@@ -496,6 +496,117 @@ export async function syncFromDesktopAgent(action = "get-blocklist") {
 }
 
 /**
+ * Sends a structured IPC query to the ONUSLY Desktop Native Host ("com.onusly.desktop_agent").
+ * Compatible with both Firefox WebExtension Promises and Chromium callback APIs.
+ *
+ * @param {object} payload
+ * @returns {Promise<object>}
+ */
+export async function queryDesktopNativeHost(payload) {
+  if (globalThis.browser?.runtime?.sendNativeMessage) {
+    try {
+      const resp = await globalThis.browser.runtime.sendNativeMessage("com.onusly.desktop_agent", payload);
+      return resp || { success: false, error: "Empty response from desktop native host" };
+    } catch (err) {
+      return { success: false, error: err?.message || "Failed to contact desktop native host" };
+    }
+  }
+
+  if (globalThis.chrome?.runtime?.sendNativeMessage) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendNativeMessage("com.onusly.desktop_agent", payload, (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+          resolve(response || { success: false, error: "Empty response from desktop native host" });
+        });
+      } catch (err) {
+        resolve({ success: false, error: err?.message || "Failed to contact desktop native host" });
+      }
+    });
+  }
+
+  return { success: false, error: "Native messaging unsupported" };
+}
+
+export async function processDesktopStatus() {
+  const resp = await queryDesktopNativeHost({ action: "get-status" });
+  if (resp?.success) {
+    return {
+      success: true,
+      available: true,
+      status: resp.status || null,
+    };
+  }
+  return {
+    success: false,
+    available: false,
+    error: resp?.error || "Desktop agent unreachable",
+  };
+}
+
+export async function processDesktopSync() {
+  const resp = await queryDesktopNativeHost({ action: "sync" });
+  if (resp?.success) {
+    if (resp.blocklist) {
+      await storage.setManagedMode(true).catch(() => {});
+      await storage.saveBlocklistCache(resp.blocklist, resp.blocklist.userId || "managed-user").catch(() => {});
+      await enforceOnOpenTabs().catch(() => {});
+    }
+    return {
+      success: true,
+      available: true,
+      status: resp.status || null,
+      blocklist: resp.blocklist || null,
+    };
+  }
+  return {
+    success: false,
+    available: false,
+    status: resp?.status || null,
+    error: resp?.error || "Desktop agent sync failed",
+  };
+}
+
+export async function processDesktopPairRequest() {
+  const resp = await queryDesktopNativeHost({ action: "pair-request" });
+  if (resp?.success && resp?.pairCode) {
+    return {
+      success: true,
+      pairCode: resp.pairCode,
+      expiresAt: resp.expiresAt || null,
+    };
+  }
+  return {
+    success: false,
+    error: resp?.error || "Desktop agent pairing request failed",
+  };
+}
+
+export async function processDesktopPairPoll(code) {
+  const cleanCode = typeof code === "string" ? code.trim().toUpperCase() : "";
+  if (!cleanCode) {
+    return { success: false, error: "Missing pairing code" };
+  }
+  const resp = await queryDesktopNativeHost({ action: "pair-poll", code: cleanCode });
+  if (resp?.success) {
+    await storage.setManagedMode(true).catch(() => {});
+    return {
+      success: true,
+      paired: true,
+      status: resp.status || null,
+    };
+  }
+  return {
+    success: false,
+    paired: false,
+    error: resp?.error || "Desktop agent pairing poll failed",
+  };
+}
+
+/**
  * Pairs the browser extension with the OS desktop agent over Native Messaging.
  * Sends authorization credentials and extension ID to establish bidirectional enforcement.
  *
@@ -595,6 +706,26 @@ if (globalThis.chrome?.runtime?.onMessageExternal) {
         return;
       }
 
+      if (message.type === "ONUSLY_DESKTOP_STATUS") {
+        sendResponse(await processDesktopStatus());
+        return;
+      }
+
+      if (message.type === "ONUSLY_DESKTOP_SYNC") {
+        sendResponse(await processDesktopSync());
+        return;
+      }
+
+      if (message.type === "ONUSLY_DESKTOP_PAIR_REQUEST") {
+        sendResponse(await processDesktopPairRequest());
+        return;
+      }
+
+      if (message.type === "ONUSLY_DESKTOP_PAIR_POLL") {
+        sendResponse(await processDesktopPairPoll(message.code));
+        return;
+      }
+
       sendResponse({ success: false, error: "Unknown message type" });
     })();
 
@@ -616,7 +747,11 @@ if (globalThis.chrome?.runtime?.onMessage) {
         message.type === "ONUSLY_PING" ||
         message.type === "ONUSLY_AUTH_HANDOFF" ||
         message.type === "ONUSLY_DISCONNECT" ||
-        message.type === "ONUSLY_SYNC"
+        message.type === "ONUSLY_SYNC" ||
+        message.type === "ONUSLY_DESKTOP_STATUS" ||
+        message.type === "ONUSLY_DESKTOP_SYNC" ||
+        message.type === "ONUSLY_DESKTOP_PAIR_REQUEST" ||
+        message.type === "ONUSLY_DESKTOP_PAIR_POLL"
       ) {
         if (!isAuthorizedOrigin(sender)) {
           sendResponse({ success: false, error: "Unauthorized sender origin" });
@@ -641,6 +776,26 @@ if (globalThis.chrome?.runtime?.onMessage) {
 
       if (message.type === "ONUSLY_SYNC") {
         sendResponse(await processSync());
+        return;
+      }
+
+      if (message.type === "ONUSLY_DESKTOP_STATUS") {
+        sendResponse(await processDesktopStatus());
+        return;
+      }
+
+      if (message.type === "ONUSLY_DESKTOP_SYNC") {
+        sendResponse(await processDesktopSync());
+        return;
+      }
+
+      if (message.type === "ONUSLY_DESKTOP_PAIR_REQUEST") {
+        sendResponse(await processDesktopPairRequest());
+        return;
+      }
+
+      if (message.type === "ONUSLY_DESKTOP_PAIR_POLL") {
+        sendResponse(await processDesktopPairPoll(message.code));
         return;
       }
 

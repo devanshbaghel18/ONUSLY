@@ -21,9 +21,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
 function CreateGoalModalInner({ onClose, onGoalCreated, initialCustomTarget = null }) {
   const [taskDescription, setTaskDescription] = useState("");
   const [taskDetails, setTaskDetails] = useState("");
-  const [selectedCatalogIds, setSelectedCatalogIds] = useState(() =>
-    initialCustomTarget && initialCustomTarget.value ? [] : ["instagram", "twitter"]
-  );
+  const [selectedCatalogIds, setSelectedCatalogIds] = useState([]);
   const [customTargets, setCustomTargets] = useState(() =>
     initialCustomTarget && initialCustomTarget.value ? [initialCustomTarget] : []
   );

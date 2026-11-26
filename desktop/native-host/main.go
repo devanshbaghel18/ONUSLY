@@ -25,7 +25,7 @@ func handleNativeFrame(ipcPath string, msgBuf []byte) core.IPCResponse {
 	// Strict Action Allowlist: Native messaging host only permits safe, read-only/status/pairing queries.
 	// Privileged DNS mutations or arbitrary commands are strictly rejected from the browser bridge.
 	switch req.Action {
-	case "get-blocklist", "sync", "status", "get-status", "version", "heartbeat", "dns-status", "pair-request":
+	case "get-blocklist", "sync", "status", "get-status", "version", "heartbeat", "dns-status", "pair-request", "pair-poll", "ping":
 		// Permitted actions
 	default:
 		return core.IPCResponse{
