@@ -290,6 +290,8 @@ func main() {
 			w.Header().Set("Content-Type", "application/x-chrome-extension")
 		} else if strings.HasSuffix(cleanPath, ".xml") {
 			w.Header().Set("Content-Type", "application/xml")
+		} else if strings.HasSuffix(cleanPath, ".apk") {
+			w.Header().Set("Content-Type", "application/vnd.android.package-archive")
 		}
 		fileServer.ServeHTTP(w, r)
 	}))

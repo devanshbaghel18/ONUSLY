@@ -10,6 +10,10 @@ server.log
 .agents/
 skills-lock.json
 *.exe
+*.apk
+*.aab
+*.jks
+*.keystore
 .kotlin/
 .gradle/
 build/

@@ -401,6 +401,16 @@ export default function DeviceCoverageSection() {
             <span>1-Click Switcher (.exe)</span>
           </a>
 
+          <a
+            href="/downloads/onusly.apk"
+            download="onusly.apk"
+            className="inline-flex items-center gap-1.5 rounded border border-[#26313d] bg-[#161c23] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-neutral-300 hover:text-white hover:border-[#384654] transition shadow-sm active:scale-95 shrink-0"
+            title="Download ONUSLY for Android (.apk)"
+          >
+            <Download size={12} />
+            <span>Android (.apk)</span>
+          </a>
+
           <button
             type="button"
             onClick={() => loadCoverage(true)}

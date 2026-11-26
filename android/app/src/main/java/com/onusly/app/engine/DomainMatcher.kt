@@ -109,7 +109,8 @@ object DomainMatcher {
         }
 
         if (d == "onusly.com" || d.endsWith(".onusly.com") ||
-            d == "onusly.app" || d.endsWith(".onusly.app")
+            d == "onusly.app" || d.endsWith(".onusly.app") ||
+            d == "onusly.duckdns.org"
         ) {
             return true
         }

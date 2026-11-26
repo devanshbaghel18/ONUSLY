@@ -22,7 +22,7 @@ class SyncRepository(
 
     companion object {
         const val EMULATOR_BASE_URL = "http://10.0.2.2:8080"
-        const val PRODUCTION_BASE_URL = "https://api.onusly.com"
+        const val PRODUCTION_BASE_URL = "https://onusly.duckdns.org"
         @JvmField
         val DEFAULT_BASE_URL: String = if (com.onusly.app.BuildConfig.DEBUG) {
             EMULATOR_BASE_URL

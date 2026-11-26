@@ -47,15 +47,15 @@ android {
         val googleClientId = getGoogleClientId()
         buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"$googleClientId\"")
         val releaseApiUrl = System.getenv("ONUSLY_API_BASE_URL")?.takeIf { it.isNotBlank() }
-            ?: "https://api.onusly.com"
+            ?: "https://onusly.duckdns.org"
         buildConfigField("String", "API_BASE_URL", "\"$releaseApiUrl\"")
     }
 
     signingConfigs {
         val keystorePath = System.getenv("ONUSLY_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
-        if (keystorePath != null && rootProject.file(keystorePath).exists()) {
+        if (keystorePath != null && file(keystorePath).exists()) {
             create("release") {
-                storeFile = rootProject.file(keystorePath)
+                storeFile = file(keystorePath)
                 storePassword = System.getenv("ONUSLY_KEYSTORE_PASSWORD") ?: ""
                 keyAlias = System.getenv("ONUSLY_KEY_ALIAS") ?: ""
                 keyPassword = System.getenv("ONUSLY_KEY_PASSWORD") ?: ""
