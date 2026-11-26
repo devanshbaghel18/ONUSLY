@@ -1,3 +1,4 @@
+import Brand from "./Brand";
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -51,7 +52,7 @@ export default function Sidebar({ isOpen, onClose }) {
 
   const navItems = [
     {
-      name: "Dashboard",
+      name: "Lock desk",
       path: "/dashboard",
       icon: LayoutDashboard,
     },
@@ -61,18 +62,18 @@ export default function Sidebar({ isOpen, onClose }) {
       icon: Activity,
     },
     {
-      name: "My Goals",
+      name: "My goals",
       path: "/goals",
       icon: Target,
     },
     {
-      name: "Approval Center",
+      name: "Review inbox",
       path: "/approvals",
       icon: CheckSquare,
       badge: pendingCount,
     },
     {
-      name: "Community & Friends",
+      name: "Conversations",
       path: "/community-friends",
       icon: Users,
     },
@@ -90,6 +91,8 @@ export default function Sidebar({ isOpen, onClose }) {
 
       {/* Hamburger Drawer */}
       <aside
+        inert={!isOpen}
+        aria-label="Workspace navigation"
         className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col justify-between border-r border-white/10 bg-[#0E0E12]/95 backdrop-blur-2xl p-5 shadow-2xl transition-transform duration-300 ease-in-out ${isOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
@@ -101,15 +104,12 @@ export default function Sidebar({ isOpen, onClose }) {
               className="flex items-center pl-1"
               onClick={onClose}
             >
-              <img
-                src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
-                alt="ONUSLY"
-                className="h-6 w-auto object-contain"
-              />
+              <Brand />
             </Link>
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close navigation menu"
               className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-neutral-400 transition-colors hover:border-white hover:text-white"
             >
               <X size={18} />

@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
-  FileText,
   Image,
   ExternalLink,
   ShieldCheck,
@@ -14,25 +13,10 @@ import {
   Copy,
   Check,
 } from "lucide-react";
-import { API_BASE_URL } from "../../lib/api";
+import { resolveApiUrl } from "../../lib/api";
 
 function resolveMediaUrl(rawUrl) {
-  if (!rawUrl) return "";
-  if (
-    rawUrl.startsWith("data:") ||
-    rawUrl.startsWith("blob:") ||
-    rawUrl.startsWith("http://") ||
-    rawUrl.startsWith("https://")
-  ) {
-    return rawUrl;
-  }
-  const cleanBase = (
-    API_BASE_URL ||
-    (typeof window !== "undefined" && window.location
-      ? `${window.location.protocol}//${window.location.hostname}:8080`
-      : "http://localhost:8080")
-  ).replace(/\/+$/, "");
-  return `${cleanBase}${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`;
+  return resolveApiUrl(rawUrl);
 }
 
 function formatRelativeTime(dateString) {
@@ -63,9 +47,7 @@ function formatRelativeTime(dateString) {
 export default function SubmissionTimeline({
   attempts = [],
   auditLog = [],
-  accountabilityMetrics = null,
   onSelectProof = null,
-  isOwner = false,
   approverEmail = "",
 }) {
   const [copiedReceiptId, setCopiedReceiptId] = useState("");

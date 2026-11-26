@@ -29,6 +29,7 @@ import {
   RotateCcw,
   Compass,
   UserCheck,
+  Target,
 } from "lucide-react";
 import {
   getStoredCommunities,
@@ -1121,7 +1122,7 @@ export default function Communities() {
           code: c.code || "",
           lastMessage: lastMsg
             ? lastMsg.isProof
-              ? `📸 Proof: ${lastMsg.goalTitle || "Goal"}`
+              ? `[Proof] ${lastMsg.goalTitle || "Goal"}`
               : lastMsg.text
             : c.description || "Community group chat",
           lastMessageTime: lastMsg?.time || "",
@@ -1673,14 +1674,14 @@ export default function Communities() {
         }`}
       >
         <div
-          className={`relative max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 text-xs transition-all duration-300 ${
+          className={`relative max-w-[80%] sm:max-w-[70%] rounded-lg px-4 py-3 text-xs transition-all duration-300 ${
             isHighlighted
-              ? "ring-1 ring-white/40 shadow-[0_0_24px_rgba(255,255,255,0.2)] scale-[1.02] bg-white/10"
+              ? "ring-1 ring-[#ff7843] shadow-[0_0_24px_rgba(255,120,67,0.25)] scale-[1.01] bg-[#1e2732]"
               : ""
           } ${
             isMe
-              ? "bg-white text-black font-medium"
-              : "border border-[#333333] bg-[#1E1E1E] text-white"
+              ? "bg-[#1a222a] border border-[#2e3b4a] border-t-[#3f5062] text-[#f2eee7] shadow-sm"
+              : "border border-[#232c36] border-t-[#2d3946] bg-[#12161c] text-[#e0ded6] shadow-sm"
           }`}
         >
           {/* Sender badge for peers */}
@@ -1688,7 +1689,7 @@ export default function Communities() {
             <div className="mb-1 flex items-center gap-1.5 font-bold text-[11px] text-white">
               <span>{msg.senderName || "Member"}</span>
               {msg.senderHandle && (
-                <span className="font-mono text-[10px] text-[#A3A3A3]">
+                <span className="font-mono text-[10px] text-neutral-400">
                   @{msg.senderHandle.replace(/^@/, "")}
                 </span>
               )}
@@ -1704,10 +1705,10 @@ export default function Communities() {
                   onJumpToMessage(msg.replyTo.id);
                 }
               }}
-              className={`mb-2 rounded-lg border-l-4 p-2 text-[11px] select-none cursor-pointer transition-all hover:opacity-90 active:scale-[0.98] ${
+              className={`mb-2 rounded border-l-2 p-2 text-[11px] select-none cursor-pointer transition-all ${
                 isMe
-                  ? "border-black/40 bg-black/10 hover:bg-black/15 text-neutral-900"
-                  : "border-white/40 bg-white/10 hover:bg-white/15 text-neutral-200"
+                  ? "border-l-[#ff7843] bg-[#11161d] text-neutral-300 hover:bg-[#141a22]"
+                  : "border-l-[#384656] bg-[#0c0f13] text-neutral-300 hover:bg-[#0f1318]"
               }`}
               title="Click to jump to quoted message"
             >
@@ -1724,57 +1725,42 @@ export default function Communities() {
 
           {/* Goal Verification Card */}
           {isVerification && (
-            <div
-              className={`mb-2 rounded-xl p-3 ${
-                isMe
-                  ? "border border-black/15 bg-black/5"
-                  : "border border-white/15 bg-white/5"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 border-b border-current/15 pb-2 mb-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-white">
-                  <ShieldCheck size={14} />
-                  <span>Goal Verification</span>
+            <div className="mb-2 rounded border border-[#ff7843]/30 bg-[#141920] p-3 text-neutral-200 shadow-md">
+              <div className="flex items-center justify-between gap-2 border-b border-[#2d3744] pb-2 mb-2">
+                <div className="flex items-center gap-1.5 text-[11px] font-mono font-bold uppercase tracking-wider text-[#ff9769]">
+                  <ShieldCheck size={14} className="text-[#ff7843]" />
+                  <span>GOAL VERIFICATION REQUEST</span>
                 </div>
                 <div className="flex items-center gap-2">
                   {msg.approved ? (
-                    <span className="flex items-center gap-1 text-[11px] font-bold text-white">
-                      <CheckCircle2 size={13} />
-                      <span>Approved</span>
+                    <span className="flex items-center gap-1 text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
+                      <CheckCircle2 size={12} />
+                      <span>RELEASED</span>
                     </span>
                   ) : (
-                    <span className="text-[10px] text-neutral-300 font-semibold bg-white/10 px-2 py-0.5 rounded-full border border-white/20">
-                      Pending
+                    <span className="text-[10px] text-amber-300 font-mono font-bold uppercase bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                      PENDING WITNESS
                     </span>
                   )}
                   {msg.goalId && (
                     <Link
                       to={`/goals/${msg.goalId}${msg.ownerId ? `?ownerId=${msg.ownerId}` : ""}`}
-                      className={`flex items-center gap-1 text-[11px] font-bold underline hover:opacity-80 ${
-                        isMe ? "text-black" : "text-white"
-                      }`}
+                      className="flex items-center gap-1 text-[11px] font-mono font-bold text-neutral-300 hover:text-white underline"
                     >
-                      <span>Details</span>
+                      <span>DETAILS</span>
                       <ExternalLink size={11} />
                     </Link>
                   )}
                 </div>
               </div>
               {displayGoalTitle && (
-                <h4
-                  className={`text-xs font-bold mb-1 ${
-                    isMe ? "text-black" : "text-white"
-                  }`}
-                >
-                  🎯 {displayGoalTitle}
-                </h4>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-white mb-1">
+                  <Target size={13} className="text-[#ff7843] shrink-0" />
+                  <span>{displayGoalTitle}</span>
+                </div>
               )}
               {msg.text && (
-                <p
-                  className={`text-xs leading-relaxed mb-2 ${
-                    isMe ? "text-neutral-800" : "text-neutral-200"
-                  }`}
-                >
+                <p className="text-xs leading-relaxed mb-2 text-neutral-200">
                   {msg.text}
                 </p>
               )}
@@ -1801,18 +1787,14 @@ export default function Communities() {
                       download={f.name || `file-${i}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs transition max-w-sm ${
-                        isMe
-                          ? "border border-black/15 bg-black/5 hover:bg-black/10 text-neutral-900"
-                          : "border border-white/10 bg-white/5 hover:bg-white/10 text-white"
-                      }`}
+                      className="flex items-center gap-2.5 rounded border border-[#2b3644] bg-[#10141a] p-2.5 text-xs text-white transition hover:bg-[#161c24] max-w-sm"
                     >
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white border border-white/20 shrink-0">
+                      <div className="flex h-8 w-8 items-center justify-center rounded bg-[#182028] text-white border border-[#2b3644] shrink-0">
                         <FileText size={16} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold truncate text-[11px]">{f.name || "Attached File"}</p>
-                        <span className="text-[10px] opacity-70">Click to view / download</span>
+                        <span className="text-[10px] text-neutral-400">Click to view / download</span>
                       </div>
                     </a>
                   ))}
@@ -1821,16 +1803,16 @@ export default function Communities() {
 
               {/* If approved, show banner. If not approved and not me, show Approve button */}
               {msg.approved ? (
-                <div className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm">
+                <div className="mt-2.5 flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-mono font-bold text-emerald-400 shadow-sm">
                   <CheckCircle2 size={14} />
-                  <span>Verified & Unlocked! Apps are released.</span>
+                  <span>VERIFIED & UNLOCKED // TARGET RESTRICTIONS RELEASED</span>
                 </div>
               ) : !isMe ? (
                 <button
                   type="button"
                   disabled={approvingMsgId === msg.id}
                   onClick={() => handleApproveChatProof({ ...msg, goalTitle: displayGoalTitle })}
-                  className="btn-glow mt-2.5 flex items-center gap-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black px-3.5 py-1.5 text-[11px] font-bold transition disabled:opacity-50 shadow-sm"
+                  className="mt-2.5 flex items-center gap-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3.5 py-1.5 text-xs transition disabled:opacity-50 shadow-md shadow-emerald-950/40"
                 >
                   {approvingMsgId === msg.id ? (
                     <Loader2 size={13} className="animate-spin" />
@@ -1840,9 +1822,9 @@ export default function Communities() {
                   <span>Approve & Unlock Goal</span>
                 </button>
               ) : (
-                <div className="mt-2 flex items-center gap-1.5 text-[10px] text-neutral-400">
+                <div className="mt-2 flex items-center gap-1.5 text-[10px] font-mono text-neutral-400">
                   <span className="h-1.5 w-1.5 rounded-full bg-neutral-400 animate-pulse" />
-                  <span>Awaiting partner review & verification</span>
+                  <span>AWAITING PARTNER REVIEW & VERIFICATION</span>
                 </div>
               )}
             </div>
@@ -1912,7 +1894,7 @@ export default function Communities() {
                 onReply &&
                 onReply({
                   id: msg.id,
-                  text: (isVerification && displayGoalTitle ? `🎯 Goal: ${displayGoalTitle}` : "") || msg.text || (msg.images?.length ? "📸 Photo attachment" : "📎 Attachment"),
+                  text: (isVerification && displayGoalTitle ? `Goal: ${displayGoalTitle}` : "") || msg.text || (msg.images?.length ? "[Image Attachment]" : "[Attachment]"),
                   senderName: msg.senderName || (isMe ? "You" : (activeFriend?.name || "Member")),
                   sender: msg.sender,
                 })
@@ -1962,32 +1944,32 @@ export default function Communities() {
     }
 
     return (
-      <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden bg-[#121212]">
+      <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden bg-[#0e1216]">
         {/* Integrated Community Chat Header */}
-        <div className="shrink-0 flex flex-col gap-3 border-b border-[#2A2A2A] bg-[#181818] p-3 sm:p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="shrink-0 flex flex-col gap-3 border-b border-[#26313d] bg-[#11151a] p-3 sm:px-4 sm:py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setSelectedCommunity(null)}
-              className="rounded-xl border border-[#333333] bg-[#141414] p-2 text-white hover:border-white transition"
+              className="rounded border border-[#2b3542] bg-[#161c23] p-1.5 text-neutral-300 hover:text-white hover:border-[#3d4c5e] transition"
               title="Back to all chats"
             >
-              <ArrowLeft size={16} />
+              <ArrowLeft size={15} />
             </button>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
                   <span>{selectedCommunity.name}</span>
                   {selectedCommunity.isFavorite && (
-                    <Star size={15} className="fill-white text-white shrink-0" title="Favorited Community" />
+                    <Star size={13} className="fill-[#ff7843] text-[#ff7843] shrink-0" title="Favorited Community" />
                   )}
                 </h2>
-                <span className="rounded-full border border-[#444444] px-2 py-0.5 text-[10px] uppercase font-bold text-[#A3A3A3]">
+                <span className="rounded border border-[#2d3a49] bg-[#161d26] px-2 py-0.5 text-[9px] font-mono uppercase font-bold text-[#ff7843]">
                   {selectedCommunity.category}
                 </span>
               </div>
-              <p className="text-xs text-[#A3A3A3] mt-0.5">
-                {selectedCommunity.membersCount || 1} Members • {selectedCommunity.requiredApprovals || 2} Approvals Required
+              <p className="text-[11px] font-mono text-neutral-400 mt-0.5">
+                {selectedCommunity.membersCount || 1} MEMBERS • {selectedCommunity.requiredApprovals || 2} WITNESS APPROVALS REQ.
               </p>
             </div>
           </div>
@@ -1996,11 +1978,11 @@ export default function Communities() {
             <button
               type="button"
               onClick={() => handleCopyCode(selectedCommunity.code)}
-              className="flex items-center gap-1.5 rounded-xl border border-[#333333] bg-[#222222] px-3 py-1.5 text-xs font-semibold text-white hover:border-white transition"
+              className="flex items-center gap-1.5 rounded border border-[#2b3542] bg-[#161c23] px-2.5 py-1 text-xs font-mono font-semibold text-neutral-300 hover:border-[#3d4c5e] hover:text-white transition"
               title="Share Invite Code"
             >
-              <Copy size={13} />
-              {copiedCode ? "Copied" : selectedCommunity.code}
+              <Copy size={12} />
+              <span>{copiedCode ? "COPIED" : `CODE: ${selectedCommunity.code}`}</span>
             </button>
 
             {/* WhatsApp-style 3-Dot Menu */}
@@ -2008,21 +1990,21 @@ export default function Communities() {
               <button
                 type="button"
                 onClick={() => setShowCommMenu((prev) => !prev)}
-                className="rounded-xl border border-[#333333] bg-[#222222] p-2 text-neutral-300 hover:text-white hover:border-white transition"
+                className="rounded border border-[#2b3542] bg-[#161c23] p-1.5 text-neutral-300 hover:text-white hover:border-[#3d4c5e] transition"
                 title="More options"
               >
-                <MoreVertical size={16} />
+                <MoreVertical size={15} />
               </button>
 
               {showCommMenu && (
-                <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#333333] bg-[#1E1E1E] py-1 shadow-2xl z-40 backdrop-blur-md">
+                <div className="absolute right-0 top-full mt-1.5 w-48 rounded-lg border border-[#2d3744] bg-[#141920] py-1 shadow-2xl z-40 backdrop-blur-md">
                   <button
                     type="button"
                     onClick={handleToggleFavoriteActiveCommunity}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                    className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-neutral-200 hover:bg-[#1d252f] hover:text-white text-left transition"
                   >
-                    <Star size={14} className={selectedCommunity.isFavorite ? "fill-white text-white" : "text-neutral-400"} />
-                    <span>{selectedCommunity.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
+                    <Star size={13} className={selectedCommunity.isFavorite ? "fill-[#ff7843] text-[#ff7843]" : "text-neutral-400"} />
+                    <span>{selectedCommunity.isFavorite ? "Remove Star" : "Add to Favorites"}</span>
                   </button>
                   <button
                     type="button"
@@ -2030,23 +2012,23 @@ export default function Communities() {
                       setShowCommMenu(false);
                       setClearChatModal({ isOpen: true, type: "community", targetName: selectedCommunity.name });
                     }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                    className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-neutral-200 hover:bg-[#1d252f] hover:text-white text-left transition"
                   >
-                    <RotateCcw size={14} className="text-neutral-400" />
+                    <RotateCcw size={13} className="text-neutral-400" />
                     <span>Clear Chat</span>
                   </button>
                   {selectedCommunity.joined && (
                     <>
-                      <div className="my-1 border-t border-[#333333]" />
+                      <div className="my-1 border-t border-[#232c36]" />
                       <button
                         type="button"
                         onClick={() => {
                           setShowCommMenu(false);
                           setCommToLeave(selectedCommunity);
                         }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-neutral-200 hover:bg-[#1d252f] hover:text-white text-left transition"
                       >
-                        <ArrowLeft size={14} className="text-neutral-400" />
+                        <ArrowLeft size={13} className="text-neutral-400" />
                         <span>Leave Community</span>
                       </button>
                       <button
@@ -2055,9 +2037,9 @@ export default function Communities() {
                           setShowCommMenu(false);
                           setCommToDelete(selectedCommunity);
                         }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-300 hover:bg-white/10 hover:text-white text-left transition"
+                        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10 text-left transition"
                       >
-                        <Trash2 size={14} className="text-neutral-400" />
+                        <Trash2 size={13} className="text-rose-400" />
                         <span>Delete Community</span>
                       </button>
                     </>
@@ -2069,12 +2051,12 @@ export default function Communities() {
         </div>
 
         {/* Community Description Banner */}
-        <div className="shrink-0 border-b border-[#222222] bg-[#161616] px-5 py-2.5 flex items-center justify-between text-xs text-[#A3A3A3]">
-          <span className="truncate max-w-xl">
-            📌 {selectedCommunity.description}
+        <div className="shrink-0 border-b border-[#202933] bg-[#0c0f13] px-4 py-2 flex items-center justify-between text-xs text-neutral-400">
+          <span className="truncate max-w-xl font-mono text-[11px]">
+            {selectedCommunity.description}
           </span>
-          <span className="font-mono text-[11px] text-[#737373]">
-            Code: {selectedCommunity.code}
+          <span className="font-mono text-[10px] text-neutral-500 uppercase shrink-0 ml-2">
+            CHANNEL // {selectedCommunity.code}
           </span>
         </div>
 
@@ -2085,14 +2067,14 @@ export default function Communities() {
             const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
             isCommAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
           }}
-          className="flex-1 min-h-0 space-y-3 overflow-y-auto no-scrollbar p-4 overscroll-contain"
+          className="flex-1 min-h-0 space-y-3 overflow-y-auto no-scrollbar p-4 overscroll-contain bg-[#0e1216]"
         >
           {commChatMessages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center py-16 text-center">
-              <Users size={36} className="text-[#444444] mb-2" />
-              <p className="text-xs font-semibold text-white">Community Chat Active</p>
-              <p className="mt-1 text-xs text-[#737373] max-w-sm">
-                Share messages, photos, or files with your community using the 📎 icon.
+              <Users size={32} className="text-neutral-600 mb-2" />
+              <p className="text-xs font-semibold text-white">Channel Standby</p>
+              <p className="mt-1 text-xs font-mono text-neutral-400 max-w-sm">
+                Broadcast proof, verified telemetry, or messages to the cluster using the attachment trigger.
               </p>
             </div>
           ) : (
@@ -2129,31 +2111,31 @@ export default function Communities() {
         {/* Community Chat Input */}
         <form
           onSubmit={handleSendCommMessage}
-          className="shrink-0 sticky bottom-0 z-20 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
+          className="shrink-0 sticky bottom-0 z-20 flex items-center gap-2 border-t border-[#26313d] bg-[#11151a] p-3"
         >
           <button
             type="button"
             onClick={() => openAttachModal("community")}
             title="Attach photos, files or links"
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-[#A3A3A3] hover:border-white hover:text-white hover:bg-[#2C2C2C] transition"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-[#2b3542] bg-[#161c23] text-neutral-400 hover:border-[#ff7843]/50 hover:text-white transition"
           >
-            <Paperclip size={18} />
+            <Paperclip size={15} />
           </button>
 
           <input
             type="text"
-            placeholder="Type a message to community..."
+            placeholder="Broadcast telemetry to channel..."
             value={commMessageInput}
             onChange={(e) => setCommMessageInput(e.target.value)}
-            className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-4 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+            className="flex-1 rounded border border-[#26313d] bg-[#0a0d10] px-3.5 py-2 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
           />
 
           <button
             type="submit"
             disabled={!commMessageInput.trim()}
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-[#ff7843]/40 bg-[#ff7843] text-black transition-all hover:bg-[#ff956b] disabled:opacity-30 disabled:hover:bg-[#ff7843]"
           >
-            <Send size={15} />
+            <Send size={14} />
           </button>
         </form>
       </div>
@@ -2163,30 +2145,28 @@ export default function Communities() {
   return (
     <AppLayout>
       <div className="mx-auto w-full max-w-[1720px] flex-1 flex flex-col min-h-0 h-full">
-        {/* Top Header & Actions */}
-        <div className="shrink-0 flex flex-col justify-between gap-3 border-b border-white/[0.08] pb-3 sm:flex-row sm:items-center">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2.5">
-              <span>Chats</span>
-              <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-xs font-semibold text-white">
-                {unifiedConversations.length}
-              </span>
+        {/* Compact Pro Command Bar */}
+        <div className="shrink-0 flex items-center justify-between gap-3 border-b border-[#26313d] bg-[#11151a] px-4 py-2.5 rounded-t-lg mb-0">
+          <div className="flex items-center gap-3">
+            <span className="instrument-label"><i /> DISPATCH</span>
+            <h1 className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-1.5">
+              <span>Conversations</span>
+              <span className="text-[#ff7843]">.</span>
             </h1>
-            <p className="mt-0.5 text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
-              WhatsApp-style messaging with accountability partners & joined community groups.
-            </p>
+            <span className="hidden md:inline-block font-mono text-[10px] text-neutral-400 border-l border-[#26313d] pl-3 uppercase">
+              PEER VERIFICATION // LIVE SYNC
+            </span>
           </div>
-
           {/* Quick Action Buttons */}
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setShowExploreModal(true)}
-              className="flex items-center gap-2 rounded-xl border border-white/15 bg-[#18181C] hover:bg-[#222228] px-3.5 py-2 text-xs font-bold text-white transition shadow-sm"
+              className="flex items-center gap-1.5 rounded border border-[#2b3542] bg-[#161c23] hover:bg-[#1f2732] hover:border-[#3d4c5e] px-3 py-1.5 text-xs font-semibold text-neutral-200 transition"
               title="Explore and join accountability communities"
             >
-              <Compass size={15} className="text-white" />
-              <span>Explore Communities</span>
+              <Compass size={13} className="text-neutral-400" />
+              <span>Explore</span>
             </button>
             <button
               type="button"
@@ -2194,13 +2174,13 @@ export default function Communities() {
                 setFriendModalTab(friendRequests.incoming?.length > 0 ? "requests" : "add");
                 setShowAddFriendModal(true);
               }}
-              className="btn-glow flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold text-black shadow-sm"
+              className="flex items-center gap-1.5 rounded border border-[#ff7843]/40 bg-[#ff7843] px-3 py-1.5 text-xs font-bold text-black hover:bg-[#ff956b] transition shadow-sm"
               title="Add friend or view pending friend requests"
             >
-              <UserPlus size={15} />
+              <UserPlus size={13} />
               <span>Add Friend</span>
               {friendRequests.incoming?.length > 0 && (
-                <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-black text-[9px] font-black text-white px-1">
+                <span className="flex h-3.5 min-w-[14px] items-center justify-center rounded bg-black text-[9px] font-black text-white px-0.5">
                   {friendRequests.incoming.length}
                 </span>
               )}
@@ -2209,28 +2189,28 @@ export default function Communities() {
         </div>
 
         {/* ============================================================
-            WHATSAPP-STYLE UNIFIED CHAT VIEW (Friends + Joined Communities)
+            UNIFIED CHAT WORKSPACE (Friends + Joined Communities)
         ============================================================ */}
-        <div className="flex-1 min-h-0 grid grid-cols-1 overflow-hidden rounded-2xl border border-white/10 bg-[#121215]/90 backdrop-blur-2xl shadow-2xl md:grid-cols-12 mt-3">
+        <div className="flex-1 min-h-0 grid grid-cols-1 overflow-hidden rounded-b-lg border border-[#26313d] bg-[#0c0f13] shadow-2xl md:grid-cols-12">
           {/* Left Column: Unified Conversations List */}
           <div
             className={`${
               activeFriend || selectedCommunity ? "hidden md:flex" : "flex"
-            } flex-col h-full min-h-0 border-b border-white/10 bg-[#0E0E12]/80 backdrop-blur-xl p-3 sm:p-4 md:col-span-4 md:border-b-0 md:border-r md:border-white/10 overflow-hidden`}
+            } flex-col h-full min-h-0 border-b border-[#26313d] bg-[#0f1318] p-3 sm:p-3.5 md:col-span-4 md:border-b-0 md:border-r md:border-[#26313d] overflow-hidden`}
           >
             {/* Header: Chat count & quick actions */}
-            <div className="shrink-0 flex items-center justify-between pb-2.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">
-                Chats ({filteredConversations.length})
+            <div className="shrink-0 flex items-center justify-between pb-2 border-b border-[#1c232a]">
+              <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-neutral-400">
+                CHANNELS ({filteredConversations.length})
               </span>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setShowExploreModal(true)}
-                  className="rounded-lg border border-[#333333] bg-[#1A1A1A] px-2.5 py-1 text-[11px] font-semibold text-neutral-300 hover:text-white hover:border-white transition"
+                  className="rounded border border-[#26313d] bg-[#141920] px-2 py-0.5 text-[10px] font-mono font-semibold text-neutral-300 hover:text-white hover:border-[#384654] transition"
                   title="Explore and join communities"
                 >
-                  Explore
+                  EXPLORE
                 </button>
                 <button
                   type="button"
@@ -2238,13 +2218,13 @@ export default function Communities() {
                     setFriendModalTab(friendRequests.incoming?.length > 0 ? "requests" : "add");
                     setShowAddFriendModal(true);
                   }}
-                  className="btn-glow inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold text-black shadow-sm"
+                  className="inline-flex items-center gap-1 rounded border border-[#ff7843]/40 bg-[#ff7843] px-2 py-0.5 text-[10px] font-bold text-black shadow-sm"
                   title="Add friend"
                 >
-                  <UserPlus size={13} />
-                  Add
+                  <UserPlus size={11} />
+                  <span>ADD</span>
                   {friendRequests.incoming?.length > 0 && (
-                    <span className="flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-black text-[8px] font-black text-white px-0.5">
+                    <span className="flex h-3 min-w-[12px] items-center justify-center rounded bg-black text-[8px] font-black text-white px-0.5">
                       {friendRequests.incoming.length}
                     </span>
                   )}
@@ -2252,8 +2232,8 @@ export default function Communities() {
               </div>
             </div>
 
-            {/* WhatsApp Filter Chips: All | Unread | Friends | Communities */}
-            <div className="shrink-0 flex items-center gap-1.5 py-1.5 overflow-x-auto no-scrollbar">
+            {/* Filter Tabs: All | Unread | Friends | Communities */}
+            <div className="shrink-0 flex items-center gap-1.5 py-2 overflow-x-auto no-scrollbar">
               {[
                 { id: "all", label: "All" },
                 {
@@ -2270,17 +2250,17 @@ export default function Communities() {
                     key={chip.id}
                     type="button"
                     onClick={() => setChatFilter(chip.id)}
-                    className={`shrink-0 flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                    className={`shrink-0 flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-mono font-semibold transition ${
                       isActive
-                        ? "bg-white text-black font-bold shadow-sm"
-                        : "bg-[#1E1E24] text-neutral-400 hover:text-white hover:bg-[#282830]"
+                        ? "bg-[#1f2732] text-white border border-[#3b4756] shadow-sm font-bold"
+                        : "bg-[#141920] text-neutral-400 hover:text-white hover:bg-[#1a212a] border border-[#222933]"
                     }`}
                   >
                     <span>{chip.label}</span>
                     {chip.badge > 0 && (
                       <span
-                        className={`rounded-full px-1.5 py-0.2 text-[9px] font-bold ${
-                          isActive ? "bg-black text-white" : "bg-white/20 text-white"
+                        className={`rounded px-1 text-[9px] font-bold ${
+                          isActive ? "bg-[#ff7843] text-black" : "bg-[#273240] text-neutral-200"
                         }`}
                       >
                         {chip.badge}
@@ -2292,17 +2272,17 @@ export default function Communities() {
             </div>
 
             {/* Unified Search Input */}
-            <div className="shrink-0 relative mt-2">
+            <div className="shrink-0 relative mt-1">
               <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737373]"
+                size={13}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
               />
               <input
                 type="text"
-                placeholder="Search chats, handles, communities..."
+                placeholder="Search channels, handles..."
                 value={unifiedSearch}
                 onChange={(e) => setUnifiedSearch(e.target.value)}
-                className="w-full rounded-xl border border-[#2A2A2A] bg-[#1E1E1E] py-2 pl-8 pr-3 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                className="w-full rounded border border-[#242d38] bg-[#0a0d10] py-1.5 pl-8 pr-3 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
               />
             </div>
 
@@ -2371,17 +2351,18 @@ export default function Communities() {
                   return (
                     <div
                       key={`${item.type}-${item.id}`}
+                      data-convo-id={item.id}
                       onClick={() => handleSelectConversation(item)}
-                      className={`flex cursor-pointer items-center justify-between rounded-xl p-3 transition-colors ${
+                      className={`relative flex cursor-pointer items-center justify-between rounded p-2.5 transition-colors border ${
                         isSelected
-                          ? "bg-[#252525] border border-white/20"
-                          : "hover:bg-[#1E1E1E]"
+                          ? "bg-[#171e26] border-[#384656] shadow-sm before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:bg-[#ff7843] before:rounded-r"
+                          : "border-transparent hover:bg-[#12161c] hover:border-[#1f2833]"
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-center gap-2.5 min-w-0">
                         {/* Avatar */}
                         {isFriend ? (
-                          <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-[#444444] bg-[#2E2E2E] text-xs font-bold text-white overflow-hidden">
+                          <div className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-[#2b3542] bg-[#161c23] text-xs font-mono font-bold text-neutral-200 overflow-hidden">
                             {item.picture ? (
                               <img
                                 src={item.picture}
@@ -2393,14 +2374,14 @@ export default function Communities() {
                               item.name[0]?.toUpperCase() || "F"
                             )}
                             <span
-                              className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#1E1E1E] ${
+                              className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[#11151a] ${
                                 (item.handle &&
                                   onlineHandles.has(
                                     item.handle.toLowerCase().replace(/^@/, "")
                                   )) ||
                                 (item.email &&
                                   onlineEmails.has(item.email.trim().toLowerCase()))
-                                  ? "bg-white shadow-[0_0_6px_rgba(255,255,255,0.8)]"
+                                  ? "bg-[#10b981]"
                                   : "bg-neutral-600"
                               }`}
                               title={
@@ -2416,8 +2397,8 @@ export default function Communities() {
                             />
                           </div>
                         ) : (
-                          <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-white">
-                            <Users size={18} className="text-neutral-300" />
+                          <div className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-[#2b3542] bg-[#161c23] text-neutral-300">
+                            <Users size={16} className="text-[#ff7843]" />
                           </div>
                         )}
 
@@ -2425,7 +2406,7 @@ export default function Communities() {
                           <div className="flex items-center gap-1.5">
                             <p
                               className={`truncate text-xs ${
-                                hasUnread ? "font-bold text-white" : "font-semibold text-white"
+                                hasUnread ? "font-bold text-white" : "font-semibold text-neutral-200"
                               }`}
                             >
                               {item.name}
@@ -2433,27 +2414,27 @@ export default function Communities() {
                             {item.isFavorite && (
                               <Star
                                 size={11}
-                                className="fill-white text-white shrink-0"
+                                className="fill-[#ff7843] text-[#ff7843] shrink-0"
                                 title="Favorited"
                               />
                             )}
                             {isFriend && item.handle && (
-                              <span className="font-mono text-[10px] text-[#A3A3A3]">
+                              <span className="font-mono text-[10px] text-neutral-400">
                                 @{item.handle.replace(/^@/, "")}
                               </span>
                             )}
                             {!isFriend && (
-                              <span className="rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.2 text-[9px] font-bold text-neutral-400 uppercase">
+                              <span className="rounded border border-[#26313d] bg-[#12161c] px-1.5 py-0.2 text-[9px] font-mono font-bold text-neutral-400 uppercase">
                                 {item.category}
                               </span>
                             )}
                           </div>
                           <p
-                            className={`truncate text-[11px] ${
-                              hasUnread ? "font-medium text-neutral-200" : "text-[#737373]"
+                            className={`truncate text-[11px] font-mono ${
+                              hasUnread ? "font-medium text-neutral-200" : "text-neutral-500"
                             }`}
                           >
-                            {item.lastMessage || (isFriend ? "Click to start chatting" : "Community group chat")}
+                            {item.lastMessage || (isFriend ? "Select to open channel" : "Community channel")}
                           </p>
                         </div>
                       </div>
@@ -2461,15 +2442,15 @@ export default function Communities() {
                       <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
                         {item.lastMessageTime && (
                           <span
-                            className={`text-[10px] ${
-                              hasUnread ? "font-bold text-white" : "text-[#737373]"
+                            className={`text-[10px] font-mono ${
+                              hasUnread ? "font-bold text-[#ff7843]" : "text-neutral-500"
                             }`}
                           >
                             {item.lastMessageTime}
                           </span>
                         )}
                         {hasUnread && (
-                          <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white px-1.5 text-[10px] font-black text-black shadow-[0_0_10px_rgba(255,255,255,0.4)] animate-in zoom-in-75 duration-200">
+                          <span className="flex h-4 min-w-[18px] items-center justify-center rounded bg-[#ff7843] px-1 text-[9px] font-mono font-bold text-black shadow-sm">
                             {item.unreadCount > 99 ? "99+" : item.unreadCount}
                           </span>
                         )}
@@ -2485,12 +2466,12 @@ export default function Communities() {
           <div
             className={`${
               activeFriend || selectedCommunity ? "flex" : "hidden md:flex"
-            } flex-col h-full min-h-0 overflow-hidden bg-[#121212] md:col-span-8`}
+            } flex-col h-full min-h-0 overflow-hidden bg-[#0e1216] md:col-span-8`}
           >
               {activeFriend ? (
                 <>
                   {/* Chat Header */}
-                  <div className="shrink-0 flex items-center justify-between border-b border-[#2A2A2A] bg-[#181818] p-4">
+                  <div className="shrink-0 flex items-center justify-between border-b border-[#26313d] bg-[#11151a] px-4 py-3">
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
@@ -2498,12 +2479,12 @@ export default function Communities() {
                           setActiveFriendId(null);
                           setChatMessages([]);
                         }}
-                        className="rounded-xl border border-[#333333] bg-[#141414] p-2 text-neutral-400 hover:text-white hover:border-white transition"
+                        className="rounded border border-[#2b3542] bg-[#161c23] p-1.5 text-neutral-300 hover:text-white hover:border-[#3d4c5e] transition"
                         title="Back to Share Proof / All Chats"
                       >
-                        <ArrowLeft size={16} />
+                        <ArrowLeft size={15} />
                       </button>
-                      <div className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#444444] bg-[#282828] text-sm font-bold text-white overflow-hidden">
+                      <div className="relative flex h-9 w-9 items-center justify-center rounded border border-[#2b3542] bg-[#161c23] text-sm font-mono font-bold text-white overflow-hidden">
                         {activeFriend.picture ? (
                           <img
                             src={activeFriend.picture}
@@ -2515,14 +2496,14 @@ export default function Communities() {
                           activeFriend.name[0]?.toUpperCase()
                         )}
                         <span
-                          className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#181818] ${
+                          className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[#11151a] ${
                             (activeFriend.handle &&
                               onlineHandles.has(
                                 activeFriend.handle.toLowerCase().replace(/^@/, "")
                               )) ||
                             (activeFriend.email &&
                               onlineEmails.has(activeFriend.email.trim().toLowerCase()))
-                              ? "bg-white shadow-[0_0_6px_rgba(255,255,255,0.8)]"
+                              ? "bg-[#10b981]"
                               : "bg-neutral-600"
                           }`}
                         />
@@ -2532,17 +2513,17 @@ export default function Communities() {
                           <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
                             <span>{activeFriend.name}</span>
                             {activeFriend.isFavorite && (
-                              <Star size={13} className="fill-white text-white shrink-0" title="Starred Friend" />
+                              <Star size={13} className="fill-[#ff7843] text-[#ff7843] shrink-0" title="Starred Friend" />
                             )}
                           </h3>
                           {activeFriend.handle && (
-                            <span className="rounded-md border border-[#3A3A3A] bg-[#222222] px-2 py-0.5 font-mono text-[11px] font-semibold text-white">
+                            <span className="rounded border border-[#26313d] bg-[#141920] px-1.5 py-0.2 font-mono text-[10px] font-semibold text-neutral-300">
                               @{activeFriend.handle.replace(/^@/, "")}
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-[#A3A3A3] flex items-center gap-1.5 mt-0.5">
-                          <span>Accountability Partner</span>
+                        <p className="text-[10px] font-mono text-neutral-400 flex items-center gap-1.5 mt-0.5 uppercase">
+                          <span>WITNESS PARTNER</span>
                           <span>•</span>
                           {(() => {
                             const isOnline = Boolean(
@@ -2555,16 +2536,16 @@ export default function Communities() {
                             );
                             return (
                               <span
-                                className={`flex items-center gap-1 font-medium ${
-                                  isOnline ? "text-white" : "text-neutral-400"
+                                className={`flex items-center gap-1 font-mono ${
+                                  isOnline ? "text-[#10b981]" : "text-neutral-500"
                                 }`}
                               >
                                 <span
                                   className={`h-1.5 w-1.5 rounded-full ${
-                                    isOnline ? "bg-white animate-pulse shadow-[0_0_6px_rgba(255,255,255,0.8)]" : "bg-neutral-500"
+                                    isOnline ? "bg-[#10b981]" : "bg-neutral-500"
                                   }`}
                                 />
-                                {isOnline ? "Online" : "Offline"}
+                                {isOnline ? "CONNECTED" : "OFFLINE"}
                               </span>
                             );
                           })()}
@@ -2578,21 +2559,21 @@ export default function Communities() {
                         <button
                           type="button"
                           onClick={() => setShowFriendMenu((prev) => !prev)}
-                          className="rounded-xl border border-[#333333] bg-[#222222] p-2 text-neutral-300 hover:text-white hover:border-white transition"
+                          className="rounded border border-[#2b3542] bg-[#161c23] p-1.5 text-neutral-300 hover:text-white hover:border-[#3d4c5e] transition"
                           title="More options"
                         >
-                          <MoreVertical size={16} />
+                          <MoreVertical size={15} />
                         </button>
 
                         {showFriendMenu && (
-                          <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[#333333] bg-[#1E1E1E] py-1 shadow-2xl z-40 backdrop-blur-md">
+                          <div className="absolute right-0 top-full mt-1.5 w-48 rounded-lg border border-[#2d3744] bg-[#141920] py-1 shadow-2xl z-40 backdrop-blur-md">
                             <button
                               type="button"
                               onClick={handleToggleFavoriteActiveFriend}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-neutral-200 hover:bg-[#1d252f] hover:text-white text-left transition"
                             >
-                              <Star size={14} className={activeFriend.isFavorite ? "fill-white text-white" : "text-neutral-400"} />
-                              <span>{activeFriend.isFavorite ? "Remove from Starred" : "Add to Favourite"}</span>
+                              <Star size={13} className={activeFriend.isFavorite ? "fill-[#ff7843] text-[#ff7843]" : "text-neutral-400"} />
+                              <span>{activeFriend.isFavorite ? "Remove Star" : "Add to Favorites"}</span>
                             </button>
                             <button
                               type="button"
@@ -2600,22 +2581,22 @@ export default function Communities() {
                                 setShowFriendMenu(false);
                                 setClearChatModal({ isOpen: true, type: "friend", targetName: activeFriend.name });
                               }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-200 hover:bg-white/10 hover:text-white text-left transition"
+                              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-neutral-200 hover:bg-[#1d252f] hover:text-white text-left transition"
                             >
-                              <RotateCcw size={14} className="text-neutral-400" />
+                              <RotateCcw size={13} className="text-neutral-400" />
                               <span>Clear Chat</span>
                             </button>
-                            <div className="my-1 border-t border-[#333333]" />
+                            <div className="my-1 border-t border-[#232c36]" />
                             <button
                               type="button"
                               onClick={() => {
                                 setShowFriendMenu(false);
                                 setFriendToDelete(activeFriend);
                               }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-neutral-300 hover:bg-white/10 hover:text-white text-left transition"
+                              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10 text-left transition"
                             >
-                              <Trash2 size={14} className="text-neutral-400" />
-                              <span>Delete Contact</span>
+                              <Trash2 size={13} className="text-rose-400" />
+                              <span>Delete Witness Contact</span>
                             </button>
                           </div>
                         )}
@@ -2635,8 +2616,8 @@ export default function Communities() {
                     {chatMessages.length === 0 ? (
                       <div className="flex h-full flex-col items-center justify-center py-16 text-center">
                         <MessageSquare size={32} className="text-[#444444] mb-2" />
-                        <p className="text-xs font-medium text-[#A3A3A3]">
-                          No messages yet. Send a message or click 📎 to share files!
+                        <p className="text-xs font-mono text-neutral-400">
+                          No messages yet. Transmit a message or select attachments to share verification.
                         </p>
                       </div>
                     ) : (
@@ -2679,58 +2660,63 @@ export default function Communities() {
                     </div>
                   )}
 
-                  {/* Chat Input - WhatsApp style with paperclip (STATIC PINNED AT BOTTOM) */}
+                  {/* Chat Input - Engineered Hardware Cockpit */}
                   <form
                     onSubmit={handleSendMessage}
-                    className="shrink-0 sticky bottom-0 z-20 flex items-center gap-2 border-t border-[#2A2A2A] bg-[#181818] p-3"
+                    className="shrink-0 sticky bottom-0 z-20 flex items-center gap-2 border-t border-[#26313d] bg-[#11151a] p-3"
                   >
                     <button
                       type="button"
                       onClick={() => openAttachModal("friend")}
                       title="Attach photos, files or links"
-                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#3A3A3A] bg-[#222222] text-[#A3A3A3] hover:border-white hover:text-white hover:bg-[#2C2C2C] transition"
+                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-[#2b3542] bg-[#161c23] text-neutral-400 hover:border-[#3d4c5e] hover:text-white transition"
                     >
-                      <Paperclip size={18} />
+                      <Paperclip size={16} />
                     </button>
 
                     <input
                       type="text"
-                      placeholder="Type a message..."
+                      placeholder="Type a message or verification update..."
                       value={messageInput}
                       onChange={(e) => setMessageInput(e.target.value)}
-                      className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-4 py-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                      className="flex-1 rounded border border-[#26313d] bg-[#0a0d10] px-3.5 py-2 text-xs text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
                     />
 
                     <button
                       type="submit"
                       disabled={!messageInput.trim()}
-                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-black transition-all hover:bg-neutral-200 disabled:opacity-40"
+                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border border-[#ff7843]/40 bg-[#ff7843] text-black font-bold transition-all hover:bg-[#ff956b] disabled:opacity-30 disabled:hover:bg-[#ff7843]"
                     >
-                      <Send size={15} />
+                      <Send size={14} />
                     </button>
                   </form>
                 </>
               ) : selectedCommunity ? (
                 renderCommunityChatPane()
               ) : (
-                <div className="relative flex h-full flex-col items-center justify-center p-8 text-center select-none overflow-hidden bg-[#121212]">
+                <div className="relative flex h-full flex-col items-center justify-center p-8 text-center select-none overflow-hidden bg-[#0c0e12]">
                   {/* Subtle radial ambient background glow */}
-                  <div className="pointer-events-none absolute h-72 w-72 rounded-full bg-white/[0.03] blur-3xl" />
+                  <div className="pointer-events-none absolute h-72 w-72 rounded-full bg-[#ff7843]/[0.02] blur-3xl" />
 
-                  {/* Icon Emblem */}
-                  <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl border border-[#2B2B2B] bg-gradient-to-b from-[#202020] to-[#141414] shadow-2xl">
-                    <ShieldCheck size={38} className="text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.2)]" />
-                    <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border border-[#2B2B2B] bg-[#161616] text-[#A3A3A3]">
-                      <Paperclip size={12} />
+                  {/* Machined Terminal Emblem */}
+                  <div className="relative flex h-16 w-16 items-center justify-center rounded-lg border border-[#2d3744] bg-[#12161c] shadow-xl">
+                    <ShieldCheck size={32} className="text-[#ff7843]" />
+                    <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded border border-[#2d3744] bg-[#182028] text-neutral-400">
+                      <Paperclip size={10} />
                     </span>
                   </div>
 
+                  <div className="mt-4 flex items-center gap-1.5 text-[10px] font-mono text-neutral-400 uppercase tracking-widest">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#10b981]" />
+                    <span>DISPATCH ENGINE // STANDBY</span>
+                  </div>
+
                   {/* Heading & Tagline */}
-                  <h2 className="mt-6 text-xl sm:text-2xl font-bold tracking-tight text-white">
-                    ONUSLY Unified Chat
+                  <h2 className="mt-2 text-xl font-bold tracking-tight text-white">
+                    Accountability Dispatch
                   </h2>
-                  <p className="mt-2.5 max-w-sm text-xs sm:text-sm leading-relaxed text-[#A3A3A3]">
-                    Select an accountability partner or joined community from the left to exchange proof, verify completed goals, and stay locked in.
+                  <p className="mt-2 max-w-sm text-xs leading-relaxed text-neutral-400">
+                    Select an accountability witness or community channel on the left to review proof, confirm completions, and enforce active locks.
                   </p>
 
                   <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
@@ -2740,12 +2726,12 @@ export default function Communities() {
                         setFriendModalTab(friendRequests.incoming?.length > 0 ? "requests" : "add");
                         setShowAddFriendModal(true);
                       }}
-                      className="flex items-center gap-2 rounded-xl border border-white bg-white px-4 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-lg"
+                      className="flex items-center gap-1.5 rounded border border-[#ff7843]/40 bg-[#ff7843] px-4 py-2 text-xs font-bold text-black hover:bg-[#ff956b] transition shadow-md"
                     >
                       <UserPlus size={14} />
-                      Add Friend
+                      <span>Add Witness Partner</span>
                       {friendRequests.incoming?.length > 0 && (
-                        <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-black text-[9px] font-black text-white px-1">
+                        <span className="flex h-4 min-w-[16px] items-center justify-center rounded bg-black text-[9px] font-black text-white px-1">
                           {friendRequests.incoming.length}
                         </span>
                       )}
@@ -2753,17 +2739,17 @@ export default function Communities() {
                     <button
                       type="button"
                       onClick={() => setShowExploreModal(true)}
-                      className="flex items-center gap-2 rounded-xl border border-[#333333] bg-[#1E1E1E] px-4 py-2.5 text-xs font-semibold text-white hover:border-white transition"
+                      className="flex items-center gap-1.5 rounded border border-[#2b3542] bg-[#161c23] px-4 py-2 text-xs font-semibold text-neutral-200 hover:border-[#3d4c5e] hover:text-white transition"
                     >
                       <Users size={14} />
-                      Explore Communities
+                      <span>Explore Communities</span>
                     </button>
                   </div>
 
-                  {/* WhatsApp-style Security & Verification footer */}
-                  <div className="mt-12 flex items-center gap-2 text-[11px] text-[#555555]">
-                    <ShieldCheck size={13} className="text-neutral-400" />
-                    <span>End-to-end peer verification • Direct live sync</span>
+                  {/* Telemetry footer */}
+                  <div className="mt-10 flex items-center gap-2 text-[10px] font-mono text-neutral-500 uppercase tracking-wider">
+                    <ShieldCheck size={12} className="text-neutral-500" />
+                    <span>END-TO-END PEER VERIFICATION • DIRECT LIVE SYNC</span>
                   </div>
                 </div>
               )}
@@ -2775,27 +2761,27 @@ export default function Communities() {
         ============================================================ */}
         {showAttachModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-2xl border border-[#333333] bg-[#1A1A1A] p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
-              <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-black">
-                    <Paperclip size={16} />
+            <div className="w-full max-w-md rounded-lg border border-[#2b3542] bg-[#12161c] p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-[#232c36] pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded border border-[#2d3744] bg-[#182028] text-[#ff7843]">
+                    <Paperclip size={15} />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-white">Send Attachment</h3>
-                    <p className="text-[11px] text-[#A3A3A3]">
+                    <h3 className="text-sm font-bold text-white tracking-tight">TRANSMIT ATTACHMENT</h3>
+                    <p className="text-[10px] font-mono text-neutral-400">
                       {attachTargetType === "friend"
-                        ? `To ${activeFriend?.name || "Friend"}`
-                        : `To ${selectedCommunity?.name || "Community"}`}
+                        ? `WITNESS: ${activeFriend?.name || "PARTNER"}`
+                        : `CHANNEL: ${selectedCommunity?.name || "COMMUNITY"}`}
                     </p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowAttachModal(false)}
-                  className="rounded-lg p-1 text-[#737373] hover:text-white transition"
+                  className="rounded p-1 text-neutral-400 hover:text-white hover:bg-[#1a212a] transition"
                 >
-                  <X size={18} />
+                  <X size={16} />
                 </button>
               </div>
 
@@ -2803,22 +2789,22 @@ export default function Communities() {
                 {/* Photo / File Picker */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <ImageIcon size={14} className="text-[#A3A3A3]" />
-                      Photos & Files
+                    <label className="text-[11px] font-mono font-bold uppercase text-neutral-300 flex items-center gap-1.5">
+                      <ImageIcon size={13} className="text-[#ff7843]" />
+                      <span>EVIDENCE & TELEMETRY FILES</span>
                     </label>
-                    <span className="text-[11px] text-[#737373]">
+                    <span className="text-[10px] font-mono text-neutral-500">
                       {attachFiles.length} selected
                     </span>
                   </div>
 
-                  <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#3A3A3A] bg-[#141414] p-4 text-center hover:border-white transition">
-                    <Paperclip size={20} className="text-[#A3A3A3] mb-1" />
-                    <span className="text-xs font-semibold text-white">
-                      Tap to choose photos or files
+                  <label className="flex cursor-pointer flex-col items-center justify-center rounded border border-dashed border-[#2b3644] bg-[#0a0d10] p-4 text-center hover:border-[#ff7843]/50 transition">
+                    <Paperclip size={18} className="text-neutral-400 mb-1" />
+                    <span className="text-xs font-semibold text-neutral-200">
+                      Select proof images or document files
                     </span>
-                    <span className="text-[10px] text-[#737373] mt-0.5">
-                      PNG, JPG, PDF, screenshots
+                    <span className="text-[10px] font-mono text-neutral-500 mt-0.5">
+                      PNG, JPG, PDF, TXT
                     </span>
                     <input
                       type="file"
@@ -2835,7 +2821,7 @@ export default function Communities() {
                       {attachFiles.map((item, idx) => (
                         <div
                           key={idx}
-                          className="relative aspect-square overflow-hidden rounded-lg border border-[#333333] bg-[#111111] flex items-center justify-center p-1"
+                          className="relative aspect-square overflow-hidden rounded border border-[#26313d] bg-[#0c0f13] flex items-center justify-center p-1"
                         >
                           {item.isImage ? (
                             <img
@@ -2845,8 +2831,8 @@ export default function Communities() {
                             />
                           ) : (
                             <div className="flex flex-col items-center justify-center text-center p-1">
-                              <FileText size={20} className="text-neutral-300 mb-1" />
-                              <span className="text-[9px] text-neutral-300 truncate max-w-full">
+                              <FileText size={18} className="text-neutral-300 mb-1" />
+                              <span className="text-[9px] font-mono text-neutral-300 truncate max-w-full">
                                 {item.name}
                               </span>
                             </div>
@@ -2854,7 +2840,7 @@ export default function Communities() {
                           <button
                             type="button"
                             onClick={() => removeAttachFile(idx)}
-                            className="absolute top-1 right-1 rounded-full bg-black/80 p-1 text-white hover:bg-black"
+                            className="absolute top-1 right-1 rounded bg-black/80 p-0.5 text-white hover:bg-black"
                           >
                             <X size={10} />
                           </button>
@@ -2866,30 +2852,30 @@ export default function Communities() {
 
                 {/* Link */}
                 <div>
-                  <label className="text-xs font-bold text-white mb-1.5 flex items-center gap-1.5">
-                    <LinkIcon size={14} className="text-[#A3A3A3]" />
-                    Link (Optional)
+                  <label className="text-[11px] font-mono font-bold uppercase text-neutral-300 mb-1.5 flex items-center gap-1.5">
+                    <LinkIcon size={13} className="text-neutral-400" />
+                    <span>EXTERNAL EVIDENCE LINK</span>
                   </label>
                   <input
                     type="url"
-                    placeholder="https://..."
+                    placeholder="https://github.com/... or proof url"
                     value={attachLink}
                     onChange={(e) => setAttachLink(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                    className="w-full rounded border border-[#26313d] bg-[#0a0d10] p-2 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
                   />
                 </div>
 
                 {/* Caption */}
                 <div>
-                  <label className="text-xs font-bold text-white mb-1.5 block">
-                    Caption (Optional)
+                  <label className="text-[11px] font-mono font-bold uppercase text-neutral-300 mb-1.5 block">
+                    TRANSMISSION NOTE (OPTIONAL)
                   </label>
                   <textarea
                     rows={2}
-                    placeholder="Add a caption..."
+                    placeholder="Add notes for your witness..."
                     value={attachCaption}
                     onChange={(e) => setAttachCaption(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none resize-none"
+                    className="w-full rounded border border-[#26313d] bg-[#0a0d10] p-2 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none resize-none"
                   />
                 </div>
 
@@ -2897,17 +2883,17 @@ export default function Communities() {
                 <button
                   type="submit"
                   disabled={attachSending || (attachFiles.length === 0 && !attachCaption.trim() && !attachLink.trim())}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-bold text-black hover:bg-neutral-200 disabled:opacity-40 transition"
+                  className="flex w-full items-center justify-center gap-2 rounded border border-[#ff7843]/40 bg-[#ff7843] py-2.5 text-xs font-bold text-black hover:bg-[#ff956b] disabled:opacity-40 transition shadow-md"
                 >
                   {attachSending ? (
                     <>
-                      <Loader2 size={14} className="animate-spin" />
-                      Sending...
+                      <Loader2 size={13} className="animate-spin" />
+                      <span>Transmitting...</span>
                     </>
                   ) : (
                     <>
-                      <Send size={14} />
-                      Send
+                      <Send size={13} />
+                      <span>Transmit Proof to Chat</span>
                     </>
                   )}
                 </button>
@@ -2921,49 +2907,52 @@ export default function Communities() {
         ============================================================ */}
         {showCreateModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-lg rounded-2xl border border-[#333333] bg-[#1A1A1A] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
-                <h3 className="text-base font-bold text-white">
-                  Create Community
-                </h3>
+            <div className="w-full max-w-lg rounded-lg border border-[#2b3542] bg-[#12161c] p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-[#232c36] pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="instrument-label"><i /> CHANNEL INIT</span>
+                  <h3 className="text-sm font-bold text-white tracking-tight">
+                    Create Community Hub
+                  </h3>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="rounded-lg p-1 text-[#737373] hover:text-white"
+                  className="rounded p-1 text-neutral-400 hover:text-white hover:bg-[#1a212a] transition"
                 >
-                  <X size={18} />
+                  <X size={16} />
                 </button>
               </div>
 
               {createError && (
-                <div className="mt-4 rounded-xl border border-white/20 bg-white/[0.04] p-3 text-xs text-neutral-300">
+                <div className="mt-3 rounded border border-rose-500/30 bg-rose-500/10 p-2.5 text-xs font-mono text-rose-300">
                   {createError}
                 </div>
               )}
 
               <form onSubmit={handleCreateCommunitySubmit} className="mt-4 space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-white mb-1.5">
-                    Community Name
+                  <label className="block text-[11px] font-mono font-bold uppercase text-neutral-300 mb-1.5">
+                    COMMUNITY IDENTIFIER / NAME
                   </label>
                   <input
                     type="text"
                     placeholder="e.g. 5AM Founders Club"
                     value={newCommName}
                     onChange={(e) => setNewCommName(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                    className="w-full rounded border border-[#26313d] bg-[#0a0d10] p-2 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-white mb-1.5">
-                    Category
+                  <label className="block text-[11px] font-mono font-bold uppercase text-neutral-300 mb-1.5">
+                    CLUSTER CATEGORY
                   </label>
                   <select
                     value={newCommCategory}
                     onChange={(e) => setNewCommCategory(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white focus:border-white focus:outline-none"
+                    className="w-full rounded border border-[#26313d] bg-[#0a0d10] p-2 text-xs font-mono text-white focus:border-[#ff7843] focus:outline-none"
                   >
                     <option value="General Focus">General Focus</option>
                     <option value="Coding & Tech">Coding & Tech</option>
@@ -2974,22 +2963,22 @@ export default function Communities() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-white mb-1.5">
-                    Community Description & Guidelines
+                  <label className="block text-[11px] font-mono font-bold uppercase text-neutral-300 mb-1.5">
+                    VERIFICATION PROTOCOL & GUIDELINES
                   </label>
                   <textarea
                     rows={3}
-                    placeholder="Explain the mission and evidence requirements..."
+                    placeholder="Explain the mission and evidence standards required to unlock goals..."
                     value={newCommDesc}
                     onChange={(e) => setNewCommDesc(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                    className="w-full rounded border border-[#26313d] bg-[#0a0d10] p-2 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-white mb-1.5">
-                    Required Member Approvals for Release
+                  <label className="block text-[11px] font-mono font-bold uppercase text-neutral-300 mb-1.5">
+                    REQUIRED WITNESS APPROVALS FOR RELEASE
                   </label>
                   <input
                     type="number"
@@ -2997,34 +2986,34 @@ export default function Communities() {
                     max={10}
                     value={newCommApprovals}
                     onChange={(e) => setNewCommApprovals(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#141414] p-2.5 text-xs text-white focus:border-white focus:outline-none"
+                    className="w-full rounded border border-[#26313d] bg-[#0a0d10] p-2 text-xs font-mono text-white focus:border-[#ff7843] focus:outline-none"
                   />
                 </div>
 
                 {/* Add Friends to Community Checkbox Section */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-white">
-                      Add Friends to Community
+                    <label className="text-[11px] font-mono font-bold uppercase text-neutral-300">
+                      INVITE REGISTERED WITNESSES
                     </label>
-                    <span className="text-[11px] text-[#737373]">
+                    <span className="text-[10px] font-mono text-neutral-500">
                       {selectedFriendsForCommunity.length} selected
                     </span>
                   </div>
 
                   {friends.length === 0 ? (
-                    <div className="rounded-xl border border-[#333333] bg-[#141414] p-3 text-xs text-[#737373]">
-                      No friends added yet. You can share your invite code after creation.
+                    <div className="rounded border border-[#26313d] bg-[#0a0d10] p-3 text-xs font-mono text-neutral-400">
+                      No witnesses connected yet. You can share your channel code after creation.
                     </div>
                   ) : (
-                    <div className="max-h-40 overflow-y-auto rounded-xl border border-[#333333] bg-[#141414] p-2 space-y-1">
+                    <div className="max-h-40 overflow-y-auto rounded border border-[#26313d] bg-[#0a0d10] p-1.5 space-y-1">
                       {friends.map((f) => {
                         const isChecked = selectedFriendsForCommunity.includes(f.id);
                         return (
                           <label
                             key={f.id}
-                            className={`flex cursor-pointer items-center justify-between rounded-lg p-2 transition ${
-                              isChecked ? "bg-[#252525]" : "hover:bg-[#1E1E1E]"
+                            className={`flex cursor-pointer items-center justify-between rounded p-2 transition ${
+                              isChecked ? "bg-[#1f2732] border border-[#3b4756]" : "border border-transparent hover:bg-[#141920]"
                             }`}
                           >
                             <div className="flex items-center gap-2.5">
@@ -3040,12 +3029,12 @@ export default function Communities() {
                                     );
                                   }
                                 }}
-                                className="rounded border-[#444444] text-white focus:ring-0"
+                                className="rounded border-[#3b4756] text-[#ff7843] focus:ring-0"
                               />
                               <div>
                                 <p className="text-xs font-semibold text-white">{f.name}</p>
                                 {f.handle && (
-                                  <p className="font-mono text-[10px] text-[#737373]">
+                                  <p className="font-mono text-[10px] text-neutral-400">
                                     @{f.handle.replace(/^@/, "")}
                                   </p>
                                 )}
@@ -3061,9 +3050,9 @@ export default function Communities() {
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="w-full rounded-xl bg-white py-3 text-xs font-bold text-black hover:bg-neutral-200 transition"
+                    className="w-full rounded border border-[#ff7843]/40 bg-[#ff7843] py-2.5 text-xs font-bold text-black hover:bg-[#ff956b] transition shadow-md"
                   >
-                    Create Community & Open Chat
+                    Initialize Channel & Launch Chat
                   </button>
                 </div>
               </form>
@@ -3076,63 +3065,63 @@ export default function Communities() {
         ============================================================ */}
         {showExploreModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-2xl rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="w-full max-w-2xl rounded-lg border border-[#2b3542] bg-[#12161c] p-5 shadow-2xl max-h-[85vh] flex flex-col">
               {/* Header */}
-              <div className="shrink-0 flex items-center justify-between border-b border-[#2A2A2A] pb-4">
+              <div className="shrink-0 flex items-center justify-between border-b border-[#232c36] pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20">
-                    <Compass size={18} />
+                  <div className="flex h-8 w-8 items-center justify-center rounded border border-[#2d3744] bg-[#182028] text-[#ff7843]">
+                    <Compass size={16} />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-white">Explore Communities</h3>
-                    <p className="text-xs text-[#A3A3A3]">
-                      Discover trending accountability groups or join with an invite code
+                    <h3 className="text-sm font-bold text-white tracking-tight">COMMUNITY DISCOVERY</h3>
+                    <p className="text-[10px] font-mono text-neutral-400">
+                      JOIN PEER ACCOUNTABILITY CLUSTERS OR ENTER INVITE TOKEN
                     </p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowExploreModal(false)}
-                  className="rounded-lg p-1 text-[#737373] hover:text-white transition"
+                  className="rounded p-1 text-neutral-400 hover:text-white hover:bg-[#1a212a] transition"
                 >
-                  <X size={18} />
+                  <X size={16} />
                 </button>
               </div>
 
               {/* Private Code Quick Join bar */}
-              <form onSubmit={handleJoinByCode} className="shrink-0 mt-4 flex gap-2">
+              <form onSubmit={handleJoinByCode} className="shrink-0 mt-3.5 flex gap-2">
                 <input
                   type="text"
-                  placeholder="Have an invite code? (e.g. FOCUS5)"
+                  placeholder="ENTER ACCESS CODE (E.G. FOCUS5)"
                   value={privateCode}
                   onChange={(e) => setPrivateCode(e.target.value.toUpperCase())}
-                  className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-3.5 py-2 text-xs font-mono text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                  className="flex-1 rounded border border-[#26313d] bg-[#0a0d10] px-3.5 py-1.5 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
                 />
                 <button
                   type="submit"
                   disabled={!privateCode.trim()}
-                  className="rounded-xl border border-white bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition disabled:opacity-40"
+                  className="rounded border border-[#ff7843]/40 bg-[#ff7843] px-3.5 py-1.5 text-xs font-bold text-black hover:bg-[#ff956b] transition disabled:opacity-30"
                 >
                   Join Code
                 </button>
               </form>
               {codeNotice.error && (
-                <p className="mt-1.5 text-xs text-rose-400">{codeNotice.error}</p>
+                <p className="mt-1 text-xs font-mono text-rose-400">{codeNotice.error}</p>
               )}
               {codeNotice.success && (
-                <p className="mt-1.5 text-xs text-emerald-400">{codeNotice.success}</p>
+                <p className="mt-1 text-xs font-mono text-emerald-400">{codeNotice.success}</p>
               )}
 
               {/* Category Pills & Search */}
-              <div className="shrink-0 mt-4 space-y-2.5">
+              <div className="shrink-0 mt-3 space-y-2">
                 <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737373]" />
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
                   <input
                     type="text"
-                    placeholder="Search trending communities..."
+                    placeholder="Filter communities by keyword or topic..."
                     value={exploreSearch}
                     onChange={(e) => setExploreSearch(e.target.value)}
-                    className="w-full rounded-xl border border-[#333333] bg-[#121212] py-2 pl-8 pr-3 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                    className="w-full rounded border border-[#26313d] bg-[#0a0d10] py-1.5 pl-8 pr-3 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
                   />
                 </div>
 
@@ -3144,10 +3133,10 @@ export default function Communities() {
                         key={cat}
                         type="button"
                         onClick={() => setExploreCategory(cat)}
-                        className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                        className={`shrink-0 rounded px-2.5 py-1 text-[11px] font-mono font-semibold transition ${
                           isSel
-                            ? "bg-white text-black font-bold"
-                            : "bg-[#222228] text-neutral-400 hover:text-white"
+                            ? "bg-[#1f2732] text-white border border-[#3b4756] shadow-sm font-bold"
+                            : "bg-[#141920] text-neutral-400 hover:text-white hover:bg-[#1a212a] border border-[#222933]"
                         }`}
                       >
                         {cat}
@@ -3158,7 +3147,7 @@ export default function Communities() {
               </div>
 
               {/* Communities List */}
-              <div className="flex-1 min-h-0 mt-4 overflow-y-auto no-scrollbar space-y-2.5 pr-1">
+              <div className="flex-1 min-h-0 mt-3.5 overflow-y-auto no-scrollbar space-y-2 pr-1">
                 {(() => {
                   const items = (trendingCommunities.length > 0 ? trendingCommunities : communities).filter((comm) => {
                     const matchCat = exploreCategory === "All" || comm.category === exploreCategory;
@@ -3172,9 +3161,9 @@ export default function Communities() {
                   if (items.length === 0) {
                     return (
                       <div className="py-12 text-center">
-                        <Users size={32} className="mx-auto text-neutral-600 mb-2" />
-                        <p className="text-xs font-semibold text-neutral-300">No communities found</p>
-                        <p className="text-[11px] text-[#737373] mt-1">Try another category or search term</p>
+                        <Users size={28} className="mx-auto text-neutral-600 mb-2" />
+                        <p className="text-xs font-semibold text-neutral-300">No clusters match criteria</p>
+                        <p className="text-[11px] font-mono text-neutral-500 mt-1">Try another category or search filter</p>
                       </div>
                     );
                   }
@@ -3184,22 +3173,22 @@ export default function Communities() {
                     return (
                       <div
                         key={comm.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#2B2B2B] bg-[#121214] p-3.5 hover:border-white/20 transition"
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded border border-[#26313d] bg-[#0f1318] p-3 hover:border-[#384656] transition"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <h4 className="text-sm font-bold text-white truncate">{comm.name}</h4>
-                            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[9px] font-bold text-neutral-400 uppercase">
+                            <h4 className="text-xs font-bold text-white truncate">{comm.name}</h4>
+                            <span className="rounded border border-[#2d3a49] bg-[#161d26] px-1.5 py-0.2 text-[9px] font-mono font-bold text-[#ff7843] uppercase">
                               {comm.category}
                             </span>
                           </div>
-                          <p className="text-xs text-[#A3A3A3] mt-1 line-clamp-2">
+                          <p className="text-xs text-neutral-400 mt-0.5 line-clamp-2">
                             {comm.description || "Accountability community"}
                           </p>
-                          <div className="flex items-center gap-3 mt-2 text-[10px] text-[#737373]">
-                            <span>{comm.members || comm.membersCount || 1} members</span>
+                          <div className="flex items-center gap-3 mt-1.5 text-[10px] font-mono text-neutral-500 uppercase">
+                            <span>{comm.members || comm.membersCount || 1} MEMBERS</span>
                             <span>•</span>
-                            <span>{comm.requiredApprovals || 2} approvals required</span>
+                            <span>{comm.requiredApprovals || 2} WITNESS APPROVALS</span>
                           </div>
                         </div>
 
@@ -3215,7 +3204,7 @@ export default function Communities() {
                                   setShowExploreModal(false);
                                 }
                               }}
-                              className="rounded-xl border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 transition"
+                              className="rounded border border-[#2b3542] bg-[#161c23] px-3 py-1.5 text-xs font-mono font-semibold text-neutral-200 hover:text-white hover:border-[#3d4c5e] transition"
                             >
                               Open Chat
                             </button>
@@ -3223,9 +3212,9 @@ export default function Communities() {
                             <button
                               type="button"
                               onClick={() => handleJoinTrendingCommunity(comm)}
-                              className="btn-glow rounded-xl px-4 py-1.5 text-xs font-bold text-black transition"
+                              className="rounded border border-[#ff7843]/40 bg-[#ff7843] px-3.5 py-1 text-xs font-bold text-black hover:bg-[#ff956b] transition shadow-sm"
                             >
-                              Join
+                              Join Cluster
                             </button>
                           )}
                         </div>
@@ -3236,17 +3225,17 @@ export default function Communities() {
               </div>
 
               {/* Footer: Create Community prompt */}
-              <div className="shrink-0 mt-4 pt-3 border-t border-[#2A2A2A] flex items-center justify-between">
-                <span className="text-xs text-[#737373]">Want to create a custom group?</span>
+              <div className="shrink-0 mt-3 pt-3 border-t border-[#232c36] flex items-center justify-between">
+                <span className="text-xs font-mono text-neutral-400">Need a specialized verification group?</span>
                 <button
                   type="button"
                   onClick={() => {
                     setShowExploreModal(false);
                     setShowCreateModal(true);
                   }}
-                  className="rounded-xl border border-[#333333] bg-[#222228] px-3 py-1.5 text-xs font-bold text-white hover:border-white transition"
+                  className="rounded border border-[#2b3542] bg-[#161c23] px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:border-[#3d4c5e] hover:text-white transition"
                 >
-                  + Create Community
+                  + Create Custom Cluster
                 </button>
               </div>
             </div>
@@ -3258,14 +3247,17 @@ export default function Communities() {
         ============================================================ */}
         {showAddFriendModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="w-full max-w-md rounded-lg border border-[#2b3542] bg-[#12161c] p-5 shadow-2xl flex flex-col max-h-[90vh]">
               {/* Header */}
-              <div className="shrink-0 flex items-center justify-between border-b border-[#2A2A2A] pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-black">
-                    <UserPlus size={16} />
+              <div className="shrink-0 flex items-center justify-between border-b border-[#232c36] pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded border border-[#2d3744] bg-[#182028] text-[#ff7843]">
+                    <UserPlus size={15} />
                   </div>
-                  <h3 className="text-sm font-bold text-white">Accountability Friends</h3>
+                  <div>
+                    <h3 className="text-sm font-bold text-white tracking-tight">WITNESS PAIRING</h3>
+                    <p className="text-[10px] font-mono text-neutral-400">CONNECT DIRECT ACCOUNTABILITY PARTNERS</p>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -3274,41 +3266,41 @@ export default function Communities() {
                     setFriendError("");
                     setFriendSuccess("");
                   }}
-                  className="rounded-lg p-1 text-[#737373] hover:text-white transition"
+                  className="rounded p-1 text-neutral-400 hover:text-white hover:bg-[#1a212a] transition"
                 >
-                  <X size={18} />
+                  <X size={16} />
                 </button>
               </div>
 
               {/* Tab Switcher: Add Friend vs Pending Requests */}
-              <div className="shrink-0 flex border-b border-[#2A2A2A] mt-3">
+              <div className="shrink-0 flex border-b border-[#232c36] mt-3">
                 <button
                   type="button"
                   onClick={() => setFriendModalTab("add")}
-                  className={`flex-1 py-2 text-xs font-bold text-center border-b-2 transition ${
+                  className={`flex-1 py-2 text-xs font-mono font-semibold text-center border-b-2 transition ${
                     friendModalTab === "add"
-                      ? "border-white text-white"
+                      ? "border-[#ff7843] text-white font-bold"
                       : "border-transparent text-neutral-400 hover:text-white"
                   }`}
                 >
-                  Send Request
+                  CONNECT WITNESS
                 </button>
                 <button
                   type="button"
                   onClick={() => setFriendModalTab("requests")}
-                  className={`flex-1 py-2 text-xs font-bold text-center border-b-2 flex items-center justify-center gap-1.5 transition ${
+                  className={`flex-1 py-2 text-xs font-mono font-semibold text-center border-b-2 flex items-center justify-center gap-1.5 transition ${
                     friendModalTab === "requests"
-                      ? "border-white text-white"
+                      ? "border-[#ff7843] text-white font-bold"
                       : "border-transparent text-neutral-400 hover:text-white"
                   }`}
                 >
-                  <span>Friend Requests</span>
+                  <span>PENDING REQUESTS</span>
                   {friendRequests.incoming?.length > 0 ? (
-                    <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black">
+                    <span className="flex h-4 min-w-[16px] items-center justify-center rounded bg-[#ff7843] px-1 text-[9px] font-mono font-bold text-black">
                       {friendRequests.incoming.length}
                     </span>
                   ) : friendRequests.outgoing?.length > 0 ? (
-                    <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white/20 px-1 text-[9px] font-bold text-neutral-300">
+                    <span className="flex h-4 min-w-[16px] items-center justify-center rounded bg-[#273240] px-1 text-[9px] font-mono font-bold text-neutral-300">
                       {friendRequests.outgoing.length}
                     </span>
                   ) : null}
@@ -3317,12 +3309,12 @@ export default function Communities() {
 
               {/* Status alerts */}
               {friendError && (
-                <div className="mt-3 rounded-xl border border-white/20 bg-white/[0.04] p-3 text-xs text-neutral-300">
+                <div className="mt-3 rounded border border-rose-500/30 bg-rose-500/10 p-2.5 text-xs font-mono text-rose-300">
                   {friendError}
                 </div>
               )}
               {friendSuccess && (
-                <div className="mt-3 rounded-xl border border-white/20 bg-white/[0.08] p-3 text-xs text-white">
+                <div className="mt-3 rounded border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs font-mono text-emerald-300">
                   {friendSuccess}
                 </div>
               )}
@@ -3331,14 +3323,14 @@ export default function Communities() {
               {friendModalTab === "add" && (
                 <form onSubmit={handleSendFriendRequest} className="mt-4 space-y-4 overflow-y-auto pr-1">
                   <div>
-                    <label className="block text-xs font-bold text-white mb-1.5">
-                      Friend's ONUSLY Handle (@tag)
+                    <label className="block text-[11px] font-mono font-bold uppercase text-neutral-300 mb-1.5">
+                      WITNESS ONUSLY HANDLE (@TAG)
                     </label>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
                         <AtSign
-                          size={14}
-                          className="absolute left-3 top-1/2 -translate-y-1/2 text-[#737373]"
+                          size={13}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
                         />
                         <input
                           type="text"
@@ -3348,23 +3340,23 @@ export default function Communities() {
                             setNewFriendHandle(e.target.value);
                             setVerifiedPartner(null);
                           }}
-                          className="w-full rounded-xl border border-[#333333] bg-[#121212] py-2 pl-8 pr-3 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                          className="w-full rounded border border-[#26313d] bg-[#0a0d10] py-1.5 pl-8 pr-3 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
                         />
                       </div>
                       <button
                         type="button"
                         onClick={handleVerifyTag}
                         disabled={verifyingHandle || !newFriendHandle.trim()}
-                        className="rounded-xl border border-[#444444] bg-[#222222] px-3 py-2 text-xs font-semibold text-white hover:border-white disabled:opacity-40 transition"
+                        className="rounded border border-[#2b3542] bg-[#161c23] px-3 py-1.5 text-xs font-mono font-semibold text-neutral-200 hover:border-[#3d4c5e] hover:text-white disabled:opacity-40 transition"
                       >
-                        {verifyingHandle ? <Loader2 size={13} className="animate-spin" /> : "Verify"}
+                        {verifyingHandle ? <Loader2 size={12} className="animate-spin" /> : "Verify"}
                       </button>
                     </div>
                   </div>
 
                   {verifiedPartner && (
-                    <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/5 p-3">
-                      <div className="h-9 w-9 rounded-full overflow-hidden bg-neutral-800 border border-white/20 flex items-center justify-center text-xs font-bold text-white">
+                    <div className="flex items-center gap-3 rounded border border-[#384656] bg-[#161d25] p-2.5">
+                      <div className="h-8 w-8 rounded border border-[#2b3542] overflow-hidden bg-[#0c0f13] flex items-center justify-center text-xs font-mono font-bold text-white">
                         {verifiedPartner.picture ? (
                           <img
                             src={verifiedPartner.picture}
@@ -3378,31 +3370,31 @@ export default function Communities() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-white truncate">{verifiedPartner.name}</p>
-                        <p className="font-mono text-[11px] text-neutral-400">@{verifiedPartner.handle}</p>
+                        <p className="font-mono text-[10px] text-neutral-400">@{verifiedPartner.handle}</p>
                       </div>
-                      <Check size={16} className="text-white" />
+                      <Check size={14} className="text-[#10b981]" />
                     </div>
                   )}
 
                   <div className="relative flex items-center justify-center py-1">
                     <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-[#2A2A2A]" />
+                      <div className="w-full border-t border-[#232c36]" />
                     </div>
-                    <span className="relative bg-[#161618] px-2 text-[10px] uppercase font-bold text-[#737373]">
-                      Or by email
+                    <span className="relative bg-[#12161c] px-2 text-[9px] font-mono uppercase font-bold text-neutral-500">
+                      OR DIRECT BY EMAIL
                     </span>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-white mb-1.5">
-                      Friend's Google Email
+                    <label className="block text-[11px] font-mono font-bold uppercase text-neutral-300 mb-1.5">
+                      WITNESS REGISTERED EMAIL
                     </label>
                     <input
                       type="email"
                       placeholder="e.g. partner@gmail.com"
                       value={newFriendEmail}
                       onChange={(e) => setNewFriendEmail(e.target.value)}
-                      className="w-full rounded-xl border border-[#333333] bg-[#121212] p-2.5 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none"
+                      className="w-full rounded border border-[#26313d] bg-[#0a0d10] p-2 text-xs font-mono text-white placeholder-neutral-500 focus:border-[#ff7843] focus:outline-none"
                     />
                   </div>
 
@@ -3410,17 +3402,17 @@ export default function Communities() {
                     <button
                       type="submit"
                       disabled={sendingRequest || (!newFriendHandle.trim() && !newFriendEmail.trim())}
-                      className="btn-glow w-full rounded-xl bg-white py-3 text-xs font-bold text-black hover:bg-neutral-200 disabled:opacity-40 transition flex items-center justify-center gap-2"
+                      className="w-full rounded border border-[#ff7843]/40 bg-[#ff7843] py-2.5 text-xs font-bold text-black hover:bg-[#ff956b] disabled:opacity-40 transition flex items-center justify-center gap-2 shadow-md"
                     >
                       {sendingRequest ? (
                         <>
-                          <Loader2 size={14} className="animate-spin" />
-                          <span>Sending Request...</span>
+                          <Loader2 size={13} className="animate-spin" />
+                          <span>Dispatching Pairing Request...</span>
                         </>
                       ) : (
                         <>
-                          <Send size={14} />
-                          <span>Send Friend Request</span>
+                          <Send size={13} />
+                          <span>Send Witness Pairing Request</span>
                         </>
                       )}
                     </button>
@@ -3433,20 +3425,20 @@ export default function Communities() {
                 <div className="mt-4 space-y-4 overflow-y-auto pr-1">
                   {/* Incoming Requests */}
                   <div>
-                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-2">
-                      Incoming Requests ({friendRequests.incoming?.length || 0})
+                    <h4 className="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400 mb-2">
+                      INCOMING REQUESTS ({friendRequests.incoming?.length || 0})
                     </h4>
                     {(!friendRequests.incoming || friendRequests.incoming.length === 0) ? (
-                      <div className="rounded-xl border border-[#2B2B2B] bg-[#121214] p-4 text-center">
-                        <UserCheck size={24} className="mx-auto text-neutral-600 mb-1" />
-                        <p className="text-xs text-neutral-400">No pending friend requests</p>
+                      <div className="rounded border border-[#232c36] bg-[#0a0d10] p-4 text-center">
+                        <UserCheck size={22} className="mx-auto text-neutral-600 mb-1" />
+                        <p className="text-xs font-mono text-neutral-400">No pending witness requests</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
                         {friendRequests.incoming.map((req) => (
                           <div
                             key={req.id}
-                            className="flex items-center justify-between gap-3 rounded-xl border border-[#2B2B2B] bg-[#121214] p-3"
+                            className="flex items-center justify-between gap-3 rounded border border-[#26313d] bg-[#0f1318] p-2.5"
                           >
                             <div className="min-w-0 flex-1">
                               <p className="text-xs font-bold text-white truncate">
@@ -3457,7 +3449,7 @@ export default function Communities() {
                                   @{req.senderHandle.replace(/^@/, "")}
                                 </p>
                               )}
-                              <p className="text-[10px] text-neutral-500 mt-0.5">
+                              <p className="text-[10px] font-mono text-neutral-500 mt-0.5">
                                 Sent {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : "recently"}
                               </p>
                             </div>
@@ -3465,14 +3457,14 @@ export default function Communities() {
                               <button
                                 type="button"
                                 onClick={() => handleRespondFriendRequest(req.id, "accept", req)}
-                                className="btn-glow rounded-lg px-2.5 py-1 text-xs font-bold text-black shadow-sm"
+                                className="rounded border border-[#ff7843]/40 bg-[#ff7843] px-2.5 py-1 text-xs font-bold text-black hover:bg-[#ff956b] shadow-sm transition"
                               >
                                 Accept
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleRespondFriendRequest(req.id, "decline", req)}
-                                className="rounded-lg border border-[#444444] px-2.5 py-1 text-xs font-semibold text-neutral-300 hover:text-white hover:border-white transition"
+                                className="rounded border border-[#2b3542] bg-[#161c23] px-2.5 py-1 text-xs font-mono text-neutral-300 hover:text-white hover:border-[#3d4c5e] transition"
                               >
                                 Decline
                               </button>
@@ -3485,15 +3477,15 @@ export default function Communities() {
 
                   {/* Outgoing Requests */}
                   {friendRequests.outgoing && friendRequests.outgoing.length > 0 && (
-                    <div className="pt-2 border-t border-[#2A2A2A]">
-                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-2">
-                        Sent Requests ({friendRequests.outgoing.length})
+                    <div className="pt-2 border-t border-[#232c36]">
+                      <h4 className="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400 mb-2">
+                        DISPATCHED REQUESTS ({friendRequests.outgoing.length})
                       </h4>
                       <div className="space-y-1.5">
                         {friendRequests.outgoing.map((req) => (
                           <div
                             key={req.id}
-                            className="flex items-center justify-between gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-2.5 text-xs"
+                            className="flex items-center justify-between gap-2 rounded border border-[#232c36] bg-[#0a0d10] p-2 text-xs"
                           >
                             <div className="min-w-0 flex-1">
                               <p className="font-semibold text-neutral-200 truncate">
@@ -3504,12 +3496,12 @@ export default function Communities() {
                                   {req.recipientEmail}
                                 </p>
                               )}
-                              <span className="text-[10px] text-neutral-500">
+                              <span className="text-[10px] font-mono text-neutral-500">
                                 {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : "Pending"}
                               </span>
                             </div>
-                            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-neutral-400 font-medium">
-                              Pending
+                            <span className="rounded border border-[#26313d] bg-[#12161c] px-2 py-0.5 text-[10px] font-mono text-neutral-400">
+                              PENDING
                             </span>
                           </div>
                         ))}
@@ -3527,25 +3519,25 @@ export default function Communities() {
         ============================================================ */}
         {friendToDelete && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl">
-              <h3 className="text-sm font-bold text-white">Delete Friend?</h3>
-              <p className="mt-2 text-xs text-[#A3A3A3] leading-relaxed">
-                Are you sure you want to remove <strong className="text-white">{friendToDelete.name}</strong> from your friends? All local chat history with this partner will be cleared.
+            <div className="w-full max-w-sm rounded-lg border border-[#2b3542] bg-[#12161c] p-5 shadow-2xl">
+              <h3 className="text-sm font-bold text-white tracking-tight">TERMINATE WITNESS PAIRING</h3>
+              <p className="mt-2 text-xs font-mono text-neutral-400 leading-relaxed">
+                Sever witness connection with <strong className="text-white">{friendToDelete.name}</strong>? Local cached telemetry and chat records will be purged.
               </p>
-              <div className="mt-5 flex items-center justify-end gap-2">
+              <div className="mt-4 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setFriendToDelete(null)}
-                  className="rounded-xl border border-[#444444] px-4 py-2 text-xs font-semibold text-white hover:border-white transition"
+                  className="rounded border border-[#2b3542] bg-[#161c23] px-3.5 py-1.5 text-xs font-mono text-neutral-300 hover:text-white hover:border-[#3d4c5e] transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmDeleteFriend}
-                  className="btn-glow rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition"
+                  className="rounded border border-rose-500/40 bg-rose-500/20 px-3.5 py-1.5 text-xs font-mono font-bold text-rose-300 hover:bg-rose-500/30 transition shadow-sm"
                 >
-                  Confirm Delete
+                  Terminate Pairing
                 </button>
               </div>
             </div>
@@ -3557,25 +3549,25 @@ export default function Communities() {
         ============================================================ */}
         {commToLeave && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm rounded-2xl border border-[#333333] bg-[#1A1A1A] p-6 shadow-2xl">
-              <h3 className="text-sm font-bold text-white">Leave Community?</h3>
-              <p className="mt-2 text-xs text-[#A3A3A3] leading-relaxed">
-                Are you sure you want to leave <strong className="text-white">{commToLeave.name}</strong>? You will no longer receive community notifications.
+            <div className="w-full max-w-sm rounded-lg border border-[#2b3542] bg-[#12161c] p-5 shadow-2xl">
+              <h3 className="text-sm font-bold text-white tracking-tight">DISCONNECT FROM CHANNEL</h3>
+              <p className="mt-2 text-xs font-mono text-neutral-400 leading-relaxed">
+                Disconnect from <strong className="text-white">{commToLeave.name}</strong>? You will cease receiving group proof broadcasts.
               </p>
-              <div className="mt-5 flex items-center justify-end gap-2">
+              <div className="mt-4 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setCommToLeave(null)}
-                  className="rounded-xl border border-[#444444] px-4 py-2 text-xs font-semibold text-white hover:border-white transition"
+                  className="rounded border border-[#2b3542] bg-[#161c23] px-3.5 py-1.5 text-xs font-mono text-neutral-300 hover:text-white hover:border-[#3d4c5e] transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmLeaveCommunity}
-                  className="rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition"
+                  className="rounded border border-[#ff7843]/40 bg-[#ff7843] px-3.5 py-1.5 text-xs font-bold text-black hover:bg-[#ff956b] transition shadow-sm"
                 >
-                  Leave Community
+                  Disconnect
                 </button>
               </div>
             </div>
@@ -3587,25 +3579,25 @@ export default function Communities() {
         ============================================================ */}
         {commToDelete && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl">
-              <h3 className="text-sm font-bold text-white">Delete Community?</h3>
-              <p className="mt-2 text-xs text-[#A3A3A3] leading-relaxed">
-                Permanently delete <strong className="text-white">{commToDelete.name}</strong> and all its group chat history? This action cannot be undone.
+            <div className="w-full max-w-sm rounded-lg border border-[#2b3542] bg-[#12161c] p-5 shadow-2xl">
+              <h3 className="text-sm font-bold text-white tracking-tight">PERMANENTLY PURGE CHANNEL</h3>
+              <p className="mt-2 text-xs font-mono text-neutral-400 leading-relaxed">
+                Permanently purge <strong className="text-white">{commToDelete.name}</strong> and all broadcast logs? This action is irrevocable.
               </p>
-              <div className="mt-5 flex items-center justify-end gap-2">
+              <div className="mt-4 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setCommToDelete(null)}
-                  className="rounded-xl border border-[#444444] px-4 py-2 text-xs font-semibold text-white hover:border-white transition"
+                  className="rounded border border-[#2b3542] bg-[#161c23] px-3.5 py-1.5 text-xs font-mono text-neutral-300 hover:text-white hover:border-[#3d4c5e] transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmDeleteCommunity}
-                  className="btn-glow rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition"
+                  className="rounded border border-rose-500/40 bg-rose-500/20 px-3.5 py-1.5 text-xs font-mono font-bold text-rose-300 hover:bg-rose-500/30 transition shadow-sm"
                 >
-                  Delete Community
+                  Purge Channel
                 </button>
               </div>
             </div>
@@ -3617,21 +3609,21 @@ export default function Communities() {
         ============================================================ */}
         {deleteMsgModal.isOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm rounded-2xl border border-[#333333] bg-[#1A1A1A] p-6 shadow-2xl space-y-4">
+            <div className="w-full max-w-sm rounded-lg border border-[#2b3542] bg-[#12161c] p-5 shadow-2xl space-y-3.5">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20">
-                  <Trash2 size={16} />
+                <div className="flex h-8 w-8 items-center justify-center rounded border border-[#2d3744] bg-[#182028] text-rose-400">
+                  <Trash2 size={15} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Delete Message?</h3>
-                  <p className="text-[11px] text-[#A3A3A3]">
-                    {deleteMsgModal.isMe ? "Choose how you want to delete this message" : "Remove this message from your view"}
+                  <h3 className="text-sm font-bold text-white tracking-tight">DELETE TRANSMISSION</h3>
+                  <p className="text-[10px] font-mono text-neutral-400">
+                    {deleteMsgModal.isMe ? "CHOOSE DELETION SCOPE" : "PURGE FROM LOCAL BUFFER"}
                   </p>
                 </div>
               </div>
 
               {deleteMsgModal.msg?.text && (
-                <div className="rounded-xl border border-white/10 bg-white/5 p-2.5 text-xs text-neutral-300 italic line-clamp-2">
+                <div className="rounded border border-[#26313d] bg-[#0a0d10] p-2.5 text-xs font-mono text-neutral-300 italic line-clamp-2">
                   "{deleteMsgModal.msg.text}"
                 </div>
               )}
@@ -3641,7 +3633,7 @@ export default function Communities() {
                   <button
                     type="button"
                     onClick={handleConfirmDeleteForEveryone}
-                    className="btn-glow w-full rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-sm"
+                    className="w-full rounded border border-rose-500/40 bg-rose-500/20 px-4 py-2 text-xs font-mono font-bold text-rose-300 hover:bg-rose-500/30 transition shadow-sm"
                   >
                     Delete for everyone
                   </button>
@@ -3649,10 +3641,10 @@ export default function Communities() {
                 <button
                   type="button"
                   onClick={handleConfirmDeleteForMe}
-                  className={`w-full rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+                  className={`w-full rounded px-4 py-2 text-xs font-mono font-semibold transition ${
                     deleteMsgModal.isMe
-                      ? "border border-[#444444] bg-[#222222] text-white hover:border-white"
-                      : "bg-white text-black hover:bg-neutral-200"
+                      ? "border border-[#2b3542] bg-[#161c23] text-neutral-300 hover:text-white hover:border-[#3d4c5e]"
+                      : "border border-rose-500/40 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30"
                   }`}
                 >
                   Delete for me
@@ -3660,7 +3652,7 @@ export default function Communities() {
                 <button
                   type="button"
                   onClick={() => setDeleteMsgModal({ isOpen: false, msg: null, isMe: false, type: "friend" })}
-                  className="w-full rounded-xl border border-transparent px-4 py-2 text-xs font-semibold text-[#A3A3A3] hover:text-white transition"
+                  className="w-full rounded border border-transparent px-4 py-1.5 text-xs font-mono text-neutral-500 hover:text-neutral-300 transition"
                 >
                   Cancel
                 </button>
@@ -3673,38 +3665,38 @@ export default function Communities() {
             WHATSAPP-STYLE CLEAR CHAT MODAL
         ============================================================ */}
         {clearChatModal.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4">
-            <div className="w-full max-w-sm rounded-2xl border border-white/20 bg-[#161618] p-6 shadow-2xl space-y-4 animate-scale-in">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-lg border border-[#2b3542] bg-[#12161c] p-5 shadow-2xl space-y-3.5">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20">
-                  <RotateCcw size={16} />
+                <div className="flex h-8 w-8 items-center justify-center rounded border border-[#2d3744] bg-[#182028] text-[#ff7843]">
+                  <RotateCcw size={15} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Clear Chat Messages?</h3>
-                  <p className="text-[11px] text-[#A3A3A3]">
-                    {clearChatModal.targetName ? `Chat with ${clearChatModal.targetName}` : "This conversation"}
+                  <h3 className="text-sm font-bold text-white tracking-tight">CLEAR CHANNEL BUFFER</h3>
+                  <p className="text-[10px] font-mono text-neutral-400">
+                    {clearChatModal.targetName ? `TARGET: ${clearChatModal.targetName}` : "CURRENT CONVERSATION"}
                   </p>
                 </div>
               </div>
 
-              <p className="text-xs text-[#A3A3A3] leading-relaxed">
-                Are you sure you want to clear all messages from this chat? Media and text will be deleted from your view.
+              <p className="text-xs font-mono text-neutral-400 leading-relaxed">
+                Purge all messages and media records from your local chat buffer?
               </p>
 
               <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setClearChatModal({ isOpen: false, type: "friend", targetName: "" })}
-                  className="btn-premium rounded-xl border border-[#444444] px-4 py-2 text-xs font-semibold text-white hover:border-white transition"
+                  className="rounded border border-[#2b3542] bg-[#161c23] px-3.5 py-1.5 text-xs font-mono text-neutral-300 hover:text-white hover:border-[#3d4c5e] transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmClearChat}
-                  className="btn-glow rounded-xl bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 transition shadow-sm"
+                  className="rounded border border-[#ff7843]/40 bg-[#ff7843] px-3.5 py-1.5 text-xs font-bold text-black hover:bg-[#ff956b] transition shadow-sm"
                 >
-                  Clear Chat
+                  Clear Buffer
                 </button>
               </div>
             </div>

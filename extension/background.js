@@ -18,6 +18,7 @@ const ALLOWED_ORIGIN_PATTERNS = [
   /^http:\/\/127\.0\.0\.1:(5173|5174|5175|4173|8080|8081|3000)$/,
   /^https:\/\/(.*\.)?onusly\.com$/,
   /^https:\/\/(.*\.)?onusly\.app$/,
+  /^https:\/\/onusly\.duckdns\.org$/,
 ];
 
 function detectBrowser() {

@@ -20,6 +20,30 @@ export function resolveApiOrigin() {
   return "http://localhost:8080";
 }
 
+export function resolveApiUrl(path = "") {
+  if (!path) return "";
+  if (
+    path.startsWith("data:") ||
+    path.startsWith("blob:") ||
+    path.startsWith("http://") ||
+    path.startsWith("https://")
+  ) {
+    return path;
+  }
+  const cleanBase = API_BASE_URL.replace(/\/+$/, "");
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
+}
+
+export function getExtensionApiBaseUrl() {
+  const cleanBase = API_BASE_URL.replace(/\/+$/, "");
+  if (cleanBase) return cleanBase;
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return "http://localhost:8080";
+}
+
 async function request(endpoint, options = {}) {
   const token = getToken();
   const headers = {
@@ -89,7 +113,7 @@ export async function logout() {
       method: "POST",
       credentials: "include",
     });
-  } catch (err) {
+  } catch {
     // Ignore network failure on logout
   }
   clearAuth();
@@ -101,7 +125,7 @@ export async function revokeAllSessions() {
       method: "POST",
       credentials: "include",
     });
-  } catch (err) {
+  } catch {
     // Ignore network failure on revoke-all
   }
   clearAuth();

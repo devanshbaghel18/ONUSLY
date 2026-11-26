@@ -166,6 +166,16 @@ func TestD13_SecurityHeaders(t *testing.T) {
 	if !strings.Contains(headers.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
 		t.Errorf("CSP missing frame-ancestors 'none', got %q", headers.Get("Content-Security-Policy"))
 	}
+
+	reqUpload := httptest.NewRequest("GET", "/uploads/proofs/sample.pdf", nil)
+	recUpload := httptest.NewRecorder()
+	handler.ServeHTTP(recUpload, reqUpload)
+	uploadCSP := recUpload.Header().Get("Content-Security-Policy")
+	for _, allowed := range []string{"https://onusly.app", "https://onusly.com", "https://*.onusly.com", "https://onusly.duckdns.org"} {
+		if !strings.Contains(uploadCSP, allowed) {
+			t.Errorf("upload CSP missing %s, got %q", allowed, uploadCSP)
+		}
+	}
 }
 
 func TestD13_MaxBytesLimiter(t *testing.T) {

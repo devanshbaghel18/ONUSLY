@@ -58,7 +58,7 @@ export function formatEnforcementSummary(telemetry, localExtensionActive = null)
     );
   }
 
-  let activeCount = 0;
+  let activeCount;
   if (rawDevices.length > 0) {
     activeCount = rawDevices.filter((d) => d.enforcing).length;
   } else {

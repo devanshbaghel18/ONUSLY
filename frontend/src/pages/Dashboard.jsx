@@ -1,3 +1,4 @@
+import LockMechanism from "../components/LockMechanism";
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import AppLayout from "../components/AppLayout";
@@ -112,7 +113,7 @@ export default function Dashboard() {
   const activeGoals = goals.filter((g) => g.status === "active");
   const pendingApprovals = goals.filter((g) => g.status === "proof_submitted");
   const completedGoals = goals.filter((g) => g.status === "completed");
-  const reputationScore = completedGoals.length * 100;
+
 
   // Pinned Goals & Recurring Routine State (Max 6 Pinned Goals)
   const [pinnedIds, setPinnedIds] = useState(() => getPinnedGoalIds());
@@ -128,7 +129,7 @@ export default function Dashboard() {
       setPinNotice(res.error);
       setTimeout(() => setPinNotice(""), 4500);
     } else if (res.pinned) {
-      setPinNotice(`📌 Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
+      setPinNotice(`Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
       setTimeout(() => setPinNotice(""), 3000);
     } else {
       setPinNotice(`Goal unpinned from dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
@@ -141,7 +142,7 @@ export default function Dashboard() {
 
     // Guard: Prevent creating duplicate active locks for a routine already running
     if (g.status !== "completed") {
-      setRepeatNotice(`⚠️ "${g.title}" is currently active! Complete or unlock the current lock before repeating.`);
+      setRepeatNotice(`"${g.title}" is currently active. Complete or unlock the current lock before repeating.`);
       setTimeout(() => setRepeatNotice(""), 5000);
       return;
     }
@@ -158,7 +159,7 @@ export default function Dashboard() {
 
       setGoals((prev) => [newGoal, ...prev]);
       notifyExtensionSync();
-      setRepeatNotice(`🔁 Routine Repeated: New active lock started for "${newGoal.title}"! Target apps & sites are now blocked.`);
+      setRepeatNotice(`Routine Repeated: New active lock started for "${newGoal.title}". Target apps & sites are now blocked.`);
       setTimeout(() => setRepeatNotice(""), 6000);
     } catch (err) {
       console.error("Failed to repeat routine:", err);
@@ -207,54 +208,30 @@ export default function Dashboard() {
     return Array.from(uniqueMap.values());
   }, [dashboardFilter, pinnedIds, goals, activeLockouts]);
 
+  const featuredLock = [unlockBanner && goals.find(goal => goal.id === unlockBanner.goalId), ...pendingApprovals, ...goals]
+    .find(goal => goal && (goal.blockedApps?.length || goal.blockedDomains?.length || goal.applicationTargets?.length));
+  const featuredStatus = {
+    active: "Commitment active",
+    proof_submitted: "Proof under review",
+    rejected: "Revision requested",
+    completed: "Commitment complete",
+  }[featuredLock?.status];
   return (
     <AppLayout>
       <div className="mx-auto w-full max-w-[1720px] space-y-8">
-        {/* Welcome Header */}
-        <div className="flex flex-col justify-between gap-5 border-b border-white/[0.08] pb-7 sm:flex-row sm:items-center">
-          <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
-                Welcome back,{" "}
-                <span className="bg-gradient-to-r from-white via-neutral-100 to-neutral-400 bg-clip-text text-transparent">
-                  {user?.name?.split(" ")?.[0] || "User"}
-                </span>
-              </h1>
-              <div
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold tracking-wide transition-all ${isConnected
-                  ? "border-white/30 bg-white/10 text-white glow-pill-white"
-                  : "border-neutral-700 bg-neutral-900 text-neutral-500"
-                  }`}
-                title={isConnected ? "Real-Time WebSocket Connected" : "Connecting to real-time gateway..."}
-              >
-                <span className="relative flex h-2 w-2">
-                  {isConnected && (
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-60" />
-                  )}
-                  <span
-                    className={`relative inline-flex h-2 w-2 rounded-full ${isConnected ? "bg-white" : "bg-neutral-600"
-                      }`}
-                  />
-                </span>
-                <span>{isConnected ? "Live Sync Active" : "Connecting..."}</span>
-              </div>
-            </div>
-            <p className="mt-1.5 text-sm text-[#A1A1AA] leading-relaxed">
-              Your goals are locked and loaded. Complete tasks to release constraints.
-            </p>
+        <section className="desk-header">
+          <div className="desk-copy"><span className="instrument-label"><i /> {user?.name ? `${user.name.split(" ")[0]}’s workspace` : "Your workspace"}</span>
+            <h1>Your lock<br />desk<span>.</span></h1>
+            <button className="signal-button" onClick={() => setShowCreateModal(true)}><Plus size={18} /> Create a lock</button>
+            <dl className="desk-counts">{[["Active goals", activeGoals.length], ["In review", pendingApprovals.length], ["Completed", completedGoals.length]].map(([label,count]) => <div key={label}><dt>{label}</dt><dd>{loading || error ? "—" : count}</dd></div>)}</dl>
           </div>
-
-          <div className="flex items-center gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowCreateModal(true)}
-              className="btn-glow inline-flex items-center gap-2.5 rounded-xl px-5 py-3 text-xs font-black uppercase tracking-wider text-black shadow-lg"
-            >
-              <Plus size={16} strokeWidth={3} />
-              <span>New Accountability Lock</span>
-            </button>
+          <div className="desk-object">
+            <LockMechanism released={featuredLock?.status === "completed"} reviewing={featuredLock?.status === "proof_submitted"} interactive />
+            {featuredLock ? <Link className="desk-object-caption" to={`/goals/${featuredLock.id}`}>
+              <span className="instrument-label">{featuredStatus}</span><strong>{featuredLock.title}</strong><ChevronRight size={17} />
+            </Link> : <p className="desk-object-caption">Lock preview · Drag to rotate</p>}
           </div>
-        </div>
+        </section>
 
         {/* Real-Time Celebratory Unlock Banner */}
         {unlockBanner && (
@@ -330,99 +307,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* 4 Summary Stat Cards (World-Class Metric Cards) */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {/* Card 1: Active Goals */}
-          <div className="card-stat rounded-2xl p-5 shadow-sm group relative overflow-hidden">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 transition-colors group-hover:text-white">Active Goals</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neutral-300 transition-transform group-hover:scale-110">
-                <Target size={16} />
-              </div>
-            </div>
-            <div className="my-2">
-              <div className="text-4xl font-black tracking-tight sm:text-5xl stat-metric">
-                {loading ? "..." : activeGoals.length}
-              </div>
-            </div>
-            <div className="flex items-center">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[11px] font-bold text-neutral-300 glow-pill-white">
-                <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                {activeGoals.length} Active Lockout{activeGoals.length === 1 ? "" : "s"}
-              </span>
-            </div>
-          </div>
-
-          {/* Card 2: Pending Approvals */}
-          <div className="card-stat rounded-2xl p-5 shadow-sm group relative overflow-hidden">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] transition-colors group-hover:text-white">Pending Review</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neutral-300 transition-transform group-hover:scale-110">
-                <Clock size={16} />
-              </div>
-            </div>
-            <div className="my-2">
-              <div className="text-4xl font-black tracking-tight sm:text-5xl stat-metric">
-                {loading ? "..." : pendingApprovals.length}
-              </div>
-            </div>
-            <div className="flex items-center">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-800/90 px-2.5 py-0.5 text-[11px] font-medium text-neutral-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" />
-                {pendingApprovals.length > 0 ? "Under Review" : "No Pending Proofs"}
-              </span>
-            </div>
-          </div>
-
-          {/* Card 3: Goals Completed */}
-          <div className="card-stat rounded-2xl p-5 shadow-sm group relative overflow-hidden">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 transition-colors group-hover:text-white">Goals Completed</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neutral-300 transition-transform group-hover:scale-110">
-                <CheckCircle2 size={16} />
-              </div>
-            </div>
-            <div className="my-2">
-              <div className="text-4xl font-black tracking-tight sm:text-5xl stat-metric">
-                {loading ? "..." : completedGoals.length}
-              </div>
-            </div>
-            <div className="flex items-center">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[11px] font-bold text-neutral-300 glow-pill-white">
-                <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                {completedGoals.length} Finished Lockout{completedGoals.length === 1 ? "" : "s"}
-              </span>
-            </div>
-          </div>
-
-          {/* Card 4: Reputation Points */}
-          <div className="card-stat rounded-2xl p-5 shadow-sm group relative overflow-hidden">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] transition-colors group-hover:text-white">Reputation Points</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white transition-transform group-hover:scale-110">
-                <Sparkles size={16} />
-              </div>
-            </div>
-            <div className="my-2">
-              <div className="text-4xl font-black tracking-tight sm:text-5xl stat-metric">
-                {reputationScore}
-              </div>
-            </div>
-            <div className="flex items-center">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[11px] font-bold text-white glow-pill-white">
-                <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                {completedGoals.length > 0 ? "Verified Consistency" : "New Member"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Browser Extension Enforcement Status */}
-        <ConnectExtension />
-
-        {/* Unified Multi-Device & Browser Coverage Telemetry */}
-        <DeviceCoverageSection />
-
         {/* ============================================================
             Your Active & Pinned Lockouts (Dashboard View)
         ============================================================ */}
@@ -432,8 +316,9 @@ export default function Dashboard() {
               <div className="flex items-center gap-2.5">
                 <h2 className="text-xl font-black tracking-tight text-white">Your Focus Lockouts</h2>
                 {pinnedIds.length > 0 && (
-                  <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white tracking-wide glow-pill-white">
-                    📌 {pinnedIds.length}/{MAX_PINNED_GOALS} Pinned
+                  <span className="inline-flex items-center gap-1 rounded border border-[#2b3542] bg-[#161c23] px-2 py-0.5 text-[10px] font-mono font-bold text-neutral-300">
+                    <Pin size={10} className="text-[#ff7843]" />
+                    <span>{pinnedIds.length}/{MAX_PINNED_GOALS} PINNED</span>
                   </span>
                 )}
               </div>
@@ -515,7 +400,7 @@ export default function Dashboard() {
             <div className="flex h-56 items-center justify-center rounded-2xl border border-white/10 bg-[#141418]/60 backdrop-blur-xl">
               <Loader2 size={26} className="animate-spin text-white" />
             </div>
-          ) : dashboardGoals.length === 0 ? (
+          ) : error ? null : dashboardGoals.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/10 bg-[#141418]/40 backdrop-blur-xl p-12 text-center">
               {dashboardFilter === "pinned" ? (
                 <>
@@ -541,7 +426,7 @@ export default function Dashboard() {
                   </div>
                   <p className="text-base font-bold text-white">No active locks right now</p>
                   <p className="mt-1.5 text-xs text-[#A1A1AA] max-w-md mx-auto leading-relaxed">
-                    All goals are completed! Start an accountability lock or repeat a routine from past goals.
+                    Start an accountability lock or repeat a routine from past goals.
                   </p>
                   <div className="mt-5 flex items-center justify-center gap-3">
                     <button
@@ -568,12 +453,12 @@ export default function Dashboard() {
                 const isPendingReview = g.status === "proof_submitted";
                 const isCompleted = g.status === "completed";
                 const isPinned = pinnedIds.includes(g.id);
-                const progressPct = isCompleted ? 100 : isPendingReview ? 50 : 0;
 
                 return (
                   <div
                     key={g.id}
-                    className={`card-glass relative flex flex-col justify-between rounded-2xl p-6 shadow-md transition-all duration-300 group ${isPinned
+                    data-lock-state={g.status}
+                    className={`lock-record card-glass relative flex flex-col justify-between rounded-2xl p-6 shadow-md transition-all duration-300 group ${isPinned
                       ? "border-white/30 shadow-[0_0_30px_rgba(255,255,255,0.04)]"
                       : "border-white/[0.08]"
                       }`}
@@ -583,26 +468,26 @@ export default function Dashboard() {
                       <div className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2">
                           {isCompleted ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white glow-pill-white">
-                              <CheckCircle2 size={11} className="text-white" />
+                            <span className="inline-flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-mono font-bold tracking-wider text-emerald-400 uppercase">
+                              <CheckCircle2 size={11} className="text-emerald-400" />
                               Unlocked & Verified
                             </span>
                           ) : isPendingReview ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300 glow-pill-white">
-                              <Clock size={11} className="text-neutral-400" />
-                              Pending Verification
+                            <span className="inline-flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-mono font-bold tracking-wider text-amber-300 uppercase">
+                              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                              Witness Review
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-bold text-neutral-300">
-                              <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                              Active Lockout
+                            <span className="inline-flex items-center gap-1.5 rounded border border-[#ff7843]/30 bg-[#ff7843]/10 px-2.5 py-0.5 text-[10px] font-mono font-bold tracking-wider text-[#ff9769] uppercase">
+                              <span className="h-1.5 w-1.5 rounded-full bg-[#ff7843] animate-pulse" />
+                              Lock Engaged
                             </span>
                           )}
 
                           {isPinned && (
-                            <span className="flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white">
-                              <Pin size={10} className="fill-white" />
-                              <span>Pinned Routine</span>
+                            <span className="flex items-center gap-1 rounded border border-[#384654] bg-[#1a2128] px-2 py-0.5 text-[10px] font-mono text-neutral-300">
+                              <Pin size={10} className="fill-neutral-300" />
+                              <span>PINNED</span>
                             </span>
                           )}
                         </div>
@@ -611,7 +496,7 @@ export default function Dashboard() {
                         <button
                           type="button"
                           onClick={() => handleTogglePin(g.id)}
-                          className={`btn-premium flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${isPinned
+                          className={`btn-premium flex items-center gap-1 rounded border px-2.5 py-1 text-[11px] font-semibold transition ${isPinned
                             ? "border-white bg-white text-black font-bold shadow-sm"
                             : "border-white/10 bg-white/5 text-[#A1A1AA] hover:text-white hover:border-white/20 hover:bg-white/10"
                             }`}
@@ -641,31 +526,31 @@ export default function Dashboard() {
                       )}
                     </div>
 
-                    {/* Progress Bar & Actions */}
-                    <div className="mt-6 space-y-3">
-                      <div className="flex items-center justify-between text-[11px] font-semibold">
-                        <span className="text-[#A1A1AA]">Status</span>
-                        <span className="text-white font-bold">
-                          {isCompleted ? "Completed & Released" : isPendingReview ? "Proof Submitted" : "In Progress"}
+                    {/* Analog Segmented Mechanical Gauge */}
+                    <div className="mt-6 space-y-2.5">
+                      <div className="flex items-center justify-between text-[11px] font-mono tracking-wider uppercase text-neutral-400">
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-neutral-500">PHASE //</span>
+                          <span className={isCompleted ? "text-emerald-400 font-bold" : isPendingReview ? "text-amber-300 font-bold" : "text-white font-bold"}>
+                            {isCompleted ? "RELEASED" : isPendingReview ? "WITNESS REVIEW" : "LOCKED"}
+                          </span>
+                        </span>
+                        <span className="text-neutral-400 font-bold">
+                          {isCompleted ? "100%" : isPendingReview ? "50%" : "0%"}
                         </span>
                       </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-[#121214] border border-white/10 p-[1px]">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ease-out ${isCompleted
-                            ? "bg-white shadow-[0_0_12px_rgba(255,255,255,0.3)]"
-                            : isPendingReview
-                              ? "bg-gradient-to-r from-neutral-400 to-neutral-300"
-                              : "bg-gradient-to-r from-neutral-600 to-white"
-                            }`}
-                          style={{ width: `${progressPct}%` }}
-                        />
+                      <div className="machined-gauge" data-state={g.status}>
+                        <div className="machined-gauge-tick" data-active="true" />
+                        <div className="machined-gauge-tick" data-active={isPendingReview || isCompleted ? "true" : "false"} />
+                        <div className="machined-gauge-tick" data-active={isCompleted ? "true" : "false"} />
+                        <div className="machined-gauge-tick" data-active={isCompleted ? "true" : "false"} />
                       </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">
                         <div className="flex items-center gap-3">
                           <Link
                             to={`/goals/${g.id}`}
-                            className="text-xs font-semibold text-white hover:underline transition-all"
+                            className="text-xs font-semibold text-neutral-300 hover:text-white transition-all"
                           >
                             Goal Details →
                           </Link>
@@ -675,7 +560,7 @@ export default function Dashboard() {
                             type="button"
                             disabled={repeatingGoalId === g.id || !isCompleted}
                             onClick={() => handleRepeatGoal(g)}
-                            className={`btn-premium inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${isCompleted
+                            className={`btn-premium inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-[11px] font-semibold transition ${isCompleted
                               ? "border-white/15 bg-white/5 text-white hover:border-white/30 hover:bg-white/10"
                               : "border-white/5 bg-white/[0.02] text-neutral-600 cursor-not-allowed opacity-50"
                               }`}
@@ -695,23 +580,23 @@ export default function Dashboard() {
                         </div>
 
                         {isCompleted ? (
-                          <span className="text-xs font-semibold text-white flex items-center gap-1">
+                          <span className="text-xs font-mono font-semibold text-emerald-400 flex items-center gap-1">
                             <CheckCircle2 size={13} />
-                            Approved
+                            RELEASED
                           </span>
                         ) : g.status === "proof_submitted" ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                          <span className="inline-flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-mono font-semibold text-amber-300">
                             <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                            In Review
+                            IN REVIEW
                           </span>
                         ) : (
                           <button
                             type="button"
                             onClick={() => setShareGoal(g)}
-                            className="btn-premium inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white hover:bg-white/10 hover:border-white/30 transition"
-                            title={g.status === "rejected" ? "Resubmit revised verification proof" : "Submit proof for verification"}
+                            className="inline-flex items-center gap-1.5 rounded border border-[#ff7843]/40 bg-[#ff7843] px-3.5 py-1 text-xs font-bold text-black hover:bg-[#ff956b] transition shadow-sm"
+                            title="Submit proof for verification"
                           >
-                            <span>{g.status === "rejected" ? "Resubmit Proof" : "Submit Proof"}</span>
+                            <span>Submit Proof</span>
                             <span aria-hidden="true">↗</span>
                           </button>
                         )}
@@ -723,6 +608,8 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        <section className="coverage-section"><header><h2>Device coverage</h2><span>{isConnected ? "Live sync connected" : "Connecting to live sync"}</span></header><ConnectExtension /><DeviceCoverageSection /></section>
 
         {/* Modal Popup for Creating New Goal Lock */}
         <CreateGoalModal
@@ -738,7 +625,7 @@ export default function Dashboard() {
           isOpen={Boolean(shareGoal)}
           onClose={() => setShareGoal(null)}
           goal={shareGoal}
-          onSuccess={(newProof) => {
+          onSuccess={() => {
             setGoals((prev) =>
               prev.map((g) =>
                 g.id === shareGoal.id ? { ...g, status: "proof_submitted" } : g

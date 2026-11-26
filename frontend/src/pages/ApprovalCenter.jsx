@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import AppLayout from "../components/AppLayout";
 import { useWebSocket } from "../hooks/useWebSocket";
 import {
-  CheckSquare,
-  Loader2,
   AlertCircle,
   RefreshCw,
   Search,
@@ -11,7 +9,7 @@ import {
   XCircle,
   Shield,
   Target,
-  Sparkles,
+  X,
 } from "lucide-react";
 import { getApproverInbox, decideApproval } from "../lib/api";
 import { notifyExtensionSync } from "../lib/extensionSync";
@@ -28,7 +26,6 @@ const TABS = [
 
 export default function ApprovalCenter() {
   const [items, setItems] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -43,6 +40,11 @@ export default function ApprovalCenter() {
     item: null,
   });
 
+  const showNotice = useCallback((msg, duration = 4000) => {
+    setNotice(msg);
+    setTimeout(() => setNotice(""), duration);
+  }, []);
+
   const fetchInbox = useCallback(async (tab = activeTab, isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true);
     else setLoading(true);
@@ -54,7 +56,6 @@ export default function ApprovalCenter() {
       const fetchedTotal = typeof data?.total === "number" ? data.total : fetchedItems.length;
 
       setItems(fetchedItems);
-      setTotalCount(fetchedTotal);
 
       // If viewing pending, update pendingCount directly
       if (tab === "pending") {
@@ -78,10 +79,14 @@ export default function ApprovalCenter() {
   }, [activeTab]);
 
   useEffect(() => {
-    let mounted = true;
-    fetchInbox(activeTab);
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) {
+        fetchInbox(activeTab);
+      }
+    });
     return () => {
-      mounted = false;
+      cancelled = true;
     };
   }, [activeTab, fetchInbox]);
 
@@ -99,15 +104,10 @@ export default function ApprovalCenter() {
 
       if (event?.type === "proof.submitted") {
         const title = event.payload?.title || "a goal";
-        showNotice(`🔔 New proof submitted for "${title}". Updated live!`);
+        showNotice(`New proof submitted for "${title}". Updated live.`);
       }
     }
   });
-
-  const showNotice = (msg, duration = 4000) => {
-    setNotice(msg);
-    setTimeout(() => setNotice(""), duration);
-  };
 
   // Filter items client-side by search query
   const filteredItems = useMemo(() => {
@@ -183,53 +183,36 @@ export default function ApprovalCenter() {
 
     if (status === "approved") {
       notifyExtensionSync();
-      showNotice(`✅ Goal "${item.title}" approved! Targets unlocked.`);
+      showNotice(`Goal "${item.title}" approved. Targets unlocked.`);
     } else {
       notifyExtensionSync();
-      showNotice(`⚠️ Proof for "${item.title}" rejected. Feedback saved.`);
+      showNotice(`Proof for "${item.title}" rejected. Feedback saved.`);
     }
   };
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-[1420px]">
         {/* Notice toast */}
         {notice && (
-          <div className="mb-6 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-300 transition-all">
+          <div className="mb-6 flex items-center justify-between rounded border border-[#2b3542] bg-[#12161c] px-4 py-2.5 text-xs font-mono text-neutral-200 shadow-md">
             <span>{notice}</span>
             <button
               onClick={() => setNotice("")}
-              className="text-emerald-400 hover:text-white"
+              className="text-neutral-400 hover:text-white transition p-0.5"
             >
-              ✕
+              <X size={13} />
             </button>
           </div>
         )}
 
         {/* Header */}
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white shadow-inner">
-              <CheckSquare size={24} className="text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                  Approval Center
-                </h1>
-                {pendingCount > 0 && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    {pendingCount} Pending
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 text-sm text-neutral-400">
-                Review and verify accountability proofs submitted for your review
-              </p>
-            </div>
+        <div className="work-masthead">
+          <div>
+            <span className="instrument-label"><i /> Witness workspace</span>
+            <h1>Review inbox<span>.</span></h1>
+            <p>{pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? "submission" : "submissions"} awaiting your decision.` : "Inspect proof and decide whether to release a lock."}</p>
           </div>
-
           {/* Quick Refresh */}
           <button
             type="button"

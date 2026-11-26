@@ -1,0 +1,12 @@
+[Unit]
+Description=Run ONUSLY Keep-Warm & Health Check every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=5s
+Persistent=true
+Unit=onusly-keepwarm.service
+
+[Install]
+WantedBy=timers.target

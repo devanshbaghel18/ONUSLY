@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/devanshbaghel18/ONUSLY/internal/realtime"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
@@ -206,5 +211,94 @@ func TestValidateAndResolveBindAddress(t *testing.T) {
 	_, err = validateAndResolveBindAddress("not.a.valid.ip", "8080")
 	if err == nil {
 		t.Fatalf("expected malformed IP to be rejected")
+	}
+}
+
+type mockTableDescriber struct {
+	calls atomic.Int32
+	err   error
+}
+
+func (m *mockTableDescriber) DescribeTable(ctx context.Context, params *dynamodb.DescribeTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error) {
+	m.calls.Add(1)
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &dynamodb.DescribeTableOutput{}, nil
+}
+
+func TestWarmHealthHandler(t *testing.T) {
+	// 1. Loopback healthy + cache deduplication
+	mockDB := &mockTableDescriber{}
+	handler := newWarmHealthHandler(mockDB, "Onusly", 30*time.Second)
+
+	req1 := httptest.NewRequest(http.MethodGet, "/health/warm", nil)
+	req1.RemoteAddr = "127.0.0.1:54321"
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d (%s)", rec1.Code, rec1.Body.String())
+	}
+	var body1 map[string]any
+	if err := json.Unmarshal(rec1.Body.Bytes(), &body1); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+	if body1["status"] != "ok" || body1["dynamodb"] != "warm" || body1["cached"] != false {
+		t.Errorf("unexpected response payload: %+v", body1)
+	}
+	if mockDB.calls.Load() != 1 {
+		t.Errorf("expected 1 DescribeTable call, got %d", mockDB.calls.Load())
+	}
+
+	// Second call within cache TTL must return cached=true without another DescribeTable
+	req2 := httptest.NewRequest(http.MethodGet, "/health/warm", nil)
+	req2.RemoteAddr = "[::1]:54322"
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected cached 200 OK, got %d", rec2.Code)
+	}
+	var body2 map[string]any
+	_ = json.Unmarshal(rec2.Body.Bytes(), &body2)
+	if body2["cached"] != true {
+		t.Errorf("expected cached=true on second call, got %+v", body2)
+	}
+	if mockDB.calls.Load() != 1 {
+		t.Errorf("expected DescribeTable to remain cached at 1 call, got %d", mockDB.calls.Load())
+	}
+
+	// 2. Non-loopback RemoteAddr or X-Forwarded-For must be forbidden
+	reqExt := httptest.NewRequest(http.MethodGet, "/health/warm", nil)
+	reqExt.RemoteAddr = "203.0.113.10:12345"
+	recExt := httptest.NewRecorder()
+	handler.ServeHTTP(recExt, reqExt)
+	if recExt.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-loopback RemoteAddr, got %d", recExt.Code)
+	}
+
+	reqXFF := httptest.NewRequest(http.MethodGet, "/health/warm", nil)
+	reqXFF.RemoteAddr = "127.0.0.1:12345"
+	reqXFF.Header.Set("X-Forwarded-For", "198.51.100.42")
+	recXFF := httptest.NewRecorder()
+	handler.ServeHTTP(recXFF, reqXFF)
+	if recXFF.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-loopback X-Forwarded-For, got %d", recXFF.Code)
+	}
+
+	// 3. Unhealthy DynamoDB returns 503 without leaking internal error text
+	failingDB := &mockTableDescriber{err: errors.New("secret internal aws endpoint error")}
+	failingHandler := newWarmHealthHandler(failingDB, "Onusly", 0)
+	reqFail := httptest.NewRequest(http.MethodGet, "/health/warm", nil)
+	reqFail.RemoteAddr = "127.0.0.1:54323"
+	recFail := httptest.NewRecorder()
+	failingHandler.ServeHTTP(recFail, reqFail)
+
+	if recFail.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 Service Unavailable, got %d", recFail.Code)
+	}
+	if strings.Contains(recFail.Body.String(), "secret internal") {
+		t.Errorf("response leaked internal error message: %s", recFail.Body.String())
 	}
 }

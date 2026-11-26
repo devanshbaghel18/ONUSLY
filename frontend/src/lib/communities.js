@@ -243,7 +243,7 @@ export function sendCommunityMessage(communityId, msg) {
       c.id === communityId
         ? {
             ...c,
-            lastMessage: newMsg.isProof ? `📸 Proof: ${newMsg.goalTitle || "Goal"}` : newMsg.text,
+            lastMessage: newMsg.isProof ? `[Proof] ${newMsg.goalTitle || "Goal"}` : newMsg.text,
             lastMessageTime: newMsg.time,
           }
         : c
@@ -308,7 +308,7 @@ export function receiveCommunityMessage(communityId, msg) {
       c.id === communityId
         ? {
             ...c,
-            lastMessage: newMsg.isProof ? `📸 Proof: ${newMsg.goalTitle || "Goal"}` : newMsg.text,
+            lastMessage: newMsg.isProof ? `[Proof] ${newMsg.goalTitle || "Goal"}` : newMsg.text,
             lastMessageTime: newMsg.time,
           }
         : c
@@ -498,7 +498,7 @@ export function mergeCommunityHistory(communityId, serverMessages, currentUserEm
         c.id === communityId
           ? {
               ...c,
-              lastMessage: lastMsg.isProof ? `📸 Proof: ${lastMsg.goalTitle || "Goal"}` : lastMsg.text,
+              lastMessage: lastMsg.isProof ? `[Proof] ${lastMsg.goalTitle || "Goal"}` : lastMsg.text,
               lastMessageTime: lastMsg.time,
             }
           : c

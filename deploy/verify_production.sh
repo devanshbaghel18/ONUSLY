@@ -137,10 +137,18 @@ rm -f "$TMP_CRX" "$TMP_CRX_HEADER"
 # ------------------------------------------------------------------------------
 # 5. CORS Preflight Check
 # ------------------------------------------------------------------------------
-echo ">>> Check 5: CORS Preflight (OPTIONS ${TARGET_URL}/enforcement/blocklist)..."
+CORS_ORIGIN="${VERIFY_ORIGIN:-}"
+if [ -z "$CORS_ORIGIN" ]; then
+  if [[ "$TARGET_URL" == *"api.onusly.com"* ]]; then
+    CORS_ORIGIN="https://onusly.app"
+  else
+    CORS_ORIGIN="$TARGET_URL"
+  fi
+fi
+echo ">>> Check 5: CORS Preflight (OPTIONS ${TARGET_URL}/enforcement/blocklist, Origin: ${CORS_ORIGIN})..."
 TMP_CORS_HEADER="$(mktemp)"
 CORS_STATUS="$(curl -s -S "${CURL_EXTRA_FLAGS[@]}" -X OPTIONS -o /dev/null -D "$TMP_CORS_HEADER" -w "%{http_code}" \
-  -H "Origin: https://onusly.app" \
+  -H "Origin: ${CORS_ORIGIN}" \
   -H "Access-Control-Request-Method: GET" \
   -H "Access-Control-Request-Headers: Authorization,Content-Type" \
   "${TARGET_URL}/enforcement/blocklist" || echo "CONN_ERR")"
@@ -185,6 +193,27 @@ if [[ "$TARGET_URL" == https://* ]]; then
     record_fail "TLS Certificate" "Failed to establish TLS connection to ${DOMAIN}:${PORT}"
   fi
   rm -f "$TMP_CERT"
+fi
+
+# ------------------------------------------------------------------------------
+# 7. Internal Warmup & Metrics Boundary Checks (must not be exposed publicly)
+# ------------------------------------------------------------------------------
+if [[ "$TARGET_URL" != *"127.0.0.1"* ]] && [[ "$TARGET_URL" != *"localhost"* ]]; then
+  echo ">>> Check 7: Internal Warmup Boundary (GET ${TARGET_URL}/health/warm)..."
+  WARM_EXT_STATUS="$(curl -s -S "${CURL_EXTRA_FLAGS[@]}" -o /dev/null -w "%{http_code}" "${TARGET_URL}/health/warm" || echo "CONN_ERR")"
+  if [ "$WARM_EXT_STATUS" = "403" ] || [ "$WARM_EXT_STATUS" = "404" ]; then
+    record_pass "Internal /health/warm Boundary" "HTTP ${WARM_EXT_STATUS} (Blocked externally as expected)"
+  else
+    record_fail "Internal /health/warm Boundary" "Expected HTTP 403/404 externally, got ${WARM_EXT_STATUS}"
+  fi
+
+  echo ">>> Check 8: Internal Metrics Boundary (GET ${TARGET_URL}/metrics)..."
+  METRICS_EXT_STATUS="$(curl -s -S "${CURL_EXTRA_FLAGS[@]}" -o /dev/null -w "%{http_code}" "${TARGET_URL}/metrics" || echo "CONN_ERR")"
+  if [ "$METRICS_EXT_STATUS" = "403" ] || [ "$METRICS_EXT_STATUS" = "404" ]; then
+    record_pass "Internal /metrics Boundary" "HTTP ${METRICS_EXT_STATUS} (Blocked externally as expected)"
+  else
+    record_fail "Internal /metrics Boundary" "Expected HTTP 403/404 externally, got ${METRICS_EXT_STATUS}"
+  fi
 fi
 
 # ------------------------------------------------------------------------------

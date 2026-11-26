@@ -1,10 +1,12 @@
+import Brand from "./Brand";
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LogOut, AtSign, Check, Copy, X, Menu } from "lucide-react";
+import { LogOut, AtSign, Check, Copy, X, Menu, Volume2, VolumeX } from "lucide-react";
 import { getUser, clearAuth, updateUserHandle } from "../lib/auth";
 import { updateHandle, getMyProfile } from "../lib/api";
 import { notifyExtensionSync } from "../lib/extensionSync";
 import { wsManager } from "../lib/websocket";
+import { isSoundEnabled, toggleSound } from "../lib/sound";
 import NotificationFeed from "./NotificationFeed";
 import Sidebar from "./Sidebar";
 
@@ -15,10 +17,6 @@ export default function AppLayout({ children }) {
 
   // Mobile drawer open state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-  // Scroll direction state for smart auto-hide slide-up
-  const [isVisible, setIsVisible] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
 
   // Handle customization modal state
   const [showHandleModal, setShowHandleModal] = useState(false);
@@ -39,25 +37,6 @@ export default function AppLayout({ children }) {
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-
-      if (currentScrollY < 30) {
-        setIsVisible(true);
-      } else if (currentScrollY > lastScrollY && currentScrollY > 60) {
-        setIsVisible(false);
-      } else if (currentScrollY < lastScrollY) {
-        setIsVisible(true);
-      }
-
-      setLastScrollY(currentScrollY);
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [lastScrollY]);
 
   const handleLogout = () => {
     clearAuth();
@@ -116,6 +95,12 @@ export default function AppLayout({ children }) {
 
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [pendingFriendReqsCount, setPendingFriendReqsCount] = useState(0);
+  const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
+
+  const handleToggleSound = () => {
+    const nextState = toggleSound();
+    setSoundOn(nextState);
+  };
 
   useEffect(() => {
     // Notify extension on every page navigation
@@ -135,7 +120,9 @@ export default function AppLayout({ children }) {
         if (mounted && Array.isArray(reqsRes?.incoming)) {
           setPendingFriendReqsCount(reqsRes.incoming.length);
         }
-      } catch {}
+      } catch {
+        // Ignore transient pending count fetch errors
+      }
     };
 
     fetchPending();
@@ -166,16 +153,16 @@ export default function AppLayout({ children }) {
   }, [location.pathname]);
 
   const navLinks = [
-    { name: "Dashboard", path: "/dashboard" },
-    { name: "My Goals", path: "/goals" },
+    { name: "Lock desk", path: "/dashboard" },
+    { name: "My goals", path: "/goals" },
     { name: "Digital Wellbeing", path: "/wellbeing" },
     {
-      name: "Approval Center",
+      name: "Review inbox",
       path: "/approvals",
       badge: pendingApprovalsCount,
     },
     {
-      name: "Community & Friends",
+      name: "Conversations",
       path: "/community-friends",
       badge: pendingFriendReqsCount,
     },
@@ -190,41 +177,23 @@ export default function AppLayout({ children }) {
     location.pathname === "/communities";
 
   return (
-    <div className={`relative ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} bg-[#0D0D0E] text-[#FFFFFF] antialiased selection:bg-white/20 selection:text-white`}>
-      {/* Ambient Top Glow Mesh */}
-      <div className="ambient-mesh" />
-
-      {/* Subtle monochrome micro dot grid */}
-      <div
-        className="pointer-events-none fixed inset-0 opacity-[0.035]"
-        style={{
-          backgroundImage: "radial-gradient(#ffffff 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-        }}
-      />
-
+    <div className={`lock-workspace relative ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} bg-[#0D0D0E] text-[#FFFFFF] antialiased selection:bg-white/20 selection:text-white`}>
       {/* Mobile Navigation Drawer */}
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       {/* Main Container */}
       <div className={`relative z-10 flex ${isChatPage ? "h-screen overflow-hidden" : "min-h-screen"} flex-col`}>
-        {/* Floating Centered Pill Navbar with Auto-Hide Slide-Up */}
-        <header
-          className={`fixed top-3 sm:top-5 left-0 right-0 z-40 mx-auto w-[98%] 2xl:w-[96%] max-w-[1720px] px-1 sm:px-4 transition-all duration-300 ease-in-out ${
-            isVisible
-              ? "translate-y-0 opacity-100"
-              : "-translate-y-28 opacity-0 pointer-events-none"
-          }`}
-        >
-          <div className="flex items-center justify-between rounded-full border border-white/[0.12] bg-[#141416]/85 px-4 sm:px-8 lg:px-10 py-2.5 sm:py-3 lg:py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.85),inset_0_1px_0_0_rgba(255,255,255,0.1)] backdrop-blur-2xl transition-all">
+        <header className="workspace-nav">
+          <div className="workspace-nav-inner">
             {/* Left: Mobile Menu Trigger + ONUSLY Brand */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               {/* Mobile Hamburger Drawer Button */}
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
-                className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-neutral-300 transition-colors hover:border-white hover:text-white md:hidden"
-                aria-label="Open Navigation Menu"
+                className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-neutral-300 transition-colors hover:border-white hover:text-white xl:hidden"
+                aria-label="Open navigation menu"
+                aria-expanded={isSidebarOpen}
               >
                 <Menu size={18} />
               </button>
@@ -233,16 +202,12 @@ export default function AppLayout({ children }) {
                 to="/dashboard"
                 className="flex items-center pl-1 sm:pl-2 pr-2 sm:pr-4 py-1 transition-all hover:opacity-90 hover:scale-[1.02] shrink-0"
               >
-                <img
-                  src="https://see.fontimg.com/api/rf5/2nxo/MWIyNjZmNmYzMzQ5NGUyYThiMjRlNTZkNzg0MDE2YWUudHRm/T05VU0xZ/ghang.png?r=fs&h=131&w=1250&fg=FFFFFF&bg=292929&tb=1&s=105"
-                  alt="ONUSLY"
-                  className="h-6 sm:h-7 md:h-8 lg:h-9 w-auto object-contain"
-                />
+                <Brand />
               </Link>
             </div>
 
             {/* Center: Navigation Links (Desktop / Tablet only, completely hidden on mobile, NO scrollbar slider) */}
-            <nav className="hidden md:flex items-center gap-2 lg:gap-3 overflow-hidden no-scrollbar py-0.5">
+            <nav className="hidden xl:flex items-center gap-2 lg:gap-3 overflow-hidden no-scrollbar py-0.5">
               {navLinks.map((link) => {
                 const isActive =
                   location.pathname === link.path ||
@@ -251,17 +216,18 @@ export default function AppLayout({ children }) {
 
                 return (
                   <Link
+                    aria-current={isActive ? "page" : undefined}
                     key={link.name}
                     to={link.path}
-                    className={`whitespace-nowrap rounded-full px-4 sm:px-5 lg:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                    className={`whitespace-nowrap rounded-md px-3.5 sm:px-4 lg:px-5 py-2 text-xs font-semibold transition-all duration-150 flex items-center gap-2 ${
                       isActive
-                        ? "bg-white/10 text-white shadow-[0_0_15px_rgba(255,255,255,0.06)] border border-white/20"
-                        : "text-[#888888] hover:text-white hover:bg-white/5"
+                        ? "bg-[#1f2732] text-white border border-[#384656] shadow-sm"
+                        : "text-neutral-400 hover:text-white hover:bg-white/5"
                     }`}
                   >
                     <span>{link.name}</span>
                     {link.badge > 0 && (
-                      <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-500/20 px-1.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
+                      <span className="flex h-4 min-w-[18px] items-center justify-center rounded bg-amber-500/20 px-1 text-[10px] font-mono font-bold text-amber-300 border border-amber-500/30">
                         {link.badge}
                       </span>
                     )}
@@ -271,18 +237,33 @@ export default function AppLayout({ children }) {
             </nav>
 
             {/* Right: Notifications, User Name Badge & Sign Out */}
-            <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              {/* Sound Mute/Unmute Toggle Button */}
+              <button
+                type="button"
+                onClick={handleToggleSound}
+                className={`btn-premium flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded border transition-colors shrink-0 ${
+                  soundOn
+                    ? "border-[#28323e] bg-[#141920] text-neutral-300 hover:border-[#445468] hover:text-white"
+                    : "border-[#28323e] bg-[#141920] text-neutral-500 hover:border-[#445468] hover:text-neutral-300"
+                }`}
+                title={soundOn ? "Mute tactile lock sounds" : "Enable tactile lock sounds"}
+                aria-label={soundOn ? "Mute sounds" : "Enable sounds"}
+              >
+                {soundOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
+              </button>
+
               {/* In-App Notifications Feed */}
               <NotificationFeed />
 
-              {/* Clickable Username Pill (responsive on mobile, no overflow, no white background) */}
+              {/* Clickable Username Pill */}
               <button
                 type="button"
                 onClick={openHandleModal}
-                className="btn-premium flex items-center gap-1.5 sm:gap-2 rounded-full border border-[#333333] bg-[#1E1E1E] px-3 sm:px-5 lg:px-6 py-2 sm:py-2.5 lg:py-3 text-xs sm:text-sm font-semibold text-neutral-200 transition-all hover:border-white/50 hover:bg-[#252525] shadow-sm max-w-[130px] sm:max-w-[200px] md:max-w-none"
+                className="btn-premium flex items-center gap-1.5 rounded border border-[#2e3947] bg-[#141920] px-3 sm:px-4 py-2 text-xs font-semibold text-neutral-200 transition-all hover:border-[#445468] hover:bg-[#1a212b] shadow-sm max-w-[130px] sm:max-w-[200px] md:max-w-none"
                 title="Click to customize your ONUSLY Tag / Handle"
               >
-                <AtSign size={14} className="text-neutral-300 shrink-0" />
+                <AtSign size={13} className="text-neutral-400 shrink-0" />
                 <span className="font-mono tracking-tight truncate">{displayHandle}</span>
               </button>
 
@@ -290,10 +271,10 @@ export default function AppLayout({ children }) {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="btn-premium flex h-9 w-9 sm:h-10 sm:w-10 lg:h-11 lg:w-11 items-center justify-center rounded-full border border-[#2D2D2D] bg-[#1E1E1E] text-[#888888] transition-colors hover:border-white/40 hover:text-white shrink-0"
+                className="btn-premium flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded border border-[#28323e] bg-[#141920] text-neutral-400 transition-colors hover:border-[#445468] hover:text-white shrink-0"
                 title="Sign Out"
               >
-                <LogOut size={17} />
+                <LogOut size={15} />
               </button>
             </div>
           </div>
@@ -301,10 +282,10 @@ export default function AppLayout({ children }) {
 
         {/* Page Content with adjusted top padding for the taller floating navbar */}
         <main
-          className={`flex-1 px-3 sm:px-6 lg:px-8 animate-fade-in flex flex-col min-h-0 ${
+          className={`workspace-content flex-1 px-3 sm:px-6 lg:px-8 flex flex-col min-h-0 ${
             isChatPage
-              ? "pt-20 sm:pt-24 pb-2 sm:pb-3 overflow-hidden"
-              : "pt-28 sm:pt-32 md:pt-36 pb-12"
+              ? "pb-2 sm:pb-3 overflow-hidden"
+              : "pb-12"
           }`}
         >
           {children}

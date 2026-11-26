@@ -86,6 +86,9 @@ describe("Domain Matcher Suite", () => {
       assert.equal(isProtectedUrl("https://onusly.com/"), true);
       assert.equal(isProtectedUrl("https://app.onusly.com/dashboard"), true);
       assert.equal(isProtectedUrl("https://api.onusly.com/auth/google"), true);
+      assert.equal(isProtectedUrl("https://onusly.app/"), true);
+      assert.equal(isProtectedUrl("https://www.onusly.app/dashboard"), true);
+      assert.equal(isProtectedUrl("https://onusly.duckdns.org/dashboard"), true);
     });
 
     it("does not protect external websites", () => {

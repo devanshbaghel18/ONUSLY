@@ -1,14 +1,31 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import Login from "./auth/Login";
-import SignUp from "./auth/SignUp";
-import { OnuslyLogo } from "./auth/components";
+import { GoogleLogin, useGoogleOAuth } from "@react-oauth/google";
+import { LockKeyhole, FileCheck2, KeyRound, X } from "lucide-react";
+import Brand from "../components/Brand";
+import LockMechanism from "../components/LockMechanism";
+import LockFilm from "../components/LockFilm";
+import LandingEnforcers from "../components/landing/LandingEnforcers";
+import LandingProtocol from "../components/landing/LandingProtocol";
+import LandingCatalog from "../components/landing/LandingCatalog";
+import LandingGuarantees from "../components/landing/LandingGuarantees";
+import LandingFAQ from "../components/landing/LandingFAQ";
+import LandingFooter from "../components/landing/LandingFooter";
+
 import { isAuthenticated, setAuth } from "../lib/auth";
 import { loginWithGoogle } from "../lib/api";
 
+const phases = [
+  { name: "Engage", icon: LockKeyhole, title: "Three apps locked.", body: "Discord, Instagram and Steam stay locked while you finish the mix.", evidence: "Awaiting your submission", state: "Lock engaged" },
+  { name: "Submit", icon: FileCheck2, title: "The mix is with Maya.", body: "Your witness can listen to the recording. All three apps stay locked during review.", evidence: "final-mix.wav · Submitted", state: "Under review" },
+  { name: "Release", icon: KeyRound, title: "Maya approved the mix.", body: "This commitment is complete. The latch lifts and its three restrictions are released.", evidence: "final-mix.wav · Approved", state: "Released" },
+];
+
 export default function Auth() {
   const navigate = useNavigate();
-  const [isLogin, setIsLogin] = useState(true);
+  const [phase, setPhase] = useState(0);
+  const dialog = useRef(null);
+  const { scriptLoadedSuccessfully } = useGoogleOAuth();
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -27,11 +44,6 @@ export default function Auth() {
       navigate("/dashboard", { replace: true });
     }
   }, [navigate]);
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setNotice("Email sign-in isn't available yet. Please continue with Google.");
-  };
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
@@ -52,133 +64,44 @@ export default function Auth() {
     setNotice("Google Sign-In failed or was cancelled.");
   };
 
-  const handleGoogleAuth = () => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    const apiBase =
-      import.meta.env.VITE_API_BASE_URL ||
-      (typeof window !== "undefined" ? window.location.origin : "http://localhost:8080");
-    const redirectUri = `${apiBase.replace(/\/+$/, "")}/auth/google/callback`;
-
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: "code",
-      scope: "email profile",
-      access_type: "offline",
-    });
-
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-  };
+  function openSignIn() {
+    setNotice("");
+    dialog.current.showModal();
+  }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#050505] text-white selection:bg-white/20 selection:text-white flex flex-col justify-between">
-      {/* =====================================================
-          AMBIENT OBSIDIAN LIGHTING
-      ===================================================== */}
-      <div className="pointer-events-none fixed inset-0 z-0">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 h-[500px] w-[800px] rounded-full bg-gradient-to-b from-white/[0.07] to-transparent blur-[120px]" />
-        <div className="absolute bottom-0 right-1/4 h-[350px] w-[350px] rounded-full bg-white/[0.02] blur-[100px]" />
-      </div>
-
-      {/* Subtle Grid Pattern Overlay */}
-      <div
-        className="pointer-events-none absolute inset-0 z-0 opacity-[0.03]"
-        style={{
-          backgroundImage: "radial-gradient(#ffffff 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-        }}
-      />
-
-      {/* =====================================================
-          MAIN CONTAINER
-      ===================================================== */}
-      <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4 py-12">
-        {/* BRAND LOGO */}
-        <div className="mb-6 animate-fade-in">
-          <OnuslyLogo />
+    <main className="lock-entry" id="top">
+      <LockFilm onSignIn={openSignIn} />
+      <section className="explore" id="mechanism" aria-labelledby="explore-heading">
+        <div className="explore-content">
+          <span className="instrument-label"><i /> Try a sample commitment</span>
+          <h2 id="explore-heading">Finish the<br /><em>album mix.</em></h2>
+          <div className="phase-controls" aria-label="Preview stages">{phases.map(({name, icon: Icon}, i) => <button key={name} aria-pressed={i === phase} onClick={() => setPhase(i)}><Icon size={15} />{name}</button>)}</div>
+          <div className="sample-decision" aria-live="polite"><h3>{phases[phase].title}</h3><p>{phases[phase].body}</p></div>
+          <dl className="sample-receipt"><div><dt>Witness</dt><dd>@maya</dd></div><div><dt>Evidence</dt><dd>{phases[phase].evidence}</dd></div></dl>
         </div>
+        <figure className="explore-model" data-phase={phase}>
+          <div className="model-status"><i />{phases[phase].state}</div>
+          <LockMechanism released={phase === 2} reviewing={phase === 1} demoApps interactive />
+          <figcaption>Drag to rotate <span>← →</span></figcaption>
+        </figure>
+      </section>
 
-        {/* AUTH CARD */}
-        <div className="w-full max-w-[480px] rounded-3xl border border-white/10 bg-[#0E0E12]/90 p-6 sm:p-8 backdrop-blur-3xl shadow-[0_30px_80px_-15px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.1)] animate-scale-in">
-          {/* TITLE & SUBTITLE */}
-          <div className="mb-6 text-center">
-            <h2 className="font-heading text-xl sm:text-2xl font-bold tracking-tight text-white">
-              {isLogin ? "Welcome Back" : "Create Account"}
-            </h2>
-            <p className="mt-1 text-xs text-neutral-400">
-              {isLogin
-                ? "Enter your credentials to access your accountability dashboard"
-                : "Set up your profile to start locking in on your targets"}
-            </p>
-          </div>
+      {/* Expanded Architectural Sections */}
+      <LandingEnforcers onSignIn={openSignIn} />
+      <LandingProtocol onSignIn={openSignIn} />
+      <LandingCatalog onSignIn={openSignIn} />
+      <LandingGuarantees />
+      <LandingFAQ />
+      <LandingFooter onSignIn={openSignIn} />
 
-          {/* SIGN IN / SIGN UP PILL SWITCHER */}
-          <div className="mb-6 flex rounded-xl border border-white/10 bg-[#08080A] p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setIsLogin(true);
-                setNotice("");
-              }}
-              className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all duration-200 ${
-                isLogin
-                  ? "bg-white text-black shadow-md"
-                  : "text-neutral-400 hover:text-white"
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsLogin(false);
-                setNotice("");
-              }}
-              className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all duration-200 ${
-                !isLogin
-                  ? "bg-white text-black shadow-md"
-                  : "text-neutral-400 hover:text-white"
-              }`}
-            >
-              Sign Up
-            </button>
-          </div>
-
-          {/* DYNAMIC FORM */}
-          {isLogin ? (
-            <Login
-              handleSubmit={handleSubmit}
-              onGoogleSuccess={handleGoogleSuccess}
-              onGoogleError={handleGoogleError}
-              handleGoogleAuth={handleGoogleAuth}
-              notice={notice}
-            />
-          ) : (
-            <SignUp
-              handleSubmit={handleSubmit}
-              onGoogleSuccess={handleGoogleSuccess}
-              onGoogleError={handleGoogleError}
-              handleGoogleAuth={handleGoogleAuth}
-              notice={notice}
-            />
-          )}
-
-          {/* SECURITY TRUST BADGE */}
-          <div className="mt-6 pt-5 border-t border-white/[0.08] flex items-center justify-center gap-3 text-[10px] text-neutral-400 font-mono">
-            <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_6px_rgba(255,255,255,0.8)]" />
-              <span>Encrypted Session</span>
-            </span>
-            <span>•</span>
-            <span>Focus Lockout Engine</span>
-          </div>
+      <dialog ref={dialog} className="signin-dialog" aria-labelledby="signin-title" onClick={e => { if (e.target === dialog.current) dialog.current.close(); }}>
+        <div className="signin-inner"><button className="dialog-close" aria-label="Close sign in" onClick={() => dialog.current.close()}><X /></button>
+          <Brand /><h2 id="signin-title">Access your locks.</h2><p>Continue with Google to create or review a commitment.</p>
+          <GoogleLogin onSuccess={handleGoogleSuccess} onError={handleGoogleError} text="continue_with" theme="filled_black" />
+          <div role="status">{notice || (!scriptLoadedSuccessfully && "Waiting for Google sign-in. Check your connection if this persists.")}</div>
         </div>
-
-        {/* FOOTER */}
-        <p className="mt-8 text-center font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-400">
-          ONUSLY · HIGH-STAKES ACCOUNTABILITY ENGINE
-        </p>
-      </main>
-    </div>
+      </dialog>
+    </main>
   );
 }

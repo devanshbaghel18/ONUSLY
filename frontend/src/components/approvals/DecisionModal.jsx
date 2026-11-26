@@ -9,9 +9,9 @@ import {
   Lock,
   Unlock,
   MessageSquare,
-  Sparkles,
 } from "lucide-react";
 import { getUniqueDisplayTargets } from "../../lib/blockedApps";
+import { playLockReleaseSound, playLockEngageSound } from "../../lib/sound";
 
 export default function DecisionModal({
   isOpen,
@@ -32,15 +32,23 @@ export default function DecisionModal({
 
   // Reset state when opening
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    let cancelled = false;
+    let focusTimer = null;
+    Promise.resolve().then(() => {
+      if (cancelled) return;
       setComment(isApprove ? "Approved verification proof." : "");
       setSubmitting(false);
       setError("");
       // Auto focus textarea on rejection
       if (!isApprove) {
-        setTimeout(() => textareaRef.current?.focus(), 50);
+        focusTimer = setTimeout(() => textareaRef.current?.focus(), 50);
       }
-    }
+    });
+    return () => {
+      cancelled = true;
+      if (focusTimer) clearTimeout(focusTimer);
+    };
   }, [isOpen, isApprove]);
 
   // Handle escape key
@@ -72,6 +80,11 @@ export default function DecisionModal({
         status: isApprove ? "approved" : "rejected",
         comment: comment.trim(),
       });
+      if (isApprove) {
+        playLockReleaseSound();
+      } else {
+        playLockEngageSound();
+      }
       onClose();
     } catch (err) {
       setError(err?.message || `Failed to submit ${type} decision. Please try again.`);
@@ -149,12 +162,14 @@ export default function DecisionModal({
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Impact Banner */}
           {isApprove ? (
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs leading-relaxed text-emerald-300">
-              ✨ <strong>Unlocking Action</strong>: Approving this proof will mark the goal as complete and instantly unlock all restricted apps and websites.
+            <div className="flex items-start gap-2 rounded border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs leading-relaxed text-emerald-300 font-mono">
+              <Unlock size={13} className="text-emerald-400 shrink-0 mt-0.5" />
+              <span><strong>UNLOCK ACTION:</strong> Approving this proof marks the goal completed and instantly releases all target constraints.</span>
             </div>
           ) : (
-            <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 text-xs leading-relaxed text-rose-300">
-              🔒 <strong>Accountability Lock</strong>: Targets will remain strictly locked. Your partner must read your feedback and submit a new proof.
+            <div className="flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 p-2.5 text-xs leading-relaxed text-rose-300 font-mono">
+              <Lock size={13} className="text-rose-400 shrink-0 mt-0.5" />
+              <span><strong>ENFORCEMENT LOCKED:</strong> Targets remain blocked. Your partner must review feedback and submit revised proof.</span>
             </div>
           )}
 
@@ -175,7 +190,7 @@ export default function DecisionModal({
                     }`}
                 >
                   {currentLength >= minLength ? (
-                    `✓ ${currentLength} characters`
+                    `${currentLength} chars (valid)`
                   ) : (
                     `${currentLength}/${minLength} min chars`
                   )}

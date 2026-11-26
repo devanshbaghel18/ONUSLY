@@ -3,6 +3,7 @@ import { Lock, X, Loader2, Plus, Globe, Smartphone, Trash2, Laptop, AlertCircle 
 import { createGoal } from "../lib/api";
 import { APP_CATALOG, isProtectedProcess, normalizeDesktopAppTarget } from "../lib/blockedApps";
 import { notifyExtensionSync } from "../lib/extensionSync";
+import { playLockEngageSound } from "../lib/sound";
 
 export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initialCustomTarget = null }) {
   const [taskDescription, setTaskDescription] = useState("");
@@ -271,6 +272,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
       if (onGoalCreated) {
         onGoalCreated(created);
       }
+      playLockEngageSound();
       notifyExtensionSync();
       onClose();
     } catch (err) {
@@ -291,20 +293,20 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#141418]/95 backdrop-blur-2xl p-6 sm:p-7 shadow-[0_25px_60px_rgba(0,0,0,0.9)] max-h-[90vh] overflow-y-auto animate-scale-in"
+        className="w-full max-w-lg rounded-lg border border-[#2b3542] bg-[#12161c] p-6 sm:p-7 shadow-[0_25px_60px_rgba(0,0,0,0.95)] max-h-[90vh] overflow-y-auto animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
+        <div className="flex items-center justify-between border-b border-[#26313d] pb-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black shadow-lg">
-              <Lock size={18} strokeWidth={2.5} />
+            <div className="flex h-9 w-9 items-center justify-center rounded border border-[#2d3744] bg-[#182028] text-[#ff7843] shadow-sm">
+              <Lock size={16} strokeWidth={2.5} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">
+              <h3 className="text-base font-bold text-white tracking-tight">
                 New Accountability Lock
               </h3>
-              <p className="text-xs text-[#A1A1AA]">
+              <p className="text-xs text-[#8c9ba8]">
                 Lock distracting apps and websites until approved.
               </p>
             </div>
@@ -314,14 +316,14 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="rounded-lg p-1.5 text-neutral-400 hover:text-white hover:bg-white/10 transition"
+            className="rounded border border-[#26313d] bg-[#161c23] p-1.5 text-neutral-400 hover:text-white hover:border-[#384654] transition"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
 
         {formError && (
-          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs text-neutral-300">
+          <div className="mt-4 rounded border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
             {formError}
           </div>
         )}
@@ -329,8 +331,8 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
         <form onSubmit={handleSubmit} className="mt-5 space-y-5">
           {/* 1. Goal / Task Name */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-white mb-1.5">
-              1. Goal Name / Task <span className="text-neutral-500">*</span>
+            <label className="block font-mono text-[10px] uppercase font-bold tracking-wider text-neutral-400 mb-1.5">
+              1. Goal Name / Task <span className="text-[#ff7843]">*</span>
             </label>
             <input
               type="text"
@@ -339,13 +341,13 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
               placeholder="e.g. Master DSA Graph Algorithms, Complete 5km Run..."
               value={taskDescription}
               onChange={(e) => setTaskDescription(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-[#0E0E12] px-4 py-3 text-sm text-white placeholder-neutral-500 focus:border-white/40 focus:ring-2 focus:ring-white/10 focus:outline-none transition"
+              className="w-full rounded border border-[#26313d] bg-[#0c0f14] px-3.5 py-2.5 text-xs text-white placeholder-neutral-600 focus:border-[#ff7843] focus:outline-none transition"
             />
           </div>
 
           {/* 2. Goal Description / Notes */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-white mb-1.5">
+            <label className="block font-mono text-[10px] uppercase font-bold tracking-wider text-neutral-400 mb-1.5">
               2. Description & Task Notes (Optional)
             </label>
             <textarea
@@ -353,25 +355,25 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
               placeholder="Describe what you plan to accomplish, key milestones, or notes..."
               value={taskDetails}
               onChange={(e) => setTaskDetails(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-[#0E0E12] px-4 py-2.5 text-xs text-white placeholder-neutral-500 focus:border-white/40 focus:ring-2 focus:ring-white/10 focus:outline-none transition resize-none"
+              className="w-full rounded border border-[#26313d] bg-[#0c0f14] px-3.5 py-2 text-xs text-white placeholder-neutral-600 focus:border-[#ff7843] focus:outline-none transition resize-none"
             />
           </div>
 
           {/* 3. Catalog Picker */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-white">
+              <label className="block font-mono text-[10px] uppercase font-bold tracking-wider text-neutral-400">
                 3. Apps & Websites Catalog
               </label>
               <button
                 type="button"
                 onClick={handleSelectAllCatalog}
-                className="text-[11px] font-semibold text-[#A1A1AA] hover:text-white transition underline"
+                className="font-mono text-[10px] uppercase tracking-wider text-[#ff7843] hover:underline"
               >
                 {selectedCatalogIds.length === APP_CATALOG.length ? "Deselect All" : "Select All"}
               </button>
             </div>
-            <p className="text-[11px] text-[#A1A1AA] mb-3">
+            <p className="font-mono text-[10px] text-neutral-400 mb-3">
               Selected apps will be blocked on Android and desktop browser ({selectedCatalogIds.length} catalog items selected):
             </p>
 
@@ -383,14 +385,14 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                     key={item.id}
                     type="button"
                     onClick={() => toggleCatalogApp(item.id)}
-                    className={`flex items-center justify-between rounded-xl border p-2.5 text-xs font-semibold transition-all ${
+                    className={`flex items-center justify-between rounded border p-2 text-xs font-mono transition-all ${
                       isSelected
-                        ? "border-white bg-white text-black font-bold shadow-sm"
-                        : "border-white/10 bg-[#0E0E12] text-[#A1A1AA] hover:border-white/25 hover:text-white"
+                        ? "border-[#ff7843] bg-[#1c2430] text-white font-bold shadow-sm"
+                        : "border-[#26313d] bg-[#0c0f14] text-neutral-400 hover:border-[#384654] hover:text-white"
                     }`}
                   >
                     <span>{item.name}</span>
-                    <Lock size={11} className={isSelected ? "text-black" : "text-neutral-500"} />
+                    <Lock size={10} className={isSelected ? "text-[#ff7843]" : "text-neutral-600"} />
                   </button>
                 );
               })}
@@ -398,34 +400,34 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
           </div>
 
           {/* 4. Custom Target Option */}
-          <div className="rounded-xl border border-[#2B2B2B] bg-[#141414] p-3.5">
+          <div className="rounded border border-[#26313d] bg-[#0c0f14] p-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Plus size={14} className="text-[#A3A3A3]" />
-                <span className="text-xs font-bold text-white">Custom Target</span>
+                <Plus size={13} className="text-[#ff7843]" />
+                <span className="font-mono text-[10px] uppercase font-bold tracking-wider text-white">Custom Target</span>
               </div>
               <button
                 type="button"
                 onClick={() => setShowCustomInput((v) => !v)}
-                className="text-[11px] font-semibold text-[#A3A3A3] hover:text-white transition underline"
+                className="font-mono text-[10px] uppercase tracking-wider text-neutral-400 hover:text-white transition underline"
               >
                 {showCustomInput ? "Hide" : "+ Add Desktop App / Domain / Package"}
               </button>
             </div>
 
             {showCustomInput && (
-              <div className="mt-3 space-y-3 border-t border-[#262626] pt-3">
-                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <div className="mt-3 space-y-3 border-t border-[#26313d] pt-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       setCustomType("desktop");
                       setCustomTargetError("");
                     }}
-                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-semibold transition ${
+                    className={`flex items-center gap-1.5 rounded border px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider transition ${
                       customType === "desktop"
-                        ? "bg-white text-black font-bold"
-                        : "bg-[#222222] text-[#A3A3A3] hover:text-white"
+                        ? "border-[#ff7843] bg-[#1c2430] text-white shadow-sm"
+                        : "border-[#26313d] bg-[#141920] text-neutral-400 hover:text-white"
                     }`}
                   >
                     <Laptop size={11} />
@@ -437,10 +439,10 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                       setCustomType("domain");
                       setCustomTargetError("");
                     }}
-                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-semibold transition ${
+                    className={`flex items-center gap-1.5 rounded border px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider transition ${
                       customType === "domain"
-                        ? "bg-white text-black font-bold"
-                        : "bg-[#222222] text-[#A3A3A3] hover:text-white"
+                        ? "border-[#ff7843] bg-[#1c2430] text-white shadow-sm"
+                        : "border-[#26313d] bg-[#141920] text-neutral-400 hover:text-white"
                     }`}
                   >
                     <Globe size={11} />
@@ -452,10 +454,10 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                       setCustomType("app");
                       setCustomTargetError("");
                     }}
-                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-semibold transition ${
+                    className={`flex items-center gap-1.5 rounded border px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider transition ${
                       customType === "app"
-                        ? "bg-white text-black font-bold"
-                        : "bg-[#222222] text-[#A3A3A3] hover:text-white"
+                        ? "border-[#ff7843] bg-[#1c2430] text-white shadow-sm"
+                        : "border-[#26313d] bg-[#141920] text-neutral-400 hover:text-white"
                     }`}
                   >
                     <Smartphone size={11} />
@@ -484,12 +486,12 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                         ? "e.g. news.ycombinator.com"
                         : "e.g. com.snapchat.android"
                     }
-                    className="flex-1 rounded-xl border border-[#333333] bg-[#121212] px-3 py-2 text-xs text-white placeholder-[#737373] focus:border-white focus:outline-none transition"
+                    className="flex-1 rounded border border-[#26313d] bg-[#080b0e] px-3 py-1.5 text-xs text-white placeholder-neutral-600 focus:border-[#ff7843] focus:outline-none transition"
                   />
                   <button
                     type="button"
                     onClick={handleAddCustomTarget}
-                    className="rounded-xl bg-[#262626] px-3 py-2 text-xs font-semibold text-white hover:bg-white hover:text-black transition"
+                    className="rounded border border-[#384654] bg-[#1b232c] px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-white hover:border-[#ff7843] hover:text-[#ff7843] transition"
                   >
                     Add
                   </button>
@@ -503,26 +505,28 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                         const clean = normalizeDesktopAppTarget(customInput.trim());
                         if (isProtectedProcess(clean)) {
                           return (
-                            <span className="text-amber-400 font-sans">
-                              ⚠️ "{clean}" is a protected system process and cannot be restricted.
+                            <span className="inline-flex items-center gap-1 text-amber-400 font-mono text-[10px]">
+                              <AlertCircle size={11} className="shrink-0" />
+                              <span>"{clean}" is a protected system process and cannot be restricted.</span>
                             </span>
                           );
                         }
                         if (/[/\\&|;><$`*?~!(){}[\]'"\n\r\t]/.test(clean)) {
                           return (
-                            <span className="text-amber-400 font-sans">
-                              ⚠️ Invalid characters: shell characters and paths are not allowed.
+                            <span className="inline-flex items-center gap-1 text-amber-400 font-mono text-[10px]">
+                              <AlertCircle size={11} className="shrink-0" />
+                              <span>Invalid characters: shell characters and paths are not allowed.</span>
                             </span>
                           );
                         }
                         return (
-                          <span className="text-[#A1A1AA]">
+                          <span className="text-neutral-400">
                             Normalized Target: <span className="text-white font-bold">{clean}</span>
                           </span>
                         );
                       })()
                     ) : customType === "domain" ? (
-                      <span className="text-[#A1A1AA]">
+                      <span className="text-neutral-400">
                         Normalized Domain:{" "}
                         <span className="text-white font-bold">
                           {customInput
@@ -534,7 +538,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                         </span>
                       </span>
                     ) : (
-                      <span className="text-[#A1A1AA]">
+                      <span className="text-neutral-400">
                         Target Package: <span className="text-white font-bold">{customInput.trim()}</span>
                       </span>
                     )}
@@ -542,19 +546,19 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                 )}
 
                 {customTargetError && (
-                  <div className="text-[11px] text-amber-400 px-1">
+                  <div className="text-[11px] text-amber-400 px-1 font-mono">
                     {customTargetError}
                   </div>
                 )}
 
                 {/* Tier 1 Detection & Response Disclosure */}
-                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-[#A1A1AA] flex items-start gap-2.5">
-                  <AlertCircle size={15} className="text-white/60 shrink-0 mt-0.5" />
+                <div className="rounded border border-[#26313d] bg-[#080b0e] p-3 font-mono text-[10px] text-neutral-400 flex items-start gap-2.5">
+                  <AlertCircle size={14} className="text-neutral-500 shrink-0 mt-0.5" />
                   <div className="space-y-1">
                     <div>
                       <span className="font-semibold text-white">Tier 1 — Detection & Response:</span> Restricted desktop applications may briefly launch before ONUSLY detects and closes them.
                     </div>
-                    <div className="text-[11px] text-[#737373]">
+                    <div className="text-[10px] text-neutral-500">
                       Immunity Notice: Core operating system binaries (e.g. Explorer, Task Manager, Command Prompt, PowerShell) and ONUSLY agent components are protected and cannot be restricted.
                     </div>
                   </div>
@@ -563,11 +567,11 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
             )}
 
             {customTargets.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5 border-t border-[#262626] pt-3">
+              <div className="mt-3 flex flex-wrap gap-1.5 border-t border-[#26313d] pt-3">
                 {customTargets.map((ct) => (
                   <span
                     key={ct.id}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#3A3A3A] bg-[#1A1A1A] px-2.5 py-1 text-[11px] text-neutral-300"
+                    className="inline-flex items-center gap-1.5 rounded border border-[#2b3542] bg-[#161c23] px-2 py-0.5 font-mono text-[10px] text-neutral-300"
                   >
                     {ct.type === "desktop" ? (
                       <Laptop size={10} className="text-neutral-400" />
@@ -583,7 +587,7 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                     <button
                       type="button"
                       onClick={() => handleRemoveCustomTarget(ct.id)}
-                      className="text-[#737373] hover:text-white transition ml-0.5"
+                      className="text-neutral-500 hover:text-white transition ml-0.5"
                     >
                       <Trash2 size={10} />
                     </button>
@@ -594,24 +598,24 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
           </div>
 
           {/* 5. Accountability Verification */}
-          <div className="rounded-xl border border-white/10 bg-[#0E0E12] p-4 space-y-3">
+          <div className="rounded border border-[#26313d] bg-[#0c0f14] p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold uppercase tracking-wider text-white">
+              <label className="block font-mono text-[10px] uppercase font-bold tracking-wider text-neutral-400">
                 5. Accountability Verification
               </label>
               {hasTargets ? (
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-white text-black font-mono">
+                <span className="rounded border border-[#ff7843]/40 bg-[#ff7843]/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#ff9769]">
                   Locked: Friend Only
                 </span>
               ) : (
-                <span className="text-[10px] text-[#A1A1AA]">
+                <span className="font-mono text-[10px] text-neutral-400">
                   Choose verification mode
                 </span>
               )}
             </div>
 
             {hasTargets ? (
-              <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+              <p className="text-xs text-neutral-400 leading-relaxed">
                 Goals with distraction locks require friend verification. Only an assigned accountability partner can review your proof and unlock your targets.
               </p>
             ) : (
@@ -619,10 +623,10 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                 <button
                   type="button"
                   onClick={() => setApprovalType("friend")}
-                  className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                  className={`rounded border p-2 text-xs font-mono font-bold uppercase tracking-wider transition ${
                     approvalType === "friend"
-                      ? "border-white bg-white text-black font-bold shadow-sm"
-                      : "border-white/10 bg-[#161618] text-[#A1A1AA] hover:text-white"
+                      ? "border-[#ff7843] bg-[#1c2430] text-white shadow-sm"
+                      : "border-[#26313d] bg-[#141920] text-neutral-400 hover:text-white"
                   }`}
                 >
                   Friend
@@ -630,10 +634,10 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                 <button
                   type="button"
                   onClick={() => setApprovalType("community")}
-                  className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                  className={`rounded border p-2 text-xs font-mono font-bold uppercase tracking-wider transition ${
                     approvalType === "community"
-                      ? "border-white bg-white text-black font-bold shadow-sm"
-                      : "border-white/10 bg-[#161618] text-[#A1A1AA] hover:text-white"
+                      ? "border-[#ff7843] bg-[#1c2430] text-white shadow-sm"
+                      : "border-[#26313d] bg-[#141920] text-neutral-400 hover:text-white"
                   }`}
                 >
                   Community
@@ -641,10 +645,10 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                 <button
                   type="button"
                   onClick={() => setApprovalType("none")}
-                  className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                  className={`rounded border p-2 text-xs font-mono font-bold uppercase tracking-wider transition ${
                     approvalType === "none"
-                      ? "border-white bg-white text-black font-bold shadow-sm"
-                      : "border-white/10 bg-[#161618] text-[#A1A1AA] hover:text-white"
+                      ? "border-[#ff7843] bg-[#1c2430] text-white shadow-sm"
+                      : "border-[#26313d] bg-[#141920] text-neutral-400 hover:text-white"
                   }`}
                 >
                   None
@@ -654,8 +658,8 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
 
             {(hasTargets || approvalType === "friend") && (
               <div className="space-y-1.5 pt-1">
-                <label className="block text-xs font-semibold text-neutral-300">
-                  Accountability Partner (@handle or email) <span className="text-white">*</span>
+                <label className="block font-mono text-[10px] uppercase font-bold tracking-wider text-neutral-400">
+                  Accountability Partner (@handle or email) <span className="text-[#ff7843]">*</span>
                 </label>
                 <input
                   type="text"
@@ -663,9 +667,9 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
                   placeholder="e.g. @partner or friend@example.com"
                   value={approverEmail}
                   onChange={(e) => setApproverEmail(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-[#141418] px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:border-white/40 focus:ring-2 focus:ring-white/10 focus:outline-none transition"
+                  className="w-full rounded border border-[#26313d] bg-[#080b0e] px-3.5 py-2 text-xs text-white placeholder-neutral-600 focus:border-[#ff7843] focus:outline-none transition"
                 />
-                <p className="text-[10px] text-neutral-400">
+                <p className="font-mono text-[10px] text-neutral-500">
                   Your partner must verify your proof submission to lift distraction locks.
                 </p>
               </div>
@@ -678,23 +682,23 @@ export default function CreateGoalModal({ isOpen, onClose, onGoalCreated, initia
               type="button"
               onClick={onClose}
               disabled={submitting}
-              className="btn-premium flex-1 rounded-xl border border-white/10 bg-white/5 py-3 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition"
+              className="flex-1 rounded border border-[#26313d] bg-[#161c23] py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-neutral-300 hover:text-white hover:border-[#384654] transition"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || !taskDescription.trim()}
-              className="btn-glow flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-black uppercase tracking-wider text-black shadow-lg disabled:opacity-40"
+              className="flex-1 flex items-center justify-center gap-2 rounded border border-[#ff7843] bg-[#ff7843] py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-black shadow-lg hover:bg-[#ff8f5e] transition disabled:opacity-40 active:scale-95"
             >
               {submitting ? (
                 <>
-                  <Loader2 size={15} className="animate-spin text-black" />
+                  <Loader2 size={14} className="animate-spin text-black" />
                   <span>Activating Lock...</span>
                 </>
               ) : (
                 <>
-                  <Lock size={14} strokeWidth={2.5} />
+                  <Lock size={13} strokeWidth={2.5} />
                   <span>Start Accountability Lock</span>
                 </>
               )}

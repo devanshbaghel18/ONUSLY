@@ -98,7 +98,8 @@ export function isProtectedUrl(urlStr) {
       host === "onusly.com" ||
       host.endsWith(".onusly.com") ||
       host === "onusly.app" ||
-      host.endsWith(".onusly.app")
+      host.endsWith(".onusly.app") ||
+      host === "onusly.duckdns.org"
     ) {
       return true;
     }

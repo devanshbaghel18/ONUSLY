@@ -16,6 +16,9 @@ describe("Authentication Handoff Suite", () => {
       assert.equal(isAuthorizedOrigin({ origin: "https://onusly.com" }), true);
       assert.equal(isAuthorizedOrigin({ origin: "https://app.onusly.com" }), true);
       assert.equal(isAuthorizedOrigin({ origin: "https://dashboard.onusly.com" }), true);
+      assert.equal(isAuthorizedOrigin({ origin: "https://onusly.app" }), true);
+      assert.equal(isAuthorizedOrigin({ origin: "https://www.onusly.app" }), true);
+      assert.equal(isAuthorizedOrigin({ origin: "https://onusly.duckdns.org" }), true);
     });
 
     it("strictly rejects untrusted or third-party origins", () => {
@@ -23,6 +26,8 @@ describe("Authentication Handoff Suite", () => {
       assert.equal(isAuthorizedOrigin({ origin: "http://localhost:3001" }), false);
       assert.equal(isAuthorizedOrigin({ origin: "https://fake-onusly.com" }), false);
       assert.equal(isAuthorizedOrigin({ origin: "https://onusly.com.attacker.com" }), false);
+      assert.equal(isAuthorizedOrigin({ origin: "https://fake-onusly.app" }), false);
+      assert.equal(isAuthorizedOrigin({ origin: "https://onusly.app.attacker.com" }), false);
       assert.equal(isAuthorizedOrigin(null), false);
       assert.equal(isAuthorizedOrigin({}), false);
     });

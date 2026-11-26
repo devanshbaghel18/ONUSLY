@@ -79,10 +79,14 @@ func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frontendURL := os.Getenv("FRONTEND_URL")
+	frontendURL := strings.TrimSpace(h.service.cfg.FrontendURL)
+	if frontendURL == "" {
+		frontendURL = strings.TrimSpace(os.Getenv("FRONTEND_URL"))
+	}
 	if frontendURL == "" {
 		frontendURL = "http://localhost:5173"
 	}
+	frontendURL = strings.TrimRight(frontendURL, "/")
 
 	// Set HttpOnly session cookie
 	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"

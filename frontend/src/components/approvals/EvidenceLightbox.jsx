@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   X,
@@ -18,30 +18,17 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Download,
   File,
   History,
 } from "lucide-react";
 import { getUniqueDisplayTargets } from "../../lib/blockedApps";
-import { API_BASE_URL, getSubmissions } from "../../lib/api";
+import { getSubmissions, resolveApiUrl } from "../../lib/api";
 
 function resolveMediaUrl(rawUrl) {
-  if (!rawUrl) return "";
-  if (
-    rawUrl.startsWith("data:") ||
-    rawUrl.startsWith("blob:") ||
-    rawUrl.startsWith("http://") ||
-    rawUrl.startsWith("https://")
-  ) {
-    return rawUrl;
-  }
-  const cleanBase = (
-    API_BASE_URL ||
-    (typeof window !== "undefined" && window.location
-      ? `${window.location.protocol}//${window.location.hostname}:8080`
-      : "http://localhost:8080")
-  ).replace(/\/+$/, "");
-  return `${cleanBase}${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`;
+  return resolveApiUrl(rawUrl);
 }
 
 /**
@@ -187,14 +174,22 @@ export default function EvidenceLightbox({
   const currentProof = proof || item?.latestProof;
 
   useEffect(() => {
+    let cancelled = false;
     const goalId = item?.goalId || currentProof?.goalId;
     if (isOpen && goalId) {
       getSubmissions(goalId)
-        .then((d) => d && setDossier(d))
+        .then((d) => {
+          if (!cancelled && d) setDossier(d);
+        })
         .catch(() => { });
     } else {
-      setDossier(null);
+      Promise.resolve().then(() => {
+        if (!cancelled) setDossier(null);
+      });
     }
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, item?.goalId, currentProof?.goalId]);
   const attachedFiles = extractProofFiles(currentProof);
   const activeFile =
@@ -202,7 +197,10 @@ export default function EvidenceLightbox({
 
   // Reset zoom, pan, & active index when proof changes or modal opens
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (cancelled) return;
       setActiveFileIndex(
         initialFileIndex >= 0 && initialFileIndex < attachedFiles.length
           ? initialFileIndex
@@ -213,20 +211,67 @@ export default function EvidenceLightbox({
       setImgLoading(true);
       setImgError(false);
       setCopiedLink(false);
-      document.body.style.overflow = "hidden";
-    }
+    });
+    document.body.style.overflow = "hidden";
     return () => {
+      cancelled = true;
       document.body.style.overflow = "";
     };
   }, [isOpen, currentProof?.id, initialFileIndex, attachedFiles.length]);
 
   // Reset pan and zoom whenever active file changes
   useEffect(() => {
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      setImgLoading(true);
+      setImgError(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFileIndex]);
+
+  const handleZoomIn = useCallback(() => {
+    setZoom((z) => Math.min(3, +(z + 0.35).toFixed(2)));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((z) => {
+      const next = Math.max(1, +(z - 0.35).toFixed(2));
+      if (next === 1) setPan({ x: 0, y: 0 });
+      return next;
+    });
+  }, []);
+
+  const handleResetZoom = useCallback(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
-    setImgLoading(true);
-    setImgError(false);
-  }, [activeFileIndex]);
+  }, []);
+
+  const handleDoubleClick = () => {
+    if (zoom > 1) {
+      handleResetZoom();
+    } else {
+      setZoom(2);
+    }
+  };
+
+  const handlePrevFile = useCallback(() => {
+    if (attachedFiles.length <= 1) return;
+    setActiveFileIndex((prev) =>
+      prev > 0 ? prev - 1 : attachedFiles.length - 1
+    );
+  }, [attachedFiles.length]);
+
+  const handleNextFile = useCallback(() => {
+    if (attachedFiles.length <= 1) return;
+    setActiveFileIndex((prev) =>
+      prev < attachedFiles.length - 1 ? prev + 1 : 0
+    );
+  }, [attachedFiles.length]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -250,46 +295,7 @@ export default function EvidenceLightbox({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, zoom, activeFileIndex, attachedFiles.length]);
-
-  const handleZoomIn = () => {
-    setZoom((z) => Math.min(3, +(z + 0.35).toFixed(2)));
-  };
-
-  const handleZoomOut = () => {
-    setZoom((z) => {
-      const next = Math.max(1, +(z - 0.35).toFixed(2));
-      if (next === 1) setPan({ x: 0, y: 0 });
-      return next;
-    });
-  };
-
-  const handleResetZoom = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  };
-
-  const handleDoubleClick = () => {
-    if (zoom > 1) {
-      handleResetZoom();
-    } else {
-      setZoom(2);
-    }
-  };
-
-  const handlePrevFile = () => {
-    if (attachedFiles.length <= 1) return;
-    setActiveFileIndex((prev) =>
-      prev > 0 ? prev - 1 : attachedFiles.length - 1
-    );
-  };
-
-  const handleNextFile = () => {
-    if (attachedFiles.length <= 1) return;
-    setActiveFileIndex((prev) =>
-      prev < attachedFiles.length - 1 ? prev + 1 : 0
-    );
-  };
+  }, [isOpen, onClose, handleZoomIn, handleZoomOut, handleResetZoom, handlePrevFile, handleNextFile]);
 
   // Drag-to-pan handlers for zoomed images
   const handleMouseDown = (e) => {

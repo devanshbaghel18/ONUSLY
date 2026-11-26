@@ -43,6 +43,9 @@ function inferApiBaseFromTabUrl(tabUrl, fallbackBaseUrl) {
     if (u.hostname === "localhost" || u.hostname === "127.0.0.1") {
       return `http://${u.hostname}:8080`;
     }
+    if (u.hostname === "onusly.duckdns.org") {
+      return u.origin;
+    }
     if (u.hostname === "onusly.com" || u.hostname.endsWith(".onusly.com") || u.hostname === "onusly.app" || u.hostname.endsWith(".onusly.app")) {
       return "https://api.onusly.com";
     }
@@ -295,13 +298,16 @@ async function handleQuickPair() {
       url: [
         "http://localhost:*/*",
         "http://127.0.0.1:*/*",
+        "https://onusly.com/*",
         "https://*.onusly.com/*",
-        "https://*.onusly.app/*"
+        "https://onusly.app/*",
+        "https://*.onusly.app/*",
+        "https://onusly.duckdns.org/*"
       ]
     });
 
     if (!tabs || tabs.length === 0) {
-      alert(`No ONUSLY dashboard tab found. Please open ${dashboardUrl} and log in first.`);
+      alert(`No ONUSLY dashboard tab found. Please open ${dashboardUrl} (or https://onusly.duckdns.org) and log in first.`);
       return;
     }
 
@@ -400,10 +406,11 @@ async function handleConnectToken() {
   if (tokenError) tokenError.style.display = "none";
 
   try {
+    const fallbackBaseUrl = inferApiBaseFromTabUrl(dashboardUrl, configuredBaseUrl);
     const result = await chrome.runtime.sendMessage({
       type: "ONUSLY_AUTH_HANDOFF",
       token,
-      baseUrl: configuredBaseUrl,
+      baseUrl: fallbackBaseUrl,
       dashboardUrl,
     });
 

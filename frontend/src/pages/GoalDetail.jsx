@@ -1,9 +1,9 @@
+import LockMechanism from "../components/LockMechanism";
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
   Target,
-  Users,
   Edit3,
   Check,
   AlertCircle,
@@ -14,13 +14,10 @@ import {
   Loader2,
   ShieldCheck,
   Send,
-  ExternalLink,
   ThumbsUp,
   ThumbsDown,
-  FileText,
   Share2,
   Lock,
-  MessageSquare,
   X,
   Pin,
   RotateCcw,
@@ -29,12 +26,9 @@ import {
   Smartphone,
 } from "lucide-react";
 import { getUser } from "../lib/auth";
-import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, submitProof, repeatGoal, getGoalEnforcementStatus, getApprovals, getSubmissions } from "../lib/api";
-import { formatEnforcementSummary, pingExtension } from "../lib/deviceTelemetry";
+import { getGoal, updateGoal, deleteGoal, getProofs, decideApproval, repeatGoal, getApprovals, getSubmissions } from "../lib/api";
 import SubmitProofModal from "../components/approvals/SubmitProofModal";
 import SubmissionTimeline from "../components/approvals/SubmissionTimeline";
-import { getStoredFriends, sendChatMessage } from "../lib/friendsChat";
-import { getStoredCommunities, sendCommunityMessage } from "../lib/communities";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { notifyExtensionSync } from "../lib/extensionSync";
 import {
@@ -46,10 +40,6 @@ import {
 
 import AppLayout from "../components/AppLayout";
 import { getUniqueDisplayTargets } from "../lib/blockedApps";
-
-function generateMsgId(prefix = "msg") {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-}
 
 const GOAL_BLOCKED_APPS_KEY = "onusly_goal_blocked_apps";
 
@@ -86,28 +76,6 @@ export default function GoalDetail() {
   const [decisionSuccess, setDecisionSuccess] = useState("");
   const [pinnedIds, setPinnedIds] = useState(() => getPinnedGoalIds());
   const [repeating, setRepeating] = useState(false);
-  const [enforcementTelemetry, setEnforcementTelemetry] = useState(null);
-  const [localExtensionActive, setLocalExtensionActive] = useState(null);
-
-  // Periodically check local extension liveness via ping so toggling off/on reflects instantly
-  useEffect(() => {
-    let ignore = false;
-
-    const checkLocalExtension = async () => {
-      const res = await pingExtension(800);
-      if (!ignore) {
-        setLocalExtensionActive(res.active);
-      }
-    };
-
-    checkLocalExtension();
-    const interval = setInterval(checkLocalExtension, 2500);
-
-    return () => {
-      ignore = true;
-      clearInterval(interval);
-    };
-  }, []);
 
   const isPinned = pinnedIds.includes(id);
 
@@ -118,7 +86,7 @@ export default function GoalDetail() {
       setError(res.error);
       setTimeout(() => setError(""), 4500);
     } else if (res.pinned) {
-      setSuccessNotice(`📌 Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
+      setSuccessNotice(`Goal pinned to dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
       setTimeout(() => setSuccessNotice(""), 3000);
     } else {
       setSuccessNotice(`Goal unpinned from dashboard (${res.pinnedIds.length}/${MAX_PINNED_GOALS})`);
@@ -138,7 +106,7 @@ export default function GoalDetail() {
     if (!goal || !isOwner) return;
 
     if (goal.status !== "completed") {
-      setError(`⚠️ "${goal.title}" is currently active! Complete or unlock the current lock before repeating.`);
+      setError(`"${goal.title}" is currently active. Complete or unlock the current lock before repeating.`);
       setTimeout(() => setError(""), 5000);
       return;
     }
@@ -153,7 +121,7 @@ export default function GoalDetail() {
       }
 
       notifyExtensionSync();
-      setSuccessNotice(`🔁 Routine Repeated: New lock activated for "${newGoal.title}"!`);
+      setSuccessNotice(`Routine Repeated: New lock activated for "${newGoal.title}".`);
       setTimeout(() => {
         navigate(`/goals/${newGoal.id}`);
       }, 1000);
@@ -233,158 +201,18 @@ export default function GoalDetail() {
   });
 
   // When goal status is completed on load, ensure extension blocklist is in sync
+  const goalStatus = goal?.status;
   useEffect(() => {
-    if (goal && goal.status === "completed") {
+    if (goalStatus === "completed") {
       notifyExtensionSync();
     }
-  }, [goal?.status]);
+  }, [goalStatus]);
 
   // Share for Verification Modal State
   const [showShareModal, setShowShareModal] = useState(false);
-  const [shareTarget, setShareTarget] = useState("friend");
-  const [selectedFriendId, setSelectedFriendId] = useState("");
-  const [selectedCommunityId, setSelectedCommunityId] = useState("");
-  const [sharingProof, setSharingProof] = useState(false);
-  const [shareError, setShareError] = useState("");
-  const friends = getStoredFriends();
-  const communities = getStoredCommunities();
 
   const openShareModal = () => {
     setShowShareModal(true);
-    setShareTarget(friends.length > 0 ? "friend" : "community");
-    setSelectedFriendId(friends.length > 0 ? friends[0].id : "");
-    setSelectedCommunityId(communities.length > 0 ? communities[0].id : "");
-    setShareError("");
-  };
-
-  const handleShareVerification = async () => {
-    if (!goal) return;
-    setSharingProof(true);
-    setShareError("");
-
-    const senderEmail = user?.email || "";
-    const senderHandle = user?.handle || "";
-    const senderName = user?.name || (senderHandle ? `@${senderHandle}` : "You");
-    const goalTitle = goal.title;
-    const goalId = goal.id;
-
-    try {
-      try {
-        if (goal.status === "active" || goal.status === "rejected") {
-          await updateGoal(goalId, {
-            approvalType: shareTarget === "community" ? "community" : "friend",
-            approverEmail: shareTarget === "friend" ? (friends.find((f) => f.id === selectedFriendId)?.email || friends.find((f) => f.id === selectedFriendId)?.handle) : undefined,
-          });
-        }
-      } catch (updErr) {
-        console.warn("Backend goal approver update skipped:", updErr.message);
-      }
-
-      // Submit proof on behalf of owner so goal transitions to proof_submitted and is ready for friend to approve
-      if (goal.status === "active" || goal.status === "rejected") {
-        try {
-          await submitProof(goalId, {
-            proofType: "text",
-            textExplanation: `Verification request: "${goalTitle}"`,
-          });
-        } catch (proofErr) {
-          console.warn("Auto-submit proof on share:", proofErr.message);
-        }
-      }
-
-      const targetId = shareTarget === "community" ? selectedCommunityId : selectedFriendId;
-
-      if (shareTarget === "friend" && selectedFriendId) {
-        const friend = friends.find((f) => f.id === selectedFriendId);
-        if (!friend) throw new Error("Friend not found");
-
-        const msgId = generateMsgId("msg");
-
-        send({
-          type: "chat.message",
-          payload: {
-            id: msgId,
-            recipientEmail: friend.email || "",
-            recipientHandle: friend.handle || "",
-            senderEmail,
-            senderHandle,
-            senderName,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: user?.id || "",
-          },
-        });
-
-        sendChatMessage(
-          selectedFriendId,
-          {
-            id: msgId,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: user?.id || "",
-          },
-          "me"
-        );
-
-        setSuccessNotice(`Verification request sent to ${friend.name}! Opening chat...`);
-      } else if (shareTarget === "community" && selectedCommunityId) {
-        const comm = communities.find((c) => c.id === selectedCommunityId);
-        if (!comm) throw new Error("Community not found");
-
-        const msgId = generateMsgId("comm-msg");
-
-        send({
-          type: "community.message",
-          payload: {
-            id: msgId,
-            communityId: comm.id,
-            communityName: comm.name || "Community",
-            communityCode: comm.code || "",
-            senderName,
-            senderEmail,
-            senderHandle,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: user?.id || "",
-          },
-        });
-
-        sendCommunityMessage(comm.id, {
-          id: msgId,
-          senderName: "You",
-          senderHandle,
-          text: `Please verify my goal: "${goalTitle}"`,
-          isProof: true,
-          goalId,
-          goalTitle,
-          ownerId: user?.id || "",
-        });
-
-        setSuccessNotice(`Verification request shared in ${comm.name}! Opening chat...`);
-      }
-
-      setShowShareModal(false);
-
-      setTimeout(() => {
-        navigate("/community-friends", {
-          state: {
-            view: shareTarget === "community" ? "communities" : "friends",
-            targetId,
-          },
-        });
-      }, 600);
-    } catch (err) {
-      console.error("Failed to share verification:", err);
-      setShareError(err.message || "Failed to share");
-    } finally {
-      setSharingProof(false);
-    }
   };
 
   // Edit Goal Title/Description state
@@ -452,14 +280,6 @@ export default function GoalDetail() {
         console.warn("Could not load approvals:", err.message);
       });
 
-    getGoalEnforcementStatus(id)
-      .then((data) => {
-        if (!ignore) setEnforcementTelemetry(data);
-      })
-      .catch((err) => {
-        console.warn("Could not load enforcement telemetry:", err.message);
-      });
-
     return () => {
       ignore = true;
     };
@@ -498,7 +318,7 @@ export default function GoalDetail() {
 
       setDecisionSuccess(
         status === "approved"
-          ? "🎉 Proof approved successfully! The goal is unlocked and constraints released."
+          ? "Proof approved successfully. The goal is unlocked and constraints released."
           : "Proof rejected. Target restrictions remain strictly enforced on all client devices."
       );
 
@@ -513,7 +333,9 @@ export default function GoalDetail() {
       try {
         const d = await getSubmissions(id);
         if (d) setSubmissionDossier(d);
-      } catch (_) {}
+      } catch {
+        // Ignore transient submission dossier refresh failure
+      }
       setDecisionComments((prev) => {
         const next = { ...prev };
         delete next[proofId];
@@ -682,7 +504,7 @@ export default function GoalDetail() {
                 title="Copy direct verification link for your assigned approver"
               >
                 <Share2 size={12} className="text-white" />
-                <span>{copiedReviewLink ? "Link Copied! ✓" : "Share Link"}</span>
+                <span>{copiedReviewLink ? "Link Copied" : "Share Link"}</span>
               </button>
             )}
             <span
@@ -725,7 +547,7 @@ export default function GoalDetail() {
                 onClick={() => setUnlockBanner(null)}
                 className="rounded-lg p-1 text-neutral-400 hover:bg-white/5 hover:text-white transition"
               >
-                ✕
+                <X size={15} />
               </button>
             </div>
           </div>
@@ -772,26 +594,24 @@ export default function GoalDetail() {
               {/* =====================================================
                   1. GOAL OVERVIEW & EDIT CARD
               ===================================================== */}
-              <div className="card-glass relative overflow-hidden rounded-[28px] border border-white/10 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] sm:p-8">
+              <div className="card-glass relative overflow-hidden rounded-lg border border-[#2a343f] p-6 shadow-xl sm:p-8">
                 {/* Status & Action Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
                   <div className="flex items-center gap-3">
-                    <span className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${
+                    <span className={`flex items-center gap-1.5 rounded border px-2.5 py-1 text-xs font-mono font-bold uppercase tracking-wider ${
                       goal.status === "completed"
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                        : goal.status === "rejected"
-                        ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                         : goal.status === "proof_submitted"
-                        ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
-                        : "border-white/20 bg-white/10 text-white"
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                        : "border-[#ff7843]/30 bg-[#ff7843]/10 text-[#ff9769]"
                     }`}>
-                      <span className={`h-2 w-2 rounded-full ${
-                        goal.status === "completed" ? "bg-emerald-400" : goal.status === "rejected" ? "bg-amber-400" : "bg-white animate-pulse"
+                      <span className={`h-1.5 w-1.5 rounded-full ${
+                        goal.status === "completed" ? "bg-emerald-400" : goal.status === "proof_submitted" ? "bg-amber-400 animate-pulse" : "bg-[#ff7843] animate-pulse"
                       }`} />
-                      {goal.status === "proof_submitted" ? "Pending Review" : (goal.status || "active")}
+                      {goal.status === "completed" ? "RELEASED" : goal.status === "proof_submitted" ? "IN REVIEW" : "LOCKED"}
                     </span>
 
-                    <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-[#B5B5B5]">
+                    <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-mono text-neutral-400">
                       <Calendar size={13} />
                       Created {formatDate(goal.createdAt)}
                     </span>
@@ -799,9 +619,9 @@ export default function GoalDetail() {
 
                   <div className="flex items-center gap-2">
                     {!isOwner && (
-                      <span className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-neutral-300">
+                      <span className="flex items-center gap-1.5 rounded border border-[#384654] bg-[#1a2128] px-3 py-1 text-xs font-mono font-semibold text-neutral-300">
                         <ShieldCheck size={12} className="text-white" />
-                        Partner Review
+                        WITNESS REVIEW
                       </span>
                     )}
 
@@ -809,9 +629,9 @@ export default function GoalDetail() {
                       <button
                         type="button"
                         onClick={() => setIsEditingGoal(true)}
-                        className="btn-premium flex items-center gap-2 rounded-xl border border-white/20 bg-[#222222] px-3.5 py-2 text-xs font-semibold text-white transition hover:border-white hover:bg-[#2C2C2C]"
+                        className="btn-premium flex items-center gap-2 rounded border border-[#384654] bg-[#1a2128] px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[#252f3a]"
                       >
-                        <Edit3 size={14} className="text-[#B5B5B5]" />
+                        <Edit3 size={13} className="text-neutral-300" />
                         <span>Edit Goal</span>
                       </button>
                     )}
@@ -820,10 +640,10 @@ export default function GoalDetail() {
                       <button
                         type="button"
                         onClick={handleDelete}
-                        className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#292929] px-3 py-2 text-xs font-semibold text-neutral-400 transition hover:bg-white/10 hover:border-white/20"
+                        className="flex items-center gap-2 rounded border border-white/10 bg-[#161a1f] px-3 py-1.5 text-xs font-semibold text-neutral-400 transition hover:bg-white/10 hover:text-white"
                         title="Delete Goal"
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={13} />
                         <span className="hidden sm:inline">Delete</span>
                       </button>
                     )}
@@ -878,9 +698,11 @@ export default function GoalDetail() {
                 {/* View / Edit Mode */}
                 {!isEditingGoal || !isOwner ? (
                   <div className="pt-6">
-                    <h1 className="text-2xl font-bold tracking-tight text-[#FFFFFF] sm:text-3xl">
-                      {goal.title}
-                    </h1>
+                    <div className="goal-identity"><div><span className="instrument-label">Commitment</span>
+                      <h1>{goal.title}</h1></div>
+                      {Boolean(goal.blockedApps?.length || goal.blockedDomains?.length || goal.applicationTargets?.length) &&
+                        <LockMechanism released={goal.status === "completed"} reviewing={goal.status === "proof_submitted"} interactive />}
+                    </div>
 
                     <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                       <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA] mb-2">
@@ -977,29 +799,29 @@ export default function GoalDetail() {
               {/* =====================================================
                   2. DISTRACTION APPS & IN-CHAT VERIFICATION STRATEGY
               ===================================================== */}
-              <div className="card-glass rounded-[28px] border border-white/10 p-6 shadow-xl sm:p-8">
+              <div className="card-glass rounded-lg border border-[#2a343f] p-6 shadow-xl sm:p-8">
                 <div className="mb-6 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
                   <div>
                     <div className="flex items-center gap-2.5">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 border border-white/20 text-white">
-                        <Lock size={18} />
+                      <div className="flex h-8 w-8 items-center justify-center rounded border border-[#384654] bg-[#1a2128] text-white">
+                        <Lock size={16} />
                       </div>
                       <h2 className="text-xl font-bold tracking-tight text-white">
                         Distraction Shield & App Blockers
                       </h2>
                     </div>
-                    <p className="mt-1 text-xs text-[#A1A1AA]">
-                      Apps locked while this goal constraint is active.
+                    <p className="mt-1 text-xs text-neutral-400 font-mono">
+                      Target restrictions enforced on local devices while locked.
                     </p>
                   </div>
 
-                  <span className="self-start sm:self-auto rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-neutral-300">
-                    Status: <strong className="text-white">{goal.status === "completed" ? "Unlocked" : "Active Lock"}</strong>
+                  <span className="self-start sm:self-auto rounded border border-[#384654] bg-[#1a2128] px-3 py-1 text-xs font-mono text-neutral-300">
+                    STATUS: <strong className="text-white uppercase">{goal.status === "completed" ? "RELEASED" : "ACTIVE LOCK"}</strong>
                   </span>
                 </div>
 
                 {/* Blocked Apps & Domains Display */}
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="rounded-lg border border-[#232c36] bg-[#101418] p-5">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3] mb-3">
                     Target Apps & Domains Blocked For This Goal
                   </h4>
@@ -1115,8 +937,6 @@ export default function GoalDetail() {
                       <SubmissionTimeline
                         attempts={submissionDossier.attempts}
                         auditLog={submissionDossier.auditLog || []}
-                        accountabilityMetrics={submissionDossier.accountabilityMetrics}
-                        isOwner={isOwner}
                         approverEmail={goal?.approverEmail}
                       />
                     ) : (
