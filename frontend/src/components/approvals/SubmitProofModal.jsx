@@ -193,7 +193,8 @@ export default function SubmitProofModal({
 
       if (rawFilesToUpload.length > 0) {
         const uploadedResults = await uploadProofFiles(
-          rawFilesToUpload.map((f) => f.rawFile)
+          rawFilesToUpload.map((f) => f.rawFile),
+          goalId
         );
         finalFiles = attachedFiles.map((f) => {
           const match = uploadedResults.find((u) => u.name === f.name);

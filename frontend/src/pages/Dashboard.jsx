@@ -70,6 +70,20 @@ export default function Dashboard() {
           setError("");
         })
         .catch((err) => console.error("Background goals refresh failed:", err));
+    } else if (event?.type === "goal.rejected") {
+      const payload = event.payload || {};
+      setGoals((prev) =>
+        prev.map((g) =>
+          g.id === payload.goalId ? { ...g, status: "rejected" } : g
+        )
+      );
+      notifyExtensionSync();
+      getGoals()
+        .then((data) => {
+          setGoals(data);
+          setError("");
+        })
+        .catch(() => {});
     } else if (event?.type === "wellbeing.limit_reached") {
       notifyExtensionSync();
       getWellbeingSummary({ range: "today" })
@@ -108,7 +122,7 @@ export default function Dashboard() {
     };
   }, []);
 
-  const activeGoals = goals.filter((g) => g.status === "active");
+  const activeGoals = goals.filter((g) => g.status === "active" || g.status === "rejected");
   const pendingApprovals = goals.filter((g) => g.status === "proof_submitted");
   const completedGoals = goals.filter((g) => g.status === "completed");
 
@@ -168,9 +182,11 @@ export default function Dashboard() {
     }
   };
 
-  // Only show active goals and pinned templates on the dashboard, hiding old completed non-pinned goals
+  // Only show active/in-review/rejected lockout goals and pinned templates on the dashboard
   const activeLockouts = useMemo(() => {
-    return goals.filter((g) => g.status === "active" || g.status === "proof_submitted");
+    return goals.filter(
+      (g) => g.status === "active" || g.status === "proof_submitted" || g.status === "rejected"
+    );
   }, [goals]);
 
   const pinnedGoals = useMemo(() => {

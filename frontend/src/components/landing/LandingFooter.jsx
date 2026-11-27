@@ -42,7 +42,7 @@ export default function LandingFooter({ onSignIn }) {
             <span className="font-mono text-[10px] text-neutral-500">v1.0.0 READY</span>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {/* Windows Desktop */}
             <a
               href="/downloads/OnuslySetup.exe"
@@ -110,6 +110,23 @@ export default function LandingFooter({ onSignIn }) {
               </div>
               <span className="mt-4 font-mono text-[10px] text-[#ff7843]">Download Tool →</span>
             </a>
+
+            {/* Android Companion APK */}
+            <a
+              href="/downloads/onusly.apk"
+              download="onusly.apk"
+              className="group flex flex-col justify-between rounded-lg border border-[#26313d] bg-[#12161c] p-4 transition hover:border-[#384654] hover:bg-[#161c23]"
+            >
+              <div>
+                <div className="flex items-center justify-between text-neutral-400 group-hover:text-white transition">
+                  <span className="font-mono text-[10px] font-bold uppercase">Android</span>
+                  <Download size={14} />
+                </div>
+                <div className="mt-2 text-sm font-bold text-white">Android App</div>
+                <p className="mt-1 text-[11px] text-[#8c9ba8]">Locks mobile apps, reels, and domains alongside your PC.</p>
+              </div>
+              <span className="mt-4 font-mono text-[10px] text-[#ff7843]">Download .apk →</span>
+            </a>
           </div>
         </div>
 
@@ -130,6 +147,8 @@ export default function LandingFooter({ onSignIn }) {
             <a href="#catalog" className="hover:text-white transition">Apps</a>
             <a href="#guarantees" className="hover:text-white transition">Guarantees</a>
             <a href="#faq" className="hover:text-white transition">FAQ</a>
+            <a href="/privacy" className="hover:text-white transition">Privacy</a>
+            <a href="/terms" className="hover:text-white transition">Terms</a>
             <button type="button" onClick={onSignIn} className="text-[#ff7843] hover:underline">
               Sign In
             </button>

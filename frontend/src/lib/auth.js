@@ -118,23 +118,29 @@ export function isAuthenticated() {
   const token = getToken();
   if (!token) return false;
 
-  // Verify JWT expiration if payload is readable
+  // Verify JWT structure and expiration strictly; fail closed on malformed tokens
   try {
     const parts = token.split(".");
-    if (parts.length === 3) {
-      let base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-      while (base64.length % 4) {
-        base64 += "=";
-      }
-      const payload = JSON.parse(atob(base64));
-      if (payload.exp && Date.now() >= payload.exp * 1000) {
-        clearAuth();
-        return false;
-      }
+    if (parts.length !== 3 || !parts[1]) {
+      clearAuth();
+      return false;
     }
+    let base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4) {
+      base64 += "=";
+    }
+    const payload = JSON.parse(atob(base64));
+    if (!payload || typeof payload !== "object") {
+      clearAuth();
+      return false;
+    }
+    if (payload.exp && Date.now() >= payload.exp * 1000) {
+      clearAuth();
+      return false;
+    }
+    return true;
   } catch {
-    // If decoding fails, continue
+    clearAuth();
+    return false;
   }
-
-  return true;
 }

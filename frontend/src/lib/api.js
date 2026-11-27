@@ -202,10 +202,13 @@ export async function getBlocklist() {
   });
 }
 
-export async function uploadProofFiles(files) {
+export async function uploadProofFiles(files, goalId = "") {
   if (!files || files.length === 0) return [];
   const token = getToken();
   const formData = new FormData();
+  if (goalId) {
+    formData.append("goalId", goalId);
+  }
   for (const f of files) {
     formData.append("files", f);
   }

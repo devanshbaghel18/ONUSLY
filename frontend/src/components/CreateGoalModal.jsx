@@ -613,7 +613,7 @@ function CreateGoalModalInner({ onClose, onGoalCreated, initialCustomTarget = nu
                 Goals with distraction locks require friend verification. Only an assigned accountability partner can review your proof and unlock your targets.
               </p>
             ) : (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setApprovalType("friend")}
@@ -624,17 +624,6 @@ function CreateGoalModalInner({ onClose, onGoalCreated, initialCustomTarget = nu
                   }`}
                 >
                   Friend
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setApprovalType("community")}
-                  className={`rounded border p-2 text-xs font-mono font-bold uppercase tracking-wider transition ${
-                    approvalType === "community"
-                      ? "border-[#ff7843] bg-[#1c2430] text-white shadow-sm"
-                      : "border-[#26313d] bg-[#141920] text-neutral-400 hover:text-white"
-                  }`}
-                >
-                  Community
                 </button>
                 <button
                   type="button"

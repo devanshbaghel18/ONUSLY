@@ -72,7 +72,7 @@ export default function LandingEnforcers() {
                   On Your Computer
                 </span>
               </div>
-              <h3 className="mt-4 text-lg font-bold text-white">Windows & Mac / Linux</h3>
+              <h3 className="mt-4 text-lg font-bold text-white">Windows & Linux</h3>
               <p className="mt-2 text-xs text-[#8c9ba8] leading-relaxed">
                 If you try to launch Steam, Discord, or PC games in a moment of distraction, ONUSLY immediately closes the window before you can get sucked in.
               </p>

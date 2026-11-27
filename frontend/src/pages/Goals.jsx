@@ -103,7 +103,7 @@ export default function Goals() {
     if (event?.type === "goal.rejected") {
       const payload = event.payload || {};
       setGoals((prev) =>
-        prev.map((g) => (g.id === payload.goalId ? { ...g, status: "active" } : g))
+        prev.map((g) => (g.id === payload.goalId ? { ...g, status: "rejected" } : g))
       );
       notifyExtensionSync();
       getGoals().then((data) => setGoals(data)).catch(() => {});
