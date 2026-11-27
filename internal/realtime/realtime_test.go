@@ -2034,3 +2034,56 @@ func TestRegression_Slice5I_EmptyMessageID_ServerGeneratedAndCollisionFree(t *te
 		t.Fatalf("expected community.delete_message, got %s", delEvt.Type)
 	}
 }
+
+func TestServeWS_CookiePreAuthEmitsAuthSuccessAndSupportsIdempotentAuthFrame(t *testing.T) {
+	hub := NewHub()
+	handler := ServeWS(hub, testSecret)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	u, _ := url.Parse(server.URL)
+	u.Scheme = "ws"
+	tok := createTestToken("cookie-user-123", false)
+
+	header := http.Header{}
+	header.Set("Cookie", "token="+tok)
+	conn, resp, err := websocket.DefaultDialer.Dial(u.String(), header)
+	if err != nil {
+		t.Fatalf("failed to dial /ws with Cookie header: %v", err)
+	}
+	defer conn.Close()
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("expected 101 Switching Protocols, got %d", resp.StatusCode)
+	}
+
+	// API-001 regression: cookie pre-auth connections must immediately receive auth.success
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, initialMsg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("expected immediate auth.success frame on cookie pre-auth connect, got err: %v", err)
+	}
+	var authEvt Event
+	if err := json.Unmarshal(initialMsg, &authEvt); err != nil {
+		t.Fatalf("failed to decode initial message: %v", err)
+	}
+	if authEvt.Type != "auth.success" {
+		t.Fatalf("expected auth.success on pre-auth connect, got %q (%s)", authEvt.Type, string(initialMsg))
+	}
+
+	// Idempotent browser {type:"auth"} frame after pre-auth should also yield auth.success without disconnecting
+	if err := conn.WriteJSON(map[string]string{"type": "auth", "token": tok}); err != nil {
+		t.Fatalf("failed to write idempotent auth frame: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, secondMsg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("expected second auth.success for idempotent auth frame, got err: %v", err)
+	}
+	var secondEvt Event
+	if err := json.Unmarshal(secondMsg, &secondEvt); err != nil {
+		t.Fatalf("failed to decode second message: %v", err)
+	}
+	if secondEvt.Type != "auth.success" {
+		t.Fatalf("expected auth.success reply to idempotent auth frame, got %q", secondEvt.Type)
+	}
+}

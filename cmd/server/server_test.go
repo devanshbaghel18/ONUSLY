@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +15,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/devanshbaghel18/ONUSLY/internal/goals"
+	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/realtime"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
@@ -300,5 +304,122 @@ func TestWarmHealthHandler(t *testing.T) {
 	}
 	if strings.Contains(recFail.Body.String(), "secret internal") {
 		t.Errorf("response leaked internal error message: %s", recFail.Body.String())
+	}
+}
+
+type mockUploadGoalLookup struct {
+	goals map[string]*goals.Goal
+}
+
+func (m *mockUploadGoalLookup) GetByID(_ context.Context, ownerID, goalID string) (*goals.Goal, error) {
+	if g, ok := m.goals[goalID]; ok {
+		if ownerID == "" || g.OwnerID == ownerID {
+			return g, nil
+		}
+	}
+	return nil, errors.New("goal not found")
+}
+
+func TestUploadsACLAuthorization(t *testing.T) {
+	uploadsDir := t.TempDir()
+	jwtSecret := "upload-acl-secret"
+	makeTok := func(uid, email, handle string) string {
+		claims := jwt.MapClaims{
+			"sub":           uid,
+			"email":         email,
+			"handle":        handle,
+			"token_type":    "user",
+			"token_version": 1,
+			"exp":           time.Now().Add(time.Hour).Unix(),
+		}
+		tok, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(jwtSecret))
+		return tok
+	}
+
+	aliceToken := makeTok("alice-id", "alice@example.com", "alice")
+	bobToken := makeTok("bob-id", "bob@example.com", "bob")
+	eveToken := makeTok("eve-id", "eve@example.com", "eve")
+
+	goalLookup := &mockUploadGoalLookup{
+		goals: map[string]*goals.Goal{
+			"goal-1": {
+				ID:            "goal-1",
+				OwnerID:       "alice-id",
+				ApproverID:    "bob-id",
+				ApproverEmail: "bob@example.com",
+				Status:        "proof_submitted",
+			},
+		},
+	}
+
+	uploadCreate := middleware.Auth(jwtSecret)(http.HandlerFunc(newUploadCreateHandler(uploadsDir)))
+	uploadServe := newUploadsServeHandler(uploadsDir, jwtSecret, nil, goalLookup, nil)
+
+	// Upload a valid 1x1 PNG as Alice bound to goal-1
+	pngHeader := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("goalId", "goal-1")
+	fw, _ := mw.CreateFormFile("files", "proof.png")
+	_, _ = fw.Write(pngHeader)
+	_ = mw.Close()
+
+	reqUp := httptest.NewRequest(http.MethodPost, "/uploads", &body)
+	reqUp.Header.Set("Content-Type", mw.FormDataContentType())
+	reqUp.Header.Set("Authorization", "Bearer "+aliceToken)
+	recUp := httptest.NewRecorder()
+	uploadCreate.ServeHTTP(recUp, reqUp)
+	if recUp.Code != http.StatusOK {
+		t.Fatalf("expected upload 200 OK, got %d (%s)", recUp.Code, recUp.Body.String())
+	}
+
+	var uploaded []UploadedFileItem
+	if err := json.Unmarshal(recUp.Body.Bytes(), &uploaded); err != nil || len(uploaded) != 1 {
+		t.Fatalf("expected 1 uploaded item, err=%v body=%s", err, recUp.Body.String())
+	}
+	fileURL := uploaded[0].URL
+
+	// 1. Unauthenticated read -> 401
+	recUnauth := httptest.NewRecorder()
+	uploadServe.ServeHTTP(recUnauth, httptest.NewRequest(http.MethodGet, fileURL, nil))
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for unauthenticated upload fetch, got %d", recUnauth.Code)
+	}
+
+	// 2. Owner Alice can fetch -> 200
+	reqAlice := httptest.NewRequest(http.MethodGet, fileURL, nil)
+	reqAlice.Header.Set("Authorization", "Bearer "+aliceToken)
+	recAlice := httptest.NewRecorder()
+	uploadServe.ServeHTTP(recAlice, reqAlice)
+	if recAlice.Code != http.StatusOK {
+		t.Errorf("expected 200 for owner Alice, got %d (%s)", recAlice.Code, recAlice.Body.String())
+	}
+
+	// 3. Assigned approver Bob can fetch -> 200
+	reqBob := httptest.NewRequest(http.MethodGet, fileURL, nil)
+	reqBob.Header.Set("Authorization", "Bearer "+bobToken)
+	recBob := httptest.NewRecorder()
+	uploadServe.ServeHTTP(recBob, reqBob)
+	if recBob.Code != http.StatusOK {
+		t.Errorf("expected 200 for assigned approver Bob, got %d (%s)", recBob.Code, recBob.Body.String())
+	}
+
+	// 4. Unrelated authenticated user Eve -> 403 Forbidden (SECURITY-001)
+	reqEve := httptest.NewRequest(http.MethodGet, fileURL, nil)
+	reqEve.Header.Set("Authorization", "Bearer "+eveToken)
+	recEve := httptest.NewRecorder()
+	uploadServe.ServeHTTP(recEve, reqEve)
+	if recEve.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for unrelated user Eve, got %d", recEve.Code)
+	}
+
+	// 5. Dotfile metadata sidecar cannot be fetched even by Alice
+	filename := strings.TrimPrefix(fileURL, "/uploads/proofs/")
+	reqMeta := httptest.NewRequest(http.MethodGet, "/uploads/proofs/.meta/"+filename+".json", nil)
+	reqMeta.Header.Set("Authorization", "Bearer "+aliceToken)
+	recMeta := httptest.NewRecorder()
+	uploadServe.ServeHTTP(recMeta, reqMeta)
+	if recMeta.Code != http.StatusBadRequest && recMeta.Code != http.StatusForbidden {
+		t.Errorf("expected 400/403 for hidden .meta read, got %d", recMeta.Code)
 	}
 }

@@ -107,7 +107,7 @@ func saveBase64ToFile(dataURI, prefix string) (string, error) {
 	}
 
 	uploadsDir := filepath.Join("uploads", "proofs")
-	_ = os.MkdirAll(uploadsDir, 0755)
+	_ = os.MkdirAll(uploadsDir, 0700)
 
 	safePrefix := strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
@@ -122,7 +122,7 @@ func saveBase64ToFile(dataURI, prefix string) (string, error) {
 	filename := fmt.Sprintf("%d-%s-%s%s", time.Now().Unix(), uuid.New().String()[:8], safePrefix, ext)
 	filePath := filepath.Join(uploadsDir, filename)
 
-	if err := os.WriteFile(filePath, rawBytes, 0644); err != nil {
+	if err := os.WriteFile(filePath, rawBytes, 0600); err != nil {
 		return "", err
 	}
 
@@ -284,6 +284,15 @@ func (s *Service) SubmitWithFiles(
 		return nil, ErrGoalNotActive
 	}
 
+	if err := VerifyUploadOwnership("uploads", photoURL, ownerID); err != nil {
+		return nil, err
+	}
+	for _, u := range extractUploadedFileURLs(files) {
+		if err := VerifyUploadOwnership("uploads", u, ownerID); err != nil {
+			return nil, err
+		}
+	}
+
 	proofID := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -308,6 +317,11 @@ func (s *Service) SubmitWithFiles(
 		"proof_submitted",
 	); err != nil {
 		return nil, err
+	}
+
+	_ = BindUploadGoal("uploads", p.PhotoURL, ownerID, goalID)
+	for _, u := range extractUploadedFileURLs(files) {
+		_ = BindUploadGoal("uploads", u, ownerID, goalID)
 	}
 
 	if s.publisher != nil {

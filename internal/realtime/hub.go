@@ -209,7 +209,7 @@ func (h *Hub) Register(c *Client) {
 		handleConns[c] = true
 	}
 
-	log.Printf("[WebSocket] Connected: userID=%s email=%s handle=%s (user tabs: %d)", c.userID, c.email, c.handle, len(userConns))
+	log.Printf("[WebSocket] Connected: userID=%s (user tabs: %d)", c.userID, len(userConns))
 }
 
 // Unregister removes a client connection and cleans up empty user/email/handle maps.
@@ -510,6 +510,19 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 	}
 
 	switch base.Type {
+	case "auth":
+		// Idempotent auth confirmation for pre-authenticated cookie/header connections
+		// whose browser client still emits an initial {"type":"auth"} frame.
+		if c != nil && c.userID != "" {
+			c.SendEvent(Event{
+				Type: "auth.success",
+				Payload: map[string]interface{}{
+					"userId": c.userID,
+					"handle": c.handle,
+				},
+			})
+		}
+		return
 	case "user.online":
 		var req struct {
 			Email  string `json:"email"`
@@ -523,8 +536,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		clientEmail := strings.TrimSpace(strings.ToLower(req.Email))
 		clientHandle := strings.TrimPrefix(strings.TrimSpace(strings.ToLower(req.Handle)), "@")
 		if (clientEmail != "" && clientEmail != c.email) || (clientHandle != "" && clientHandle != c.handle) {
-			log.Printf("[WebSocket] user.online: rejected spoofed identity from user %s (payload: email=%q, handle=%q; authenticated: email=%q, handle=%q)",
-				c.userID, clientEmail, clientHandle, c.email, c.handle)
+			log.Printf("[WebSocket] user.online: rejected mismatched identity claim from user %s", c.userID)
 		}
 
 		c.mu.Lock()
@@ -536,7 +548,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		c.mu.Unlock()
 
 		if shouldDeliver {
-			log.Printf("[WebSocket] Presence confirmed: user %s registered email=%s handle=@%s", c.userID, c.email, c.handle)
+			log.Printf("[WebSocket] Presence confirmed: user=%s", c.userID)
 
 			// Deliver any stored offline messages to this user once per connection.
 			// Security: Offline messages are retrieved exclusively by the authenticated user's
@@ -599,7 +611,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 					if targetEmail != "" {
 						_ = s.MarkMessagesDelivered(context.Background(), targetEmail, deliveredIDs)
 					}
-					log.Printf("[WebSocket] Delivered %d offline messages to user (userID=%s, email=%s)", len(deliveredIDs), targetUserID, targetEmail)
+					log.Printf("[WebSocket] Delivered %d offline messages to user=%s", len(deliveredIDs), targetUserID)
 				}
 			}(c.userID, c.email, c, store)
 		}
@@ -750,8 +762,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 
 		// Fail closed: if recipient cannot be resolved, reject cleanly
 		if recipientID == "" {
-			log.Printf("[WebSocket] chat.message: unresolvable recipient (email=%q, handle=%q, id=%q) from sender %s",
-				req.RecipientEmail, req.RecipientHandle, req.RecipientID, c.userID)
+			log.Printf("[WebSocket] chat.message: unresolvable recipient from sender %s", c.userID)
 			return
 		}
 
@@ -762,7 +773,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		}
 
 		if (resolvedEmail == "" && resolvedHandle == "" && recipientID == "") || (req.Text == "" && !req.IsProof && len(req.Images) == 0) {
-			log.Printf("[WebSocket] Invalid chat message: recipientID=%q, recipientEmail=%q, recipientHandle=%q, text=%q", recipientID, resolvedEmail, resolvedHandle, req.Text)
+			log.Printf("[WebSocket] Invalid chat message from sender=%s", c.userID)
 			return
 		}
 

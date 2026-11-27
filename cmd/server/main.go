@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,7 +17,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/google/uuid"
 
 	"github.com/devanshbaghel18/ONUSLY/internal/approval"
 	"github.com/devanshbaghel18/ONUSLY/internal/auth"
@@ -286,6 +283,8 @@ func main() {
 			http.Error(w, "invalid path", http.StatusBadRequest)
 			return
 		}
+		// Extend write deadline beyond global 30s server timeout for binary downloads (.crx/.zip/.exe/.apk)
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Minute))
 		if strings.HasSuffix(cleanPath, ".crx") {
 			w.Header().Set("Content-Type", "application/x-chrome-extension")
 		} else if strings.HasSuffix(cleanPath, ".xml") {
@@ -296,36 +295,6 @@ func main() {
 		fileServer.ServeHTTP(w, r)
 	}))
 	mux.Handle("GET /downloads/", downloadsHandler)
-
-	// Proof & Media Uploads Static Server (authenticated + path-traversal & XSS guard)
-	uploadsDir := "uploads"
-	_ = os.MkdirAll(filepath.Join(uploadsDir, "proofs"), 0755)
-	uploadFileServer := http.FileServer(http.Dir(uploadsDir))
-	protectedUploads := middleware.Auth(cfg.JWTSecret, middleware.WithSessionValidator(authRepo))(
-		http.StripPrefix("/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cleanPath := strings.TrimSpace(r.URL.Path)
-			if strings.Contains(cleanPath, "..") || strings.Contains(cleanPath, "%2e") || strings.Contains(cleanPath, "\x00") {
-				http.Error(w, "invalid path", http.StatusBadRequest)
-				return
-			}
-			ext := strings.ToLower(filepath.Ext(cleanPath))
-			switch ext {
-			case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf":
-				w.Header().Set("Content-Disposition", "inline")
-			case ".txt":
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				w.Header().Set("Content-Disposition", "attachment")
-			default:
-				http.Error(w, "unsupported file type", http.StatusForbidden)
-				return
-			}
-			w.Header().Set("Cache-Control", "private, max-age=3600")
-			w.Header().Del("X-Frame-Options")
-			w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; object-src 'self'; script-src 'none'; sandbox; frame-ancestors 'self' http://localhost:* http://127.0.0.1:* https://onusly.com https://*.onusly.com https://onusly.app https://*.onusly.app https://onusly.duckdns.org;")
-			uploadFileServer.ServeHTTP(w, r)
-		})),
-	)
-	mux.Handle("GET /uploads/", protectedUploads)
 
 	// Real-time WebSocket Hub
 	wsHub := realtime.NewHub()
@@ -349,6 +318,11 @@ func main() {
 	proofRepo := proof.NewRepository(db, tableName)
 	proofService := proof.NewService(proofRepo, goalService)
 	proofHandler := proof.NewHandler(proofService)
+
+	// Proof & Media Uploads Static Server (authenticated + owner/approver ACL + path-traversal & XSS guard)
+	uploadsDir := "uploads"
+	protectedUploads := newUploadsServeHandler(uploadsDir, cfg.JWTSecret, authRepo, goalService, proofRepo)
+	mux.Handle("GET /uploads/", protectedUploads)
 
 	// Approval
 	approvalRepo := approval.NewRepository(db, tableName)
@@ -433,166 +407,170 @@ func main() {
 	wellbeingHandler := wellbeing.NewHandler(wellbeingService)
 	enforcementService.SetWellbeingProvider(wellbeingService)
 
-	// Protected routes
+	// Protected routes (user-only mutations & approvals enforced via RequireUserToken;
+	// device enforcement & wellbeing telemetry endpoints permit both user and device JWTs)
 	goalRoutes := http.NewServeMux()
+	requireUser := func(h http.HandlerFunc) http.Handler {
+		return middleware.RequireUserToken(h)
+	}
 
 	// Notifications
 	goalRoutes.HandleFunc(
 		"GET /notifications",
 		notifHandler.List,
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"PATCH /notifications/{id}/read",
-		notifHandler.MarkAsRead,
+		requireUser(notifHandler.MarkAsRead),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /notifications/read-all",
-		notifHandler.MarkAllAsRead,
+		requireUser(notifHandler.MarkAllAsRead),
 	)
 
 	// Chat
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /chat/messages",
-		chatHandler.GetHistory,
+		requireUser(chatHandler.GetHistory),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /chat/messages",
-		chatHandler.SendMessage,
+		requireUser(chatHandler.SendMessage),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"DELETE /chat/messages",
-		chatHandler.ClearHistory,
+		requireUser(chatHandler.ClearHistory),
 	)
 
 	// Friends
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /friends/request",
-		friendsHandler.SendRequest,
+		requireUser(friendsHandler.SendRequest),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /friends/requests",
-		friendsHandler.GetRequests,
+		requireUser(friendsHandler.GetRequests),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /friends/request/respond",
-		friendsHandler.RespondRequest,
+		requireUser(friendsHandler.RespondRequest),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /friends",
-		friendsHandler.GetFriends,
+		requireUser(friendsHandler.GetFriends),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"DELETE /friends/",
-		friendsHandler.DeleteFriend,
+		requireUser(friendsHandler.DeleteFriend),
 	)
 
 	// Communities Discovery & Membership
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /communities/trending",
-		friendsHandler.GetTrendingCommunities,
+		requireUser(friendsHandler.GetTrendingCommunities),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /communities/joined",
-		friendsHandler.GetJoinedCommunities,
+		requireUser(friendsHandler.GetJoinedCommunities),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /communities/join",
-		friendsHandler.JoinCommunity,
+		requireUser(friendsHandler.JoinCommunity),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /communities/leave",
-		friendsHandler.LeaveCommunity,
+		requireUser(friendsHandler.LeaveCommunity),
 	)
 
-	// Goals
-	goalRoutes.HandleFunc(
+	// Goals (mutations strictly user-only so stolen device JWTs cannot unlock/delete goals)
+	goalRoutes.Handle(
 		"POST /goals",
-		goalHandler.Create,
+		requireUser(goalHandler.Create),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /goals",
-		goalHandler.List,
+		requireUser(goalHandler.List),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /goals/{id}",
-		goalHandler.GetByID,
+		requireUser(goalHandler.GetByID),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"DELETE /goals/{id}",
-		goalHandler.Delete,
+		requireUser(goalHandler.Delete),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"PATCH /goals/{id}",
-		goalHandler.Update,
+		requireUser(goalHandler.Update),
 	)
 
 	// Proofs
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /goals/{id}/proofs",
-		proofHandler.Submit,
+		requireUser(proofHandler.Submit),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /goals/{id}/proofs",
-		proofHandler.ListByGoal,
+		requireUser(proofHandler.ListByGoal),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /goals/{id}/proofs/{proofId}",
-		proofHandler.GetByID,
+		requireUser(proofHandler.GetByID),
 	)
 
 	// Approval
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /goals/{id}/proofs/{proofId}/approval",
-		approvalHandler.Decide,
+		requireUser(approvalHandler.Decide),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /goals/{id}/approvals",
-		approvalHandler.ListByGoal,
+		requireUser(approvalHandler.ListByGoal),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /goals/{id}/approvals/{approvalId}",
-		approvalHandler.GetByID,
+		requireUser(approvalHandler.GetByID),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /goals/{id}/submissions",
-		approvalHandler.GetSubmissions,
+		requireUser(approvalHandler.GetSubmissions),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /approvals/inbox",
-		approvalHandler.GetInbox,
+		requireUser(approvalHandler.GetInbox),
 	)
 
 	// Users & Public Profiles
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /users/search",
-		authHandler.LookupUser,
+		requireUser(authHandler.LookupUser),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"PATCH /users/handle",
-		authHandler.UpdateHandle,
+		requireUser(authHandler.UpdateHandle),
 	)
 
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /users/me",
-		authHandler.GetMe,
+		requireUser(authHandler.GetMe),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /auth/revoke-all",
-		authHandler.RevokeAllSessions,
+		requireUser(authHandler.RevokeAllSessions),
 	)
 
-	// Enforcement Blocklist & Device Heartbeats
+	// Enforcement Blocklist & Device Heartbeats (blocklist & heartbeat accept device or user tokens)
 	goalRoutes.HandleFunc(
 		"GET /enforcement/blocklist",
 		enforcementHandler.GetBlocklist,
@@ -601,21 +579,21 @@ func main() {
 		"POST /enforcement/heartbeat",
 		enforcementHandler.Heartbeat,
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /enforcement/devices",
-		enforcementHandler.GetDevices,
+		requireUser(enforcementHandler.GetDevices),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /enforcement/devices/{id}/revoke",
-		enforcementHandler.RevokeDevice,
+		requireUser(enforcementHandler.RevokeDevice),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /goals/{id}/enforcement-status",
-		enforcementHandler.GetGoalEnforcementStatus,
+		requireUser(enforcementHandler.GetGoalEnforcementStatus),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /enforcement/pair/confirm",
-		enforcementHandler.ConfirmPairing,
+		requireUser(enforcementHandler.ConfirmPairing),
 	)
 
 	// Digital Wellbeing Ingestion, Summary, Daily Limits & Focus Schedule
@@ -631,180 +609,41 @@ func main() {
 		"GET /wellbeing/rules",
 		wellbeingHandler.GetRules,
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"PUT /wellbeing/limits",
-		wellbeingHandler.UpsertLimit,
+		requireUser(wellbeingHandler.UpsertLimit),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"DELETE /wellbeing/limits/{id}",
-		wellbeingHandler.DeleteLimit,
+		requireUser(wellbeingHandler.DeleteLimit),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"PUT /wellbeing/schedule",
-		wellbeingHandler.SaveSchedule,
+		requireUser(wellbeingHandler.SaveSchedule),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"GET /enforcement/desktop/status",
-		enforcementHandler.GetDesktopStatus,
+		requireUser(enforcementHandler.GetDesktopStatus),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /enforcement/desktop/dns",
-		enforcementHandler.ToggleDesktopDNS,
+		requireUser(enforcementHandler.ToggleDesktopDNS),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /enforcement/desktop/sync",
-		enforcementHandler.SyncDesktop,
+		requireUser(enforcementHandler.SyncDesktop),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /enforcement/desktop/pair",
-		enforcementHandler.AutoPairDesktop,
+		requireUser(enforcementHandler.AutoPairDesktop),
 	)
-	goalRoutes.HandleFunc(
+	goalRoutes.Handle(
 		"POST /enforcement/desktop/reconnect",
-		enforcementHandler.ReconnectDesktop,
+		requireUser(enforcementHandler.ReconnectDesktop),
 	)
 
 	// Proof Document & Media Upload Handler (supports multi-file PDF, Image, Document uploads up to 32MB)
-	goalRoutes.HandleFunc("POST /uploads", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := middleware.GetUserID(r.Context())
-		if !ok || userID == "" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			http.Error(w, "failed to parse multipart form: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		files := r.MultipartForm.File["files"]
-		if len(files) == 0 {
-			files = r.MultipartForm.File["file"]
-		}
-		if len(files) == 0 {
-			http.Error(w, "no files provided", http.StatusBadRequest)
-			return
-		}
-
-		type UploadedFileItem struct {
-			ID            string `json:"id"`
-			Name          string `json:"name"`
-			Size          int64  `json:"size"`
-			FormattedSize string `json:"formattedSize"`
-			Type          string `json:"type"`
-			URL           string `json:"url"`
-			DataURL       string `json:"dataUrl"`
-			IsImage       bool   `json:"isImage"`
-			IsPdf         bool   `json:"isPdf"`
-		}
-
-		var uploadedItems []UploadedFileItem
-
-		for _, fh := range files {
-			ext := strings.ToLower(filepath.Ext(fh.Filename))
-			switch ext {
-			case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt":
-			default:
-				http.Error(w, "unsupported file extension: allowed png, jpg, webp, gif, pdf, txt", http.StatusBadRequest)
-				return
-			}
-
-			src, err := fh.Open()
-			if err != nil {
-				continue
-			}
-
-			// Sniff leading bytes to verify actual MIME content matches allowed proof types
-			sniffBuf := make([]byte, 512)
-			n, _ := io.ReadFull(src, sniffBuf)
-			detectedMIME := strings.ToLower(http.DetectContentType(sniffBuf[:n]))
-			mimeValid := false
-			switch ext {
-			case ".png":
-				mimeValid = detectedMIME == "image/png"
-			case ".jpg", ".jpeg":
-				mimeValid = detectedMIME == "image/jpeg"
-			case ".webp":
-				mimeValid = detectedMIME == "image/webp"
-			case ".gif":
-				mimeValid = detectedMIME == "image/gif"
-			case ".pdf":
-				mimeValid = detectedMIME == "application/pdf"
-			case ".txt":
-				mimeValid = strings.HasPrefix(detectedMIME, "text/plain")
-			}
-			if !mimeValid {
-				src.Close()
-				http.Error(w, "file content does not match allowed extension MIME type", http.StatusBadRequest)
-				return
-			}
-
-			baseName := strings.TrimSuffix(filepath.Base(fh.Filename), ext)
-			safeBase := strings.Map(func(r rune) rune {
-				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-					return r
-				}
-				return '_'
-			}, baseName)
-			if safeBase == "" {
-				safeBase = "evidence"
-			}
-
-			uniqueFileName := fmt.Sprintf("%d-%s-%s%s", time.Now().Unix(), uuid.New().String()[:8], safeBase, ext)
-			destPath := filepath.Join(uploadsDir, "proofs", uniqueFileName)
-
-			dst, err := os.Create(destPath)
-			if err != nil {
-				src.Close()
-				continue
-			}
-
-			if _, err := dst.Write(sniffBuf[:n]); err != nil {
-				src.Close()
-				dst.Close()
-				_ = os.Remove(destPath)
-				continue
-			}
-
-			copiedRest, err := io.Copy(dst, src)
-			src.Close()
-			dst.Close()
-			if err != nil {
-				_ = os.Remove(destPath)
-				continue
-			}
-			copiedSize := int64(n) + copiedRest
-
-			fileURL := fmt.Sprintf("/uploads/proofs/%s", uniqueFileName)
-			contentType := detectedMIME
-			if ext == ".txt" {
-				contentType = "text/plain"
-			}
-
-			isImage := strings.HasPrefix(contentType, "image/")
-			isPdf := contentType == "application/pdf"
-
-			formattedSize := fmt.Sprintf("%d KB", copiedSize/1024)
-			if copiedSize > 1024*1024 {
-				formattedSize = fmt.Sprintf("%.1f MB", float64(copiedSize)/(1024*1024))
-			}
-
-			uploadedItems = append(uploadedItems, UploadedFileItem{
-				ID:            "file-" + uuid.New().String()[:8],
-				Name:          fh.Filename,
-				Size:          copiedSize,
-				FormattedSize: formattedSize,
-				Type:          contentType,
-				URL:           fileURL,
-				DataURL:       fileURL,
-				IsImage:       isImage,
-				IsPdf:         isPdf,
-			})
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(uploadedItems)
-	})
+	goalRoutes.Handle("POST /uploads", requireUser(newUploadCreateHandler(uploadsDir)))
 
 	// Idempotency store for mutation endpoints
 	idempotencyStore := middleware.NewMemoryIdempotencyStore(24 * time.Hour)

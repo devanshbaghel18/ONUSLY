@@ -220,7 +220,10 @@ func checkUserTokenNotRevoked(ctx context.Context, user *AuthUser, validator Ses
 		return errors.New("unrecognized token type")
 	}
 	expectedVer, err := validator.GetTokenVersion(ctx, user.ID)
-	if err == nil && expectedVer > 0 && user.TokenVersion < expectedVer {
+	if err != nil {
+		return errors.New("unable to verify session state")
+	}
+	if expectedVer > 0 && user.TokenVersion < expectedVer {
 		return errors.New("session revoked: please sign in again")
 	}
 	return nil
@@ -276,6 +279,15 @@ func ServeWSWithValidator(hub *Hub, jwtSecret string, validator SessionVersionVa
 		}
 
 		if preAuthUser != nil {
+			resp, _ := json.Marshal(Event{
+				Type: "auth.success",
+				Payload: map[string]interface{}{
+					"userId": preAuthUser.ID,
+					"handle": preAuthUser.Handle,
+				},
+			})
+			_ = conn.WriteMessage(websocket.TextMessage, resp)
+
 			client := NewClient(hub, conn, preAuthUser.ID, preAuthUser.Email, preAuthUser.Handle, preAuthUser.Name)
 			hub.Register(client)
 			go client.WritePump()
