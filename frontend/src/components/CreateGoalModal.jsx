@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Lock, X, Loader2, Plus, Globe, Smartphone, Trash2, Laptop, AlertCircle } from "lucide-react";
-import { createGoal } from "../lib/api";
+import { Lock, X, Loader2, Plus, Globe, Smartphone, Trash2, Laptop, AlertCircle, Check, AtSign } from "lucide-react";
+import { createGoal, getFriendsList, lookupUser } from "../lib/api";
+import { getStoredFriends } from "../lib/friendsChat";
 import { APP_CATALOG, isProtectedProcess, normalizeDesktopAppTarget } from "../lib/blockedApps";
 import { notifyExtensionSync } from "../lib/extensionSync";
 import { playLockEngageSound } from "../lib/sound";
@@ -33,6 +34,71 @@ function CreateGoalModalInner({ onClose, onGoalCreated, initialCustomTarget = nu
   const [approverEmail, setApproverEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [partnerSuggestions, setPartnerSuggestions] = useState(() =>
+    getStoredFriends().map((f) => ({
+      id: f.id,
+      name: f.name,
+      handle: (f.handle || "").replace(/^@/, ""),
+      email: f.email || "",
+    }))
+  );
+  const [verifyingPartner, setVerifyingPartner] = useState(false);
+  const [verifiedPartnerInfo, setVerifiedPartnerInfo] = useState(null);
+  const [partnerLookupErr, setPartnerLookupErr] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const localFriends = getStoredFriends().map((f) => ({
+      id: f.id,
+      name: f.name,
+      handle: (f.handle || "").replace(/^@/, ""),
+      email: f.email || "",
+    }));
+
+    getFriendsList()
+      .then((serverList) => {
+        if (!active || !Array.isArray(serverList)) return;
+        const map = new Map();
+        serverList.forEach((f) => {
+          const key = (f.friendHandle || f.friendEmail || f.friendId || "").toLowerCase();
+          if (key) {
+            map.set(key, {
+              id: f.friendId,
+              name: f.friendName || f.friendHandle || f.friendEmail,
+              handle: (f.friendHandle || "").replace(/^@/, ""),
+              email: f.friendEmail || "",
+            });
+          }
+        });
+        localFriends.forEach((lf) => {
+          const key = (lf.handle || lf.email || lf.id || "").toLowerCase();
+          if (key && !map.has(key)) map.set(key, lf);
+        });
+        setPartnerSuggestions(Array.from(map.values()));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  const handleVerifyPartnerHandle = async () => {
+    const raw = approverEmail.trim();
+    if (!raw || raw.includes("@") && !raw.startsWith("@")) return;
+    const clean = raw.replace(/^@/, "").toLowerCase();
+    setVerifyingPartner(true);
+    setPartnerLookupErr("");
+    try {
+      const profile = await lookupUser(clean);
+      if (profile) {
+        setVerifiedPartnerInfo(profile);
+        setApproverEmail(`@${profile.handle}`);
+      }
+    } catch (err) {
+      setVerifiedPartnerInfo(null);
+      setPartnerLookupErr(err?.message || "Handle not found — try @handle or Gmail");
+    } finally {
+      setVerifyingPartner(false);
+    }
+  };
 
   const hasTargets = selectedCatalogIds.length > 0 || customTargets.length > 0;
 
@@ -640,18 +706,75 @@ function CreateGoalModalInner({ onClose, onGoalCreated, initialCustomTarget = nu
             )}
 
             {(hasTargets || approvalType === "friend") && (
-              <div className="space-y-1.5 pt-1">
+              <div className="space-y-2 pt-1">
                 <label className="block font-mono text-[10px] uppercase font-bold tracking-wider text-neutral-400">
                   Accountability Partner (@handle or email) <span className="text-[#ff7843]">*</span>
                 </label>
-                <input
-                  type="text"
-                  required={hasTargets || approvalType === "friend"}
-                  placeholder="e.g. @partner or friend@example.com"
-                  value={approverEmail}
-                  onChange={(e) => setApproverEmail(e.target.value)}
-                  className="w-full rounded border border-[#26313d] bg-[#080b0e] px-3.5 py-2 text-xs text-white placeholder-neutral-600 focus:border-[#ff7843] focus:outline-none transition"
-                />
+
+                {partnerSuggestions.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {partnerSuggestions.slice(0, 6).map((p) => {
+                      const tag = p.handle ? `@${p.handle}` : p.email;
+                      const isSelected = approverEmail.trim().toLowerCase() === tag.toLowerCase();
+                      return (
+                        <button
+                          key={p.id || tag}
+                          type="button"
+                          onClick={() => {
+                            setApproverEmail(tag);
+                            setVerifiedPartnerInfo(p.handle ? p : null);
+                            setPartnerLookupErr("");
+                          }}
+                          className={`inline-flex items-center gap-1 rounded border px-2 py-1 font-mono text-[10px] transition ${
+                            isSelected
+                              ? "border-[#ff7843] bg-[#1c2430] text-white font-bold"
+                              : "border-[#26313d] bg-[#080b0e] text-neutral-400 hover:border-[#384654] hover:text-white"
+                          }`}
+                        >
+                          <AtSign size={10} className="text-[#ff7843]" />
+                          <span>{p.handle || p.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    required={hasTargets || approvalType === "friend"}
+                    placeholder="e.g. @partner, partner_handle, or friend@gmail.com"
+                    value={approverEmail}
+                    onChange={(e) => {
+                      setApproverEmail(e.target.value);
+                      setVerifiedPartnerInfo(null);
+                      setPartnerLookupErr("");
+                    }}
+                    className="flex-1 rounded border border-[#26313d] bg-[#080b0e] px-3.5 py-2 text-xs text-white placeholder-neutral-600 focus:border-[#ff7843] focus:outline-none transition"
+                  />
+                  {approverEmail.trim() && (!approverEmail.includes("@") || approverEmail.trim().startsWith("@")) && (
+                    <button
+                      type="button"
+                      onClick={handleVerifyPartnerHandle}
+                      disabled={verifyingPartner}
+                      className="rounded border border-[#384654] bg-[#1b232c] px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-wider text-white hover:border-[#ff7843] hover:text-[#ff7843] disabled:opacity-50 transition shrink-0"
+                    >
+                      {verifyingPartner ? <Loader2 size={12} className="animate-spin" /> : "Verify"}
+                    </button>
+                  )}
+                </div>
+
+                {verifiedPartnerInfo && (
+                  <p className="inline-flex items-center gap-1.5 font-mono text-[10px] text-emerald-400">
+                    <Check size={11} />
+                    <span>Verified partner: {verifiedPartnerInfo.name} (@{verifiedPartnerInfo.handle})</span>
+                  </p>
+                )}
+                {partnerLookupErr && (
+                  <p className="font-mono text-[10px] text-amber-400">
+                    {partnerLookupErr}
+                  </p>
+                )}
                 <p className="font-mono text-[10px] text-neutral-500">
                   Your partner must verify your proof submission to lift distraction locks.
                 </p>

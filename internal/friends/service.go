@@ -207,10 +207,14 @@ func (s *Service) RespondRequest(ctx context.Context, callerID string, reqID str
 			event := realtime.Event{
 				Type: "friend.accepted",
 				Payload: map[string]interface{}{
-					"friendId":   req.RecipientID,
-					"senderId":   req.SenderID,
-					"friendName": req.RecipientName,
-					"senderName": req.SenderName,
+					"friendId":     req.RecipientID,
+					"friendHandle": req.RecipientHandle,
+					"friendEmail":  req.RecipientEmail,
+					"friendName":   req.RecipientName,
+					"senderId":     req.SenderID,
+					"senderHandle": req.SenderHandle,
+					"senderEmail":  req.SenderEmail,
+					"senderName":   req.SenderName,
 				},
 			}
 			_ = s.broadcaster.SendToUser(req.SenderID, event)

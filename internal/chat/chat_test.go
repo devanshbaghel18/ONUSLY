@@ -1500,3 +1500,61 @@ func TestChatHandler_CommunityMessages(t *testing.T) {
 		t.Fatalf("unexpected sent message: %+v", sentMsg)
 	}
 }
+
+type spyChatBroadcaster struct {
+	sentTo []string
+}
+
+func (b *spyChatBroadcaster) SendToUser(userID string, event realtime.Event) error {
+	b.sentTo = append(b.sentTo, userID)
+	return nil
+}
+
+type staticUserResolver struct {
+	users map[string]struct{ id, email, handle string }
+}
+
+func (r *staticUserResolver) ResolveUser(ctx context.Context, identifier string) (string, string, string, error) {
+	if u, ok := r.users[identifier]; ok {
+		return u.id, u.email, u.handle, nil
+	}
+	return "", "", "", errors.New("not found")
+}
+
+func TestSendMessage_PreservesClientIDAndDoesNotEchoBackToSender(t *testing.T) {
+	repo := NewRepository(nil, "mock-table")
+	handler := NewHandler(repo)
+	broadcaster := &spyChatBroadcaster{}
+	handler.SetBroadcaster(broadcaster)
+	handler.SetUserResolver(&staticUserResolver{
+		users: map[string]struct{ id, email, handle string }{
+			"@bob": {id: "user-bob", email: "bob@example.com", handle: "bob"},
+		},
+	})
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, "user-alice")
+	ctx = context.WithValue(ctx, middleware.UserEmailKey, "alice@example.com")
+	ctx = context.WithValue(ctx, middleware.UserHandleKey, "alice")
+
+	payload := `{"id":"client-msg-abc-123","recipient":"@bob","text":"Hello Bob!"}`
+	req := httptest.NewRequest("POST", "/chat/messages", strings.NewReader(payload)).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.SendMessage(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var stored realtime.StoredMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &stored); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if stored.ID != "client-msg-abc-123" {
+		t.Fatalf("expected client ID 'client-msg-abc-123' preserved, got %q", stored.ID)
+	}
+
+	// Verify broadcaster ONLY sent to recipient user-bob and NEVER echoed back to user-alice
+	if len(broadcaster.sentTo) != 1 || broadcaster.sentTo[0] != "user-bob" {
+		t.Fatalf("expected broadcast exclusively to ['user-bob'], got: %v", broadcaster.sentTo)
+	}
+}

@@ -128,9 +128,17 @@ func (r *Repository) SaveMessage(ctx context.Context, msg realtime.StoredMessage
 	rNorm := normalizeStorageKey(recipientKey)
 	sConvKey := fmt.Sprintf("%s#%s", sNorm, rNorm)
 	rConvKey := fmt.Sprintf("%s#%s", rNorm, sNorm)
-	r.memMessages[sConvKey] = append(r.memMessages[sConvKey], senderItem)
+	appendUnique := func(list []Message, item Message) []Message {
+		for _, existing := range list {
+			if existing.ID == item.ID {
+				return list
+			}
+		}
+		return append(list, item)
+	}
+	r.memMessages[sConvKey] = appendUnique(r.memMessages[sConvKey], senderItem)
 	if sConvKey != rConvKey {
-		r.memMessages[rConvKey] = append(r.memMessages[rConvKey], recipientItem)
+		r.memMessages[rConvKey] = appendUnique(r.memMessages[rConvKey], recipientItem)
 	}
 	r.memAllMessages[msg.ID] = senderItem
 	r.mu.Unlock()
@@ -156,7 +164,7 @@ func (r *Repository) SaveMessage(ctx context.Context, msg realtime.StoredMessage
 	}
 
 	if r.db != nil {
-		putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		putCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 		defer cancel()
 		_, err = r.db.TransactWriteItems(putCtx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: transactItems,
@@ -179,7 +187,7 @@ func (r *Repository) GetPendingMessages(ctx context.Context, recipientKey string
 	var msgs []Message
 
 	if r.db != nil {
-		queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		queryCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 		defer cancel()
 		result, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 			TableName:              aws.String(r.tableName),
@@ -268,7 +276,7 @@ func (r *Repository) MarkMessagesDelivered(ctx context.Context, recipientKey str
 	r.mu.Unlock()
 
 	if r.db != nil {
-		queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		queryCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 		defer cancel()
 		result, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 			TableName:              aws.String(r.tableName),
@@ -287,7 +295,7 @@ func (r *Repository) MarkMessagesDelivered(ctx context.Context, recipientKey str
 			for _, item := range result.Items {
 				var m Message
 				if err := attributevalue.UnmarshalMap(item, &m); err == nil && idSet[m.ID] {
-					updCtx, cancelUpd := context.WithTimeout(ctx, 800*time.Millisecond)
+					updCtx, cancelUpd := context.WithTimeout(ctx, 2500*time.Millisecond)
 					_, _ = r.db.UpdateItem(updCtx, &dynamodb.UpdateItemInput{
 						TableName: aws.String(r.tableName),
 						Key: map[string]types.AttributeValue{
@@ -364,7 +372,7 @@ func (r *Repository) GetConversationHistory(ctx context.Context, userKey, peerKe
 			}
 		}
 
-		queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		queryCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 		defer cancel()
 		result, err := r.db.Query(queryCtx, queryInput)
 		if err == nil && result != nil {
@@ -431,7 +439,7 @@ func (r *Repository) ClearConversation(ctx context.Context, userKey, peerKey str
 	r.mu.Unlock()
 
 	if r.db != nil {
-		queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		queryCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 		defer cancel()
 		result, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 			TableName:              aws.String(r.tableName),
@@ -446,7 +454,7 @@ func (r *Repository) ClearConversation(ctx context.Context, userKey, peerKey str
 				pk := item["PK"]
 				sk := item["SK"]
 				if pk != nil && sk != nil {
-					delCtx, cancelDel := context.WithTimeout(ctx, 800*time.Millisecond)
+					delCtx, cancelDel := context.WithTimeout(ctx, 2500*time.Millisecond)
 					_, _ = r.db.DeleteItem(delCtx, &dynamodb.DeleteItemInput{
 						TableName: aws.String(r.tableName),
 						Key: map[string]types.AttributeValue{
@@ -496,7 +504,7 @@ func (r *Repository) DeleteMessage(ctx context.Context, callerEmail, callerHandl
 
 	if foundItem == nil && r.db != nil {
 		for _, pk := range callerPartitions {
-			queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+			queryCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 			out, err := r.db.Query(queryCtx, &dynamodb.QueryInput{
 				TableName:              aws.String(r.tableName),
 				KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :skPrefix)"),
@@ -606,7 +614,7 @@ func (r *Repository) DeleteMessage(ctx context.Context, callerEmail, callerHandl
 			})
 		}
 
-		txCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		txCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 		defer cancel()
 		_, err := r.db.TransactWriteItems(txCtx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: transactItems,
@@ -664,7 +672,7 @@ func (r *Repository) SaveCommunityMessage(ctx context.Context, communityID strin
 	if r.db != nil {
 		mMap, err := attributevalue.MarshalMap(item)
 		if err == nil {
-			putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+			putCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 			defer cancel()
 			_, err = r.db.TransactWriteItems(putCtx, &dynamodb.TransactWriteItemsInput{
 				TransactItems: []types.TransactWriteItem{
@@ -733,7 +741,7 @@ func (r *Repository) GetCommunityHistory(ctx context.Context, communityID string
 			}
 		}
 
-		queryCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		queryCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 		defer cancel()
 		result, err := r.db.Query(queryCtx, queryInput)
 		if err == nil && result != nil {

@@ -224,7 +224,22 @@ func (h *Handler) UpdateHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, profile)
+	// Re-issue session JWT so claims & WebSocket connections immediately reflect the new handle
+	var freshToken string
+	if fullUser, errU := h.service.GetUserByID(r.Context(), userID); errU == nil && fullUser != nil {
+		if tok, errTok := h.service.GenerateToken(fullUser.ID, fullUser.Email, profile.Handle, fullUser.Name); errTok == nil && tok != "" {
+			freshToken = tok
+			http.SetCookie(w, h.buildSessionCookie(r, "token", tok, 7*24*3600))
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":      profile.ID,
+		"name":    profile.Name,
+		"handle":  profile.Handle,
+		"picture": profile.Picture,
+		"token":   freshToken,
+	})
 }
 
 // LookupUser queries a user by public @handle and returns their PublicProfile (protects email).

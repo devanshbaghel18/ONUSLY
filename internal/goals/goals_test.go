@@ -15,6 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
 
+	"github.com/devanshbaghel18/ONUSLY/internal/auth"
+	"github.com/devanshbaghel18/ONUSLY/internal/config"
 	"github.com/devanshbaghel18/ONUSLY/internal/goals"
 	"github.com/devanshbaghel18/ONUSLY/internal/middleware"
 	"github.com/devanshbaghel18/ONUSLY/internal/shared"
@@ -460,5 +462,77 @@ func TestGoal_UntargetedCommunityRejectedAndListErrorsPropagate(t *testing.T) {
 	h.List(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 Service Unavailable when List fails, got %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+type mockFriendFinder struct {
+	friends map[string][]goals.FriendMatch
+}
+
+func (m *mockFriendFinder) FindFriends(ctx context.Context, userID string) ([]goals.FriendMatch, error) {
+	return m.friends[userID], nil
+}
+
+func TestGoal_CreateWithHandle_BareWithDotAndFriendFallback(t *testing.T) {
+	authRepo := auth.NewRepositoryWithTable(nil, "mock-table")
+	_ = authRepo.CreateUser(context.Background(), &auth.User{
+		ID:     "user-owner",
+		Email:  "owner@gmail.com",
+		Handle: "owner_handle",
+		Name:   "Owner",
+	})
+	_ = authRepo.CreateUser(context.Background(), &auth.User{
+		ID:     "user-dot",
+		Email:  "dotfriend@gmail.com",
+		Handle: "devansh.baghel",
+		Name:   "Devansh Baghel",
+	})
+
+	goalRepo := goals.NewRepository(nil, "mock-table")
+	_ = auth.NewService(authRepo, config.Config{JWTSecret: "test"})
+	svc := goals.NewService(goalRepo, authRepo)
+	svc.SetFriendFinder(&mockFriendFinder{
+		friends: map[string][]goals.FriendMatch{
+			"user-owner": {
+				{
+					ID:     "user-legacy-friend",
+					Handle: "legacy_buddy",
+					Email:  "legacy@gmail.com",
+					Name:   "Legacy Buddy",
+				},
+			},
+		},
+	})
+
+	friendType := "friend"
+
+	// 1. Bare handle containing a dot (previously misclassified as email before fallback, ensure works directly)
+	dotHandle := "devansh.baghel"
+	g1, err := svc.CreateWithInput(context.Background(), "user-owner", goals.CreateGoalInput{
+		Title:          "Study with dot handle",
+		ApprovalType:   &friendType,
+		ApproverEmail:  &dotHandle,
+		BlockedDomains: []string{"instagram.com"},
+	})
+	if err != nil {
+		t.Fatalf("expected bare dot-handle goal creation to succeed, got: %v", err)
+	}
+	if g1.ApproverID != "user-dot" || g1.ApproverEmail != "@devansh.baghel" {
+		t.Fatalf("unexpected approver resolution: %+v", g1)
+	}
+
+	// 2. Unindexed handle resolved via FriendFinder fallback without needing personal Gmail
+	legacyHandle := "legacy_buddy"
+	g2, err := svc.CreateWithInput(context.Background(), "user-owner", goals.CreateGoalInput{
+		Title:          "Study with connected friend handle",
+		ApprovalType:   &friendType,
+		ApproverEmail:  &legacyHandle,
+		BlockedDomains: []string{"youtube.com"},
+	})
+	if err != nil {
+		t.Fatalf("expected friend-fallback handle goal creation to succeed, got: %v", err)
+	}
+	if g2.ApproverID != "user-legacy-friend" || g2.ApproverEmail != "@legacy_buddy" {
+		t.Fatalf("unexpected friend-fallback approver: %+v", g2)
 	}
 }

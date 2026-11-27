@@ -55,7 +55,32 @@ export function updateUserHandle(newHandle) {
   return user;
 }
 
+function clearUserScopedChatCache() {
+  try {
+    localStorage.removeItem("onusly_friends_list");
+    localStorage.removeItem("onusly_friends_chats");
+    localStorage.removeItem("onusly_friends_chats_cleared_at");
+    localStorage.removeItem("onusly_communities");
+    localStorage.removeItem("onusly_comm_chats");
+    localStorage.removeItem("onusly_comm_chats_cleared_at");
+  } catch {
+    // Ignore storage removal errors
+  }
+}
+
 export function setAuth(token, user) {
+  const prevUid = localStorage.getItem("onusly_last_auth_uid") || "";
+  const parsedUser = typeof user === "string" ? (() => { try { return JSON.parse(user); } catch { return null; } })() : user;
+  const nextUid = String(parsedUser?.id || parsedUser?.sub || parsedUser?.email || "").trim().toLowerCase();
+
+  // Prevent local friend/chat cache from leaking across different accounts in the same browser
+  if (prevUid && nextUid && prevUid !== nextUid) {
+    clearUserScopedChatCache();
+  }
+  if (nextUid) {
+    localStorage.setItem("onusly_last_auth_uid", nextUid);
+  }
+
   if (token) {
     localStorage.setItem("token", token);
     localStorage.setItem("onusly_auth_token", token);
@@ -86,6 +111,8 @@ export function clearAuth() {
   localStorage.removeItem("onusly_auth_token");
   localStorage.removeItem("user");
   localStorage.removeItem("onusly_user");
+  localStorage.removeItem("onusly_last_auth_uid");
+  clearUserScopedChatCache();
 
   // Asynchronously instruct backend to clear HttpOnly session cookie
   try {

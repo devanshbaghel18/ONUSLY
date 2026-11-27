@@ -26,10 +26,24 @@ type GoalNotificationSender interface {
 	CreateFromGoalAssigned(ctx context.Context, approverID, goalID, title, ownerID string) error
 }
 
+// FriendMatch represents a minimal connected friend record used as fallback during partner lookup.
+type FriendMatch struct {
+	ID     string
+	Handle string
+	Email  string
+	Name   string
+}
+
+// FriendFinder resolves accepted friends of a user when handle/email lookup needs friend-list context.
+type FriendFinder interface {
+	FindFriends(ctx context.Context, userID string) ([]FriendMatch, error)
+}
+
 type Service struct {
-	repo        GoalRepository
-	authRepo    auth.Repository
-	notifSender GoalNotificationSender
+	repo         GoalRepository
+	authRepo     auth.Repository
+	notifSender  GoalNotificationSender
+	friendFinder FriendFinder
 }
 
 func NewService(repo GoalRepository, authRepo auth.Repository) *Service {
@@ -41,6 +55,89 @@ func NewService(repo GoalRepository, authRepo auth.Repository) *Service {
 
 func (s *Service) SetNotificationSender(sender GoalNotificationSender) {
 	s.notifSender = sender
+}
+
+func (s *Service) SetFriendFinder(finder FriendFinder) {
+	s.friendFinder = finder
+}
+
+// resolveApprover resolves an accountability partner identifier (@handle, bare handle, email,
+// or connected friend's handle/display name) into a canonical approverID and display label.
+func (s *Service) resolveApprover(ctx context.Context, ownerID, rawInput string) (approverID, approverLabel string, err error) {
+	inputVal := strings.TrimSpace(rawInput)
+	if inputVal == "" {
+		return "", "", ErrAccountabilityRequired
+	}
+	if s.authRepo == nil {
+		return "test-approver-id", inputVal, nil
+	}
+
+	var friendUser *auth.User
+	cleanedHandle := strings.TrimSpace(strings.TrimPrefix(inputVal, "@"))
+	// Treat input as handle whenever it starts with '@' or lacks an email '@' separator
+	if strings.HasPrefix(inputVal, "@") || !strings.Contains(inputVal, "@") {
+		friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
+	} else {
+		friendUser, err = s.authRepo.GetUserByEmail(ctx, inputVal)
+		if err == nil && friendUser == nil {
+			friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
+		}
+	}
+
+	// Fallback: check owner's connected friends list (handles unindexed handles or friend display names)
+	if (err != nil || friendUser == nil) && s.friendFinder != nil {
+		if friendsList, fErr := s.friendFinder.FindFriends(ctx, ownerID); fErr == nil {
+			normTarget := strings.ToLower(cleanedHandle)
+			for _, f := range friendsList {
+				fHandle := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(f.Handle), "@"))
+				fEmail := strings.ToLower(strings.TrimSpace(f.Email))
+				fName := strings.ToLower(strings.TrimSpace(f.Name))
+				if (fHandle != "" && fHandle == normTarget) ||
+					(fEmail != "" && fEmail == strings.ToLower(inputVal)) ||
+					(fName != "" && fName == normTarget) {
+					if f.ID != "" {
+						if u, uErr := s.authRepo.GetUserByID(ctx, f.ID); uErr == nil && u != nil {
+							friendUser = u
+							err = nil
+							break
+						}
+						// Construct user from verified friend record if profile lookup misses
+						friendUser = &auth.User{
+							ID:     f.ID,
+							Handle: f.Handle,
+							Email:  f.Email,
+							Name:   f.Name,
+						}
+						err = nil
+						break
+					}
+					if f.Email != "" {
+						if u, uErr := s.authRepo.GetUserByEmail(ctx, f.Email); uErr == nil && u != nil {
+							friendUser = u
+							err = nil
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if err != nil || friendUser == nil {
+		return "", "", errors.New("accountability partner not found by handle or email")
+	}
+	if friendUser.ID == ownerID {
+		return "", "", errors.New("you cannot assign yourself as your accountability partner")
+	}
+
+	displayTag := strings.TrimSpace(friendUser.Handle)
+	if displayTag != "" {
+		if !strings.HasPrefix(displayTag, "@") {
+			displayTag = "@" + displayTag
+		}
+		return friendUser.ID, displayTag, nil
+	}
+	return friendUser.ID, strings.ToLower(strings.TrimSpace(friendUser.Email)), nil
 }
 
 func (s *Service) CreateWithInput(
@@ -140,42 +237,13 @@ func (s *Service) CreateWithInput(
 			return nil, ErrAccountabilityRequired
 		}
 
-		inputVal := strings.TrimSpace(*input.ApproverEmail)
-		if s.authRepo != nil {
-			var friendUser *auth.User
-			cleanedHandle := strings.TrimPrefix(inputVal, "@")
-			if strings.HasPrefix(inputVal, "@") || !strings.Contains(inputVal, ".") {
-				friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
-			} else {
-				friendUser, err = s.authRepo.GetUserByEmail(ctx, inputVal)
-				if err == nil && friendUser == nil {
-					friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
-				}
-			}
-
-			if err == nil && friendUser != nil {
-				if friendUser.ID == ownerID {
-					return nil, errors.New("you cannot assign yourself as your accountability partner")
-				}
-				approverID = friendUser.ID
-				displayTag := friendUser.Handle
-				if displayTag != "" {
-					if !strings.HasPrefix(displayTag, "@") {
-						displayTag = "@" + displayTag
-					}
-					approverEmail = displayTag
-				} else {
-					approverEmail = strings.ToLower(friendUser.Email)
-				}
-				approvalType = "friend"
-			} else {
-				return nil, errors.New("accountability partner not found by handle or email")
-			}
-		} else {
-			approvalType = "friend"
-			approverEmail = inputVal
-			approverID = "test-approver-id"
+		resolvedID, resolvedLabel, rErr := s.resolveApprover(ctx, ownerID, *input.ApproverEmail)
+		if rErr != nil {
+			return nil, rErr
 		}
+		approverID = resolvedID
+		approverEmail = resolvedLabel
+		approvalType = "friend"
 	} else {
 		// Untargeted goals can have friend or none (community approval is not enabled in Phase 1)
 		if input.ApprovalType != nil {
@@ -188,41 +256,13 @@ func (s *Service) CreateWithInput(
 			}
 			if appType == "friend" {
 				if input.ApproverEmail != nil && strings.TrimSpace(*input.ApproverEmail) != "" {
-					inputVal := strings.TrimSpace(*input.ApproverEmail)
-					if s.authRepo != nil {
-						cleanedHandle := strings.TrimPrefix(inputVal, "@")
-						var friendUser *auth.User
-						if strings.HasPrefix(inputVal, "@") || !strings.Contains(inputVal, ".") {
-							friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
-						} else {
-							friendUser, err = s.authRepo.GetUserByEmail(ctx, inputVal)
-							if err == nil && friendUser == nil {
-								friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
-							}
-						}
-						if err == nil && friendUser != nil {
-							if friendUser.ID == ownerID {
-								return nil, errors.New("you cannot assign yourself as your accountability partner")
-							}
-							approverID = friendUser.ID
-							displayTag := friendUser.Handle
-							if displayTag != "" {
-								if !strings.HasPrefix(displayTag, "@") {
-									displayTag = "@" + displayTag
-								}
-								approverEmail = displayTag
-							} else {
-								approverEmail = strings.ToLower(friendUser.Email)
-							}
-							approvalType = "friend"
-						} else {
-							return nil, errors.New("accountability partner not found by handle or email")
-						}
-					} else {
-						approvalType = "friend"
-						approverEmail = inputVal
-						approverID = "test-approver-id"
+					resolvedID, resolvedLabel, rErr := s.resolveApprover(ctx, ownerID, *input.ApproverEmail)
+					if rErr != nil {
+						return nil, rErr
 					}
+					approverID = resolvedID
+					approverEmail = resolvedLabel
+					approvalType = "friend"
 				}
 			}
 		}
@@ -535,39 +575,12 @@ func (s *Service) Update(
 				inputVal := strings.TrimSpace(*input.ApproverEmail)
 				if inputVal != "" {
 					if s.authRepo != nil {
-						var friendUser *auth.User
-						var err error
-
-						cleanedHandle := strings.TrimPrefix(inputVal, "@")
-						if strings.HasPrefix(inputVal, "@") || !strings.Contains(inputVal, ".") {
-							friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
-						} else {
-							friendUser, err = s.authRepo.GetUserByEmail(ctx, inputVal)
-							if err == nil && friendUser == nil {
-								friendUser, err = s.authRepo.GetUserByHandle(ctx, cleanedHandle)
-							}
+						resolvedID, resolvedLabel, rErr := s.resolveApprover(ctx, ownerID, inputVal)
+						if rErr != nil {
+							return nil, rErr
 						}
-
-						if err == nil && friendUser != nil {
-							if friendUser.ID == ownerID {
-								return nil, errors.New("you cannot assign yourself as your accountability partner")
-							}
-							input.ApproverID = &friendUser.ID
-
-							// Privacy Protection: Store and display @handle instead of raw Gmail address
-							displayTag := friendUser.Handle
-							if displayTag != "" {
-								if !strings.HasPrefix(displayTag, "@") {
-									displayTag = "@" + displayTag
-								}
-								input.ApproverEmail = &displayTag
-							} else {
-								low := strings.ToLower(friendUser.Email)
-								input.ApproverEmail = &low
-							}
-						} else {
-							return nil, errors.New("accountability partner not found by handle or email")
-						}
+						input.ApproverID = &resolvedID
+						input.ApproverEmail = &resolvedLabel
 					}
 				} else {
 					empty := ""

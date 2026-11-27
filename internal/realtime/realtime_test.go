@@ -2087,3 +2087,65 @@ func TestServeWS_CookiePreAuthEmitsAuthSuccessAndSupportsIdempotentAuthFrame(t *
 		t.Fatalf("expected auth.success reply to idempotent auth frame, got %q", secondEvt.Type)
 	}
 }
+
+func TestRegression_DuplicateChatMessageIDFromSameSenderIsDeduplicated(t *testing.T) {
+	hub := NewHub()
+	handler := ServeWS(hub, testSecret)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	u, _ := url.Parse(server.URL)
+	u.Scheme = "ws"
+
+	aliceToken := createCustomToken("user-alice-dedup", "alice@example.com", "alice", "Alice")
+	bobToken := createCustomToken("user-bob-dedup", "bob@example.com", "bob", "Bob")
+
+	connBob, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		t.Fatalf("failed to dial Bob: %v", err)
+	}
+	defer connBob.Close()
+	_ = connBob.WriteJSON(map[string]string{"type": "auth", "token": bobToken})
+	_, _, _ = connBob.ReadMessage()
+
+	connAlice, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		t.Fatalf("failed to dial Alice: %v", err)
+	}
+	defer connAlice.Close()
+	_ = connAlice.WriteJSON(map[string]string{"type": "auth", "token": aliceToken})
+	_, _, _ = connAlice.ReadMessage()
+
+	msgPayload := map[string]interface{}{
+		"type": "chat.message",
+		"payload": map[string]interface{}{
+			"id":              "msg-dedup-001",
+			"recipientId":     "user-bob-dedup",
+			"recipientHandle": "bob",
+			"text":            "Hello once!",
+		},
+	}
+
+	// Send exact same msgID twice from Alice
+	_ = connAlice.WriteJSON(msgPayload)
+	_ = connAlice.WriteJSON(msgPayload)
+
+	// Bob should receive it exactly once
+	_ = connBob.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, firstBytes, err := connBob.ReadMessage()
+	if err != nil {
+		t.Fatalf("Bob did not receive first message: %v", err)
+	}
+	var firstEvt Event
+	_ = json.Unmarshal(firstBytes, &firstEvt)
+	if firstEvt.Type != "chat.message" {
+		t.Fatalf("expected chat.message, got %s", firstEvt.Type)
+	}
+
+	// Second read must time out (no duplicate delivered!)
+	_ = connBob.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	_, extraBytes, err := connBob.ReadMessage()
+	if err == nil {
+		t.Fatalf("expected duplicate chat.message to be deduplicated, but Bob received extra frame: %s", string(extraBytes))
+	}
+}

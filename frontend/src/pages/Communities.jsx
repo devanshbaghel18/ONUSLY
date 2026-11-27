@@ -51,7 +51,6 @@ import {
 } from "../lib/communities";
 import {
   getStoredFriends,
-  saveFriends,
   addFriend,
   deleteFriend,
   getChatMessages,
@@ -64,6 +63,7 @@ import {
   mergeChatHistory,
   markChatMessageApproved,
   clearUnreadCount,
+  reconcileFriendsWithServer,
 } from "../lib/friendsChat";
 import {
   getChatHistory,
@@ -207,7 +207,11 @@ export default function Communities() {
   // ==========================================
   // FRIENDS & 1-ON-1 CHAT STATE
   // ==========================================
-  const [friends, setFriends] = useState(() => getStoredFriends());
+  const [friends, setFriends] = useState(() => reconcileFriendsWithServer([], getUser()).friends);
+  const friendsRef = useRef(friends);
+  useEffect(() => {
+    friendsRef.current = friends;
+  }, [friends]);
   const [activeFriendId, setActiveFriendId] = useState(() => {
     if (location.state?.view === "friends" && location.state?.targetId) {
       return location.state.targetId;
@@ -381,28 +385,50 @@ export default function Communities() {
         ? new Date(p.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+      const me = getUser();
+      const myId = String(me?.id || me?.sub || "").trim();
+      const myEmail = (me?.email || "").trim().toLowerCase();
+      const myHandle = (me?.handle || "").replace(/[@\s]/g, "").toLowerCase();
+
+      const senderEmail = (p.senderEmail || "").trim().toLowerCase();
+      const senderHandle = (p.senderHandle || "").replace(/[@\s]/g, "").toLowerCase();
+      const senderId = String(p.senderId || "").trim();
+
+      const isFromMe = Boolean(
+        (myId && senderId && senderId === myId) ||
+        (myEmail && senderEmail && senderEmail === myEmail) ||
+        (myHandle && senderHandle && senderHandle === myHandle)
+      );
+
+      // For messages I sent (multi-tab sync), the peer is the RECIPIENT, NOT the sender.
+      const peerId = isFromMe ? String(p.recipientId || "").trim() : senderId;
+      const peerEmail = isFromMe ? (p.recipientEmail || "") : (p.senderEmail || "");
+      const peerHandle = isFromMe ? (p.recipientHandle || "") : (p.senderHandle || "");
+      const peerName = isFromMe ? "" : (p.senderName || "");
+
+      const normPeerEmail = peerEmail.trim().toLowerCase();
+      const normPeerHandle = peerHandle.replace(/[@\s]/g, "").toLowerCase();
+
       const currentActiveId = activeFriendIdRef.current;
       const currentFriendsList = getStoredFriends();
       const currentActive = currentFriendsList.find((f) => f.id === currentActiveId);
 
-      const senderEmail = (p.senderEmail || "").trim().toLowerCase();
-      const senderHandle = (p.senderHandle || "").replace(/[@\s]/g, "").toLowerCase();
-
-      // Check whether user is currently looking at this sender's chat
+      // Check whether user is currently looking at this peer's chat
       const isViewing =
         Boolean(currentActiveId) &&
-        (currentActiveId === p.id ||
-          (currentActive?.handle && senderHandle && currentActive.handle.toLowerCase().replace(/[@\s]/g, "") === senderHandle) ||
-          (currentActive?.email && senderEmail && currentActive.email.toLowerCase() === senderEmail));
+        ((peerId && currentActiveId === peerId) ||
+          (currentActive?.handle && normPeerHandle && currentActive.handle.toLowerCase().replace(/[@\s]/g, "") === normPeerHandle) ||
+          (currentActive?.email && normPeerEmail && currentActive.email.toLowerCase() === normPeerEmail));
 
       const { friend, messages } = receiveChatMessage({
         messageId: p.id,
-        friendEmail: p.senderEmail,
-        friendHandle: p.senderHandle,
-        friendName: p.senderName,
+        friendId: peerId,
+        friendEmail: peerEmail,
+        friendHandle: peerHandle,
+        friendName: peerName,
         text: p.text,
         time: timeFormatted,
-        sender: "friend",
+        sender: isFromMe ? "me" : "friend",
         isProof: p.isProof,
         goalId: p.goalId,
         goalTitle: p.goalTitle,
@@ -589,25 +615,14 @@ export default function Communities() {
         .catch(() => {});
       getFriendsList()
         .then((list) => {
-          if (Array.isArray(list) && list.length > 0) {
-            const current = getStoredFriends();
-            const byId = new Map(current.map((f) => [f.id, f]));
-            list.forEach((f) => {
-              if (!byId.has(f.friendId)) {
-                byId.set(f.friendId, {
-                  id: f.friendId,
-                  name: f.friendName || f.friendHandle || f.friendEmail,
-                  handle: f.friendHandle,
-                  email: f.friendEmail,
-                  picture: "",
-                  unreadCount: 0,
-                  messages: [],
-                });
-              }
-            });
-            const merged = Array.from(byId.values());
-            saveFriends(merged);
-            setFriends(merged);
+          if (Array.isArray(list)) {
+            const { friends: reconciled, remappedIds } = reconcileFriendsWithServer(list, getUser());
+            setFriends(reconciled);
+            if (activeFriendIdRef.current && remappedIds[activeFriendIdRef.current]) {
+              const nextId = remappedIds[activeFriendIdRef.current];
+              setActiveFriendId(nextId);
+              setChatMessages(getChatMessages(nextId));
+            }
           }
         })
         .catch(() => {});
@@ -704,8 +719,8 @@ export default function Communities() {
 
     const syncHistory = () => {
       if (activeFriendId) {
-        const f = friends.find((item) => item.id === activeFriendId);
-        const peerKey = f?.handle ? `@${f.handle}` : f?.email || "";
+        const f = friendsRef.current.find((item) => item.id === activeFriendId);
+        const peerKey = f?.handle ? `@${f.handle.replace(/^@/, "")}` : f?.email || "";
         if (peerKey) {
           getChatHistory(peerKey)
             .then((serverMsgs) => {
@@ -754,7 +769,7 @@ export default function Communities() {
       clearInterval(interval);
       window.removeEventListener("focus", onFocus);
     };
-  }, [activeFriendId, selectedCommunity?.id, friends, currentUser?.email, currentUser?.handle]);
+  }, [activeFriendId, selectedCommunity?.id, currentUser?.email, currentUser?.handle]);
 
   // ==========================================
   // ATTACHMENT MODAL HANDLERS (WhatsApp-style)
@@ -1008,13 +1023,14 @@ export default function Communities() {
 
   // Select a friend in 1-on-1 chat
   const selectFriend = (id) => {
+    setSelectedCommunity(null);
     setActiveFriendId(id);
     const updated = clearUnreadCount(id);
     setFriends(updated);
     setChatMessages(getChatMessages(id));
 
     const f = updated.find((item) => item.id === id);
-    const peerKey = f?.handle ? `@${f.handle}` : f?.email || "";
+    const peerKey = f?.handle ? `@${f.handle.replace(/^@/, "")}` : f?.email || "";
     if (peerKey) {
       getChatHistory(peerKey)
         .then((serverMsgs) => {
@@ -1064,31 +1080,14 @@ export default function Communities() {
     const fetchFriendsAndRequests = () => {
       getFriendsList()
         .then((backendFriends) => {
-          if (Array.isArray(backendFriends) && backendFriends.length > 0) {
-            const local = getStoredFriends();
-            const merged = [...local];
-            backendFriends.forEach((bf) => {
-              const exists = merged.some(
-                (f) =>
-                  f.id === bf.friendId ||
-                  (f.handle && bf.friendHandle && f.handle.toLowerCase().replace(/^@/, "") === bf.friendHandle.toLowerCase().replace(/^@/, "")) ||
-                  (f.email && bf.friendEmail && f.email.toLowerCase() === bf.friendEmail.toLowerCase())
-              );
-              if (!exists) {
-                merged.push({
-                  id: bf.friendId,
-                  name: bf.friendName || `@${bf.friendHandle || "friend"}`,
-                  handle: bf.friendHandle,
-                  email: bf.friendEmail,
-                  status: "Active Partner",
-                  lastMessage: "Connected as accountability friend",
-                  lastMessageTime: "",
-                  unreadCount: 0,
-                });
-              }
-            });
-            saveFriends(merged);
-            setFriends(merged);
+          if (Array.isArray(backendFriends)) {
+            const { friends: reconciled, remappedIds } = reconcileFriendsWithServer(backendFriends, getUser());
+            setFriends(reconciled);
+            if (activeFriendIdRef.current && remappedIds[activeFriendIdRef.current]) {
+              const nextId = remappedIds[activeFriendIdRef.current];
+              setActiveFriendId(nextId);
+              setChatMessages(getChatMessages(nextId));
+            }
           }
         })
         .catch(() => {});
@@ -1376,6 +1375,7 @@ export default function Communities() {
       await respondFriendRequest(requestId, action);
       if (action === "accept" && reqData) {
         const updated = addFriend({
+          id: reqData.senderId || "",
           name: reqData.senderName || `@${reqData.senderHandle || "friend"}`,
           handle: reqData.senderHandle,
           email: reqData.senderEmail,
@@ -1383,6 +1383,7 @@ export default function Communities() {
         setFriends(updated);
         const added = updated.find(
           (f) =>
+            (reqData.senderId && f.id === reqData.senderId) ||
             (reqData.senderHandle && f.handle && f.handle.toLowerCase() === reqData.senderHandle.toLowerCase()) ||
             (reqData.senderEmail && f.email && f.email.toLowerCase() === reqData.senderEmail.toLowerCase())
         );
@@ -1453,11 +1454,13 @@ export default function Communities() {
 
     const msgId = generateMsgId("msg");
     const currentReplyTo = replyingTo ? { ...replyingTo } : null;
+    const recipientId = currentFriend?.id && !String(currentFriend.id).startsWith("friend-") ? currentFriend.id : "";
 
-    send({
+    const wsSent = send({
       type: "chat.message",
       payload: {
         id: msgId,
+        recipientId,
         recipientEmail: currentFriend?.email || "",
         recipientHandle: recHandle,
         senderEmail,
@@ -1468,9 +1471,13 @@ export default function Communities() {
       },
     });
 
-    const peerTarget = recHandle ? `@${recHandle}` : currentFriend?.email || currentFriend?.id;
-    if (peerTarget) {
-      sendChatMessageApi(peerTarget, text, { replyTo: currentReplyTo }).catch(() => {});
+    // Only fall back to REST HTTP POST when WebSocket is disconnected —
+    // prevents double delivery and duplicate message IDs in DynamoDB & UI.
+    if (!wsSent) {
+      const peerTarget = recHandle ? `@${recHandle}` : currentFriend?.email || currentFriend?.id;
+      if (peerTarget) {
+        sendChatMessageApi(peerTarget, text, { id: msgId, replyTo: currentReplyTo }).catch(() => {});
+      }
     }
 
     const updatedMessages = sendChatMessage(
@@ -1531,7 +1538,7 @@ export default function Communities() {
     setCommMessageInput("");
     setReplyingTo(null);
 
-    send({
+    const wsSent = send({
       type: "community.message",
       payload: {
         id: msgId,
@@ -1546,7 +1553,9 @@ export default function Communities() {
       },
     });
 
-    sendChatMessageApi(selectedCommunity.id, text, { replyTo: currentReplyTo }).catch(() => {});
+    if (!wsSent) {
+      sendChatMessageApi(selectedCommunity.id, text, { id: msgId, replyTo: currentReplyTo }).catch(() => {});
+    }
 
     const updated = sendCommunityMessage(selectedCommunity.id, {
       id: msgId,

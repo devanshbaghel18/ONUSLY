@@ -4,6 +4,7 @@ import { MessageSquare, X, ArrowRight, ShieldCheck } from "lucide-react";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { receiveChatMessage } from "../lib/friendsChat";
 import { notifyExtensionSync } from "../lib/extensionSync";
+import { getUser } from "../lib/auth";
 
 export default function GlobalChatNotifier() {
   const navigate = useNavigate();
@@ -79,6 +80,24 @@ export default function GlobalChatNotifier() {
     // 2. Incoming chat message event
     if (event?.type === "chat.message") {
       const payload = event.payload || {};
+      const currentUser = getUser();
+      const myId = currentUser?.id || currentUser?.sub || "";
+      const myEmail = (currentUser?.email || "").trim().toLowerCase();
+      const myHandle = (currentUser?.handle || "").replace(/[@\s]/g, "").toLowerCase();
+      const senderEmail = (payload.senderEmail || "").trim().toLowerCase();
+      const senderHandle = (payload.senderHandle || "").replace(/[@\s]/g, "").toLowerCase();
+
+      const isFromMe = Boolean(
+        (myId && payload.senderId && payload.senderId === myId) ||
+        (myEmail && senderEmail && senderEmail === myEmail) ||
+        (myHandle && senderHandle && senderHandle === myHandle)
+      );
+
+      // Never treat our own sent message echo as an incoming friend message or toast
+      if (isFromMe) {
+        return;
+      }
+
       const timeFormatted = payload.time
         ? new Date(payload.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -89,6 +108,7 @@ export default function GlobalChatNotifier() {
         // Save and update local chat store with full payload
         const { friend } = receiveChatMessage({
           messageId: payload.id,
+          friendId: payload.senderId || "",
           friendEmail: payload.senderEmail,
           friendHandle: payload.senderHandle,
           friendName: payload.senderName,

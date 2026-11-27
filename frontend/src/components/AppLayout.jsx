@@ -2,7 +2,7 @@ import Brand from "./Brand";
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { LogOut, AtSign, Check, Copy, X, Menu, Volume2, VolumeX } from "lucide-react";
-import { getUser, clearAuth, updateUserHandle } from "../lib/auth";
+import { getUser, setAuth, clearAuth, updateUserHandle } from "../lib/auth";
 import { updateHandle, getMyProfile } from "../lib/api";
 import { notifyExtensionSync } from "../lib/extensionSync";
 import { wsManager } from "../lib/websocket";
@@ -75,13 +75,19 @@ export default function AppLayout({ children }) {
       const newHandle = res.handle || clean;
       const updated = updateUserHandle(newHandle);
       setUser(updated);
-      wsManager.send({
-        type: "user.online",
-        payload: {
-          email: updated.email || "",
-          handle: newHandle,
-        },
-      });
+      if (res.token) {
+        setAuth(res.token, updated);
+        wsManager.disconnect();
+        wsManager.connect();
+      } else {
+        wsManager.send({
+          type: "user.online",
+          payload: {
+            email: updated.email || "",
+            handle: newHandle,
+          },
+        });
+      }
       setHandleSuccess("Handle updated successfully!");
       setTimeout(() => {
         setShowHandleModal(false);

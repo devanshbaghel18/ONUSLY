@@ -161,7 +161,12 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if len(primaryMsgs) > 0 {
-			allMsgs = primaryMsgs
+			for _, m := range primaryMsgs {
+				if !seen[m.ID] {
+					seen[m.ID] = true
+					allMsgs = append(allMsgs, m)
+				}
+			}
 		} else if callerEmailKey != "" && peerEmail != "" && primaryCallerKey != callerEmailKey {
 			// 2. Backward compatibility: read legacy email partition only if canonical messages are exhausted
 			// and peer email is known. Strictly verify ownership on every legacy record (fail-closed).
@@ -302,12 +307,17 @@ func (h *Handler) ClearHistory(w http.ResponseWriter, r *http.Request) {
 
 // SendMessageRequest represents the payload for POST /chat/messages.
 type SendMessageRequest struct {
-	Recipient string `json:"recipient"`
-	Text      string `json:"text"`
-	IsProof   bool   `json:"isProof,omitempty"`
-	GoalID    string `json:"goalId,omitempty"`
-	GoalTitle string `json:"goalTitle,omitempty"`
-	OwnerID   string `json:"ownerId,omitempty"`
+	ID           string      `json:"id,omitempty"`
+	Recipient    string      `json:"recipient"`
+	Text         string      `json:"text"`
+	IsProof      bool        `json:"isProof,omitempty"`
+	GoalID       string      `json:"goalId,omitempty"`
+	GoalTitle    string      `json:"goalTitle,omitempty"`
+	OwnerID      string      `json:"ownerId,omitempty"`
+	Images       []string    `json:"images,omitempty"`
+	Files        interface{} `json:"files,omitempty"`
+	ExternalLink string      `json:"externalLink,omitempty"`
+	ReplyTo      interface{} `json:"replyTo,omitempty"`
 }
 
 // SendMessage stores a message in DynamoDB and broadcasts it via WebSocket if broadcaster is configured.
@@ -338,12 +348,15 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing required field: recipient", http.StatusBadRequest)
 		return
 	}
-	if cleanText == "" && !req.IsProof {
+	if cleanText == "" && !req.IsProof && len(req.Images) == 0 && strings.TrimSpace(req.ExternalLink) == "" {
 		http.Error(w, "message text cannot be empty", http.StatusBadRequest)
 		return
 	}
 
-	msgID := "msg-" + uuid.New().String()
+	msgID := strings.TrimSpace(req.ID)
+	if msgID == "" {
+		msgID = "msg-" + uuid.New().String()
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	ownerID := ""
@@ -450,6 +463,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		GoalID:          req.GoalID,
 		GoalTitle:       req.GoalTitle,
 		OwnerID:         ownerID,
+		Images:          req.Images,
+		Files:           req.Files,
+		ExternalLink:    req.ExternalLink,
+		ReplyTo:         req.ReplyTo,
 		Time:            now,
 	}
 
@@ -479,14 +496,17 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 				"goalId":          req.GoalID,
 				"goalTitle":       req.GoalTitle,
 				"ownerId":         ownerID,
+				"images":          req.Images,
+				"files":           req.Files,
+				"externalLink":    req.ExternalLink,
+				"replyTo":         req.ReplyTo,
 				"time":            now,
 			},
 		}
-		if recipientID != "" {
+		// Deliver exclusively to the recipient — never echo back to callerID
+		// (caller already appends optimistically with matching msgID).
+		if recipientID != "" && recipientID != callerID {
 			_ = h.broadcaster.SendToUser(recipientID, evt)
-		}
-		if callerID != "" && callerID != recipientID {
-			_ = h.broadcaster.SendToUser(callerID, evt)
 		}
 	}
 

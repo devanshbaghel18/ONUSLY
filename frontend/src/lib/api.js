@@ -298,16 +298,21 @@ export async function getChatHistory(peerEmail) {
 }
 
 export async function sendChatMessageApi(recipient, text, options = {}) {
-  if (!recipient || !text) return null;
+  if (!recipient || (!text && !options.isProof && !(options.images?.length > 0) && !options.externalLink)) return null;
   return request("/chat/messages", {
     method: "POST",
     body: JSON.stringify({
+      ...(options.id ? { id: options.id } : {}),
       recipient,
-      text,
+      text: text || "",
       isProof: options.isProof || false,
       goalId: options.goalId || "",
       goalTitle: options.goalTitle || "",
       ownerId: options.ownerId || "",
+      ...(Array.isArray(options.images) && options.images.length > 0 ? { images: options.images } : {}),
+      ...(Array.isArray(options.files) && options.files.length > 0 ? { files: options.files } : {}),
+      ...(options.externalLink ? { externalLink: options.externalLink } : {}),
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
     }),
   });
 }

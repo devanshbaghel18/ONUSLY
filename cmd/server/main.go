@@ -395,6 +395,7 @@ func main() {
 	friendsService := friends.NewService(friendsRepo, chatResolver, wsHub)
 	friendsService.SetNotificationSender(notifService)
 	friendsHandler := friends.NewHandler(friendsService)
+	goalService.SetFriendFinder(&serverFriendFinder{friendsRepo: friendsRepo})
 	chatHandler.SetCommunityChecker(&serverCommunityChecker{
 		friendsRepo: friendsRepo,
 		hub:         wsHub,
@@ -783,6 +784,30 @@ func (v *serverGoalVerifier) VerifyApprovedGoal(ctx context.Context, callerID, c
 		return "", "", false, nil
 	}
 	return goal.OwnerID, goal.Title, true, nil
+}
+
+type serverFriendFinder struct {
+	friendsRepo *friends.Repository
+}
+
+func (f *serverFriendFinder) FindFriends(ctx context.Context, userID string) ([]goals.FriendMatch, error) {
+	if f.friendsRepo == nil || userID == "" {
+		return nil, nil
+	}
+	list, err := f.friendsRepo.GetFriends(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]goals.FriendMatch, 0, len(list))
+	for _, item := range list {
+		matches = append(matches, goals.FriendMatch{
+			ID:     item.FriendID,
+			Handle: item.FriendHandle,
+			Email:  item.FriendEmail,
+			Name:   item.FriendName,
+		})
+	}
+	return matches, nil
 }
 
 type serverUserResolver struct {

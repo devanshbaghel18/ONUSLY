@@ -1,6 +1,32 @@
+import { getUser } from "./auth.js";
+
 const FRIENDS_KEY = "onusly_friends_list";
 const CHATS_KEY = "onusly_friends_chats";
 const CLEARED_AT_KEY = "onusly_friends_chats_cleared_at";
+
+function normHandle(h) {
+  return String(h || "").replace(/[@\s]/g, "").toLowerCase();
+}
+
+function normEmail(e) {
+  return String(e || "").trim().toLowerCase();
+}
+
+export function isSelfUser(candidate, user = getUser()) {
+  if (!candidate || !user) return false;
+  const myId = String(user.id || user.sub || "").trim();
+  const myEmail = normEmail(user.email);
+  const myHandle = normHandle(user.handle);
+
+  const cId = String(candidate.id || candidate.friendId || "").trim();
+  const cEmail = normEmail(candidate.email || candidate.friendEmail);
+  const cHandle = normHandle(candidate.handle || candidate.friendHandle);
+
+  if (myId && cId && !cId.startsWith("friend-") && cId === myId) return true;
+  if (myEmail && cEmail && cEmail === myEmail) return true;
+  if (myHandle && cHandle && cHandle === myHandle) return true;
+  return false;
+}
 
 export function getFriendClearedAt(friendId) {
   try {
@@ -45,23 +71,29 @@ export function saveFriends(friends) {
   }
 }
 
-export function addFriend({ name, handle, email, picture }) {
+export function addFriend({ id, name, handle, email, picture }) {
   const list = getStoredFriends();
-  const cleanHandle = handle ? handle.replace(/[@\s]/g, "").toLowerCase() : "";
-  const trimmedEmail = email ? email.trim().toLowerCase() : "";
+  const cleanId = String(id || "").trim();
+  const cleanHandle = normHandle(handle);
+  const trimmedEmail = normEmail(email);
   const trimmedName = (name || "").trim() || (cleanHandle ? `@${cleanHandle}` : "Friend");
 
-  // Check if friend with same handle or email already exists
-  const existing = list.find((f) => 
-    (cleanHandle && f.handle && f.handle.toLowerCase() === cleanHandle) ||
-    (trimmedEmail && f.email && f.email === trimmedEmail)
+  if (isSelfUser({ id: cleanId, handle: cleanHandle, email: trimmedEmail })) {
+    return list;
+  }
+
+  // Check if friend with same id, handle, or email already exists
+  const existing = list.find((f) =>
+    (cleanId && f.id === cleanId) ||
+    (cleanHandle && f.handle && normHandle(f.handle) === cleanHandle) ||
+    (trimmedEmail && f.email && normEmail(f.email) === trimmedEmail)
   );
   if (existing) {
     return list;
   }
 
   const newFriend = {
-    id: `friend-${Date.now()}`,
+    id: cleanId || `friend-${Date.now()}`,
     name: trimmedName,
     handle: cleanHandle,
     email: trimmedEmail,
@@ -153,7 +185,13 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
     };
 
 
-    allChats[friendId] = [...friendMessages, newMsg];
+    const existingIdx = friendMessages.findIndex((m) => m.id === newMsg.id);
+    if (existingIdx >= 0) {
+      friendMessages[existingIdx] = { ...friendMessages[existingIdx], ...newMsg };
+      allChats[friendId] = [...friendMessages];
+    } else {
+      allChats[friendId] = [...friendMessages, newMsg];
+    }
     localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
 
     // Also update friend's last message preview and reset unread count
@@ -181,14 +219,22 @@ export function sendChatMessage(friendId, messageData, sender = "me") {
   }
 }
 
-export function receiveChatMessage({ friendEmail, friendHandle, friendName, text, time, sender = "friend", messageId, isProof, goalId, goalTitle, ownerId, approved, images, files, externalLink, isCurrentlyActive = false, replyTo = null }) {
+export function receiveChatMessage({ friendId, friendEmail, friendHandle, friendName, text, time, sender = "friend", messageId, isProof, goalId, goalTitle, ownerId, approved, images, files, externalLink, isCurrentlyActive = false, replyTo = null }) {
   try {
-    const normalizedEmail = friendEmail ? friendEmail.trim().toLowerCase() : "";
-    const cleanHandle = friendHandle ? friendHandle.replace(/[@\s]/g, "").toLowerCase() : "";
+    const cleanFriendId = String(friendId || "").trim();
+    const normalizedEmail = normEmail(friendEmail);
+    const cleanHandle = normHandle(friendHandle);
+
+    // Guard: never create or append a self-chat entry for the currently authenticated user
+    if (isSelfUser({ id: cleanFriendId, handle: cleanHandle, email: normalizedEmail })) {
+      return { friend: null, messages: [] };
+    }
+
     let friends = getStoredFriends();
-    let friend = friends.find((f) => 
-      (cleanHandle && f.handle && f.handle.toLowerCase() === cleanHandle) ||
-      (normalizedEmail && f.email && f.email.toLowerCase() === normalizedEmail)
+    let friend = friends.find((f) =>
+      (cleanFriendId && f.id === cleanFriendId) ||
+      (cleanHandle && f.handle && normHandle(f.handle) === cleanHandle) ||
+      (normalizedEmail && f.email && normEmail(f.email) === normalizedEmail)
     );
 
     // If friend exists, unify email/handle/name
@@ -215,14 +261,14 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
       const displayName = friendName ? friendName.trim() : fallback;
       const capitalName = displayName.startsWith("@") ? displayName : displayName.charAt(0).toUpperCase() + displayName.slice(1);
       friend = {
-        id: `friend-${Date.now()}`,
+        id: cleanFriendId || `friend-${Date.now()}`,
         name: capitalName,
         handle: cleanHandle,
         email: normalizedEmail,
         status: "Active Partner",
         lastMessage: isProof ? `[Proof] ${goalTitle || "Goal"}` : (text || "Connected"),
         lastMessageTime: time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        unreadCount: isCurrentlyActive ? 0 : 1,
+        unreadCount: isCurrentlyActive || sender === "me" ? 0 : 1,
       };
       friends = [friend, ...friends];
       saveFriends(friends);
@@ -304,7 +350,7 @@ export function receiveChatMessage({ friendEmail, friendHandle, friendName, text
             ...f,
             lastMessage: previewText,
             lastMessageTime: newMsg.time,
-            unreadCount: isCurrentlyActive ? 0 : ((Number(f.unreadCount) || 0) + 1),
+            unreadCount: isCurrentlyActive || sender === "me" ? 0 : ((Number(f.unreadCount) || 0) + 1),
           }
         : f
     );
@@ -574,5 +620,138 @@ export function markChatMessageApproved(goalId, messageId) {
     }
   } catch (err) {
     console.error("Failed to mark chat message approved:", err);
+  }
+}
+
+/**
+ * Reconciles local friend list with canonical server friends:
+ * - Removes any accidental self-entries (matching currentUser id/email/handle)
+ * - Migrates temporary friend-<timestamp> chat histories into canonical server friendId keys
+ * - Deduplicates duplicate entries sharing the same id, handle, or email
+ */
+export function reconcileFriendsWithServer(backendFriends = [], currentUser = getUser()) {
+  try {
+    const local = getStoredFriends();
+    const rawChats = localStorage.getItem(CHATS_KEY);
+    const allChats = rawChats ? JSON.parse(rawChats) : {};
+    const rawCleared = localStorage.getItem(CLEARED_AT_KEY);
+    const clearedMap = rawCleared ? JSON.parse(rawCleared) : {};
+    const remappedIds = {};
+
+    const migrateMessages = (fromId, toId) => {
+      if (!fromId || !toId || fromId === toId) return;
+      remappedIds[fromId] = toId;
+      const fromMsgs = Array.isArray(allChats[fromId]) ? allChats[fromId] : [];
+      const toMsgs = Array.isArray(allChats[toId]) ? allChats[toId] : [];
+      if (fromMsgs.length > 0) {
+        const seen = new Map();
+        [...toMsgs, ...fromMsgs].forEach((m) => {
+          if (m?.id) seen.set(m.id, m);
+        });
+        const merged = Array.from(seen.values()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        allChats[toId] = merged;
+      }
+      if (fromId in allChats) {
+        delete allChats[fromId];
+      }
+      if (clearedMap[fromId] && (!clearedMap[toId] || clearedMap[fromId] > clearedMap[toId])) {
+        clearedMap[toId] = clearedMap[fromId];
+      }
+      delete clearedMap[fromId];
+    };
+
+    const deduped = [];
+    const findMatchIndex = (cand) => {
+      const cId = String(cand.id || cand.friendId || "").trim();
+      const cH = normHandle(cand.handle || cand.friendHandle);
+      const cE = normEmail(cand.email || cand.friendEmail);
+      return deduped.findIndex((existing) =>
+        (cId && existing.id === cId) ||
+        (cH && existing.handle && normHandle(existing.handle) === cH) ||
+        (cE && existing.email && normEmail(existing.email) === cE)
+      );
+    };
+
+    // First clean and deduplicate local friends, stripping self-entries
+    for (const lf of local) {
+      if (!lf || isSelfUser(lf, currentUser)) {
+        if (lf?.id && lf.id in allChats) delete allChats[lf.id];
+        continue;
+      }
+      const idx = findMatchIndex(lf);
+      if (idx === -1) {
+        deduped.push({
+          ...lf,
+          handle: normHandle(lf.handle),
+          email: normEmail(lf.email),
+        });
+      } else {
+        const keep = deduped[idx];
+        const keepIsCanonical = keep.id && !String(keep.id).startsWith("friend-");
+        const lfIsCanonical = lf.id && !String(lf.id).startsWith("friend-");
+        if (!keepIsCanonical && lfIsCanonical) {
+          migrateMessages(keep.id, lf.id);
+          deduped[idx] = {
+            ...keep,
+            ...lf,
+            id: lf.id,
+            handle: normHandle(lf.handle || keep.handle),
+            email: normEmail(lf.email || keep.email),
+            lastMessage: keep.lastMessage || lf.lastMessage,
+            lastMessageTime: keep.lastMessageTime || lf.lastMessageTime,
+          };
+        } else {
+          migrateMessages(lf.id, keep.id);
+        }
+      }
+    }
+
+    // Merge canonical server friends into deduped list
+    if (Array.isArray(backendFriends)) {
+      for (const bf of backendFriends) {
+        if (!bf || !bf.friendId) continue;
+        if (isSelfUser(bf, currentUser)) continue;
+
+        const bfHandle = normHandle(bf.friendHandle);
+        const bfEmail = normEmail(bf.friendEmail);
+        const idx = findMatchIndex({ id: bf.friendId, handle: bfHandle, email: bfEmail });
+
+        if (idx === -1) {
+          const msgs = Array.isArray(allChats[bf.friendId]) ? allChats[bf.friendId] : [];
+          const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+          deduped.push({
+            id: bf.friendId,
+            name: bf.friendName || (bfHandle ? `@${bfHandle}` : bfEmail) || "Friend",
+            handle: bfHandle,
+            email: bfEmail,
+            picture: "",
+            status: "Active Partner",
+            lastMessage: lastMsg ? (lastMsg.isProof ? `[Proof] ${lastMsg.goalTitle || "Goal"}` : lastMsg.text) : "Connected as accountability friend",
+            lastMessageTime: lastMsg?.time || "",
+            unreadCount: 0,
+          });
+        } else {
+          const existing = deduped[idx];
+          if (existing.id !== bf.friendId) {
+            migrateMessages(existing.id, bf.friendId);
+          }
+          deduped[idx] = {
+            ...existing,
+            id: bf.friendId,
+            name: bf.friendName || existing.name || (bfHandle ? `@${bfHandle}` : "Friend"),
+            handle: bfHandle || existing.handle,
+            email: bfEmail || existing.email,
+          };
+        }
+      }
+    }
+
+    saveFriends(deduped);
+    localStorage.setItem(CHATS_KEY, JSON.stringify(allChats));
+    localStorage.setItem(CLEARED_AT_KEY, JSON.stringify(clearedMap));
+    return { friends: deduped, remappedIds };
+  } catch (err) {
+    console.error("Failed to reconcile friends:", err);
+    return { friends: getStoredFriends(), remappedIds: {} };
   }
 }

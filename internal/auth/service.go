@@ -179,12 +179,17 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 
 	if existingUser != nil {
 		user = *existingUser
-		// Auto-generate handle for existing users that don't have one yet
+		// Auto-generate handle for existing users that don't have one yet,
+		// and ensure HANDLE# reservation item exists for legacy users.
 		if user.Handle == "" {
 			handle, hErr := s.generateUniqueHandle(ctx, user.Name, user.Email)
 			if hErr == nil {
 				user.Handle = handle
 				_ = s.repo.UpdateUserHandle(ctx, user.ID, "", handle)
+			}
+		} else {
+			if existingByHandle, errH := s.repo.GetUserByHandle(ctx, user.Handle); errH == nil && existingByHandle == nil {
+				_ = s.repo.UpdateUserHandle(ctx, user.ID, "", user.Handle)
 			}
 		}
 	} else {

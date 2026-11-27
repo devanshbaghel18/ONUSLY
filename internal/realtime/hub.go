@@ -787,9 +787,13 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			msgID = fmt.Sprintf("msg-%d-%s", time.Now().UnixNano(), hex.EncodeToString(b))
 		} else {
 			h.mu.Lock()
-			if existingAuthor, taken := h.dmMsgAuthors[msgID]; taken && existingAuthor != c.userID {
+			if existingAuthor, taken := h.dmMsgAuthors[msgID]; taken {
 				h.mu.Unlock()
-				log.Printf("[WebSocket] Rejected colliding chat.message ID %q from user %s", msgID, c.userID)
+				if existingAuthor != c.userID {
+					log.Printf("[WebSocket] Rejected colliding chat.message ID %q from user %s", msgID, c.userID)
+				} else {
+					log.Printf("[WebSocket] Deduplicated duplicate chat.message ID %q from user %s", msgID, c.userID)
+				}
 				return
 			}
 			h.dmMsgAuthors[msgID] = c.userID
