@@ -1,467 +1,1317 @@
-ONUSLY Codebase & Deployment Issue Report
-Generated from branch: main (commit 80cb6b19f7de574ae73a4dd6555428ee5c17a50f)
+# ONUSLY — FULL SYSTEM AUDIT REPORT
 
-================================================================================
-VERIFICATION BASELINE OBSERVED
-================================================================================
-- Go test suite (`go test ./...`): FAILED in `internal/goals`:
-    `TestTargetMutationSecurity_TargetLocking` (`internal/goals/security_test.go:146`):
-    expected 409 Conflict when deleting active locked goal, got 204.
-- Frontend lint (`cd frontend && npm run lint`): FAILED with 10 ESLint errors across
-    `ConnectExtension.jsx`, `CreateGoalModal.jsx`, `auth.js`, `Communities.jsx`,
-    `Dashboard.jsx`, and `DigitalWellbeing.jsx`.
-- Frontend build (`cd frontend && npm run build`): Succeeded (`vite v8.3.8`), though
-    it modifies tracked extension zip/crx artifacts in `frontend/public/downloads/`.
-- JS unit tests (`node --test frontend/tests/*.test.js extension/tests/*.test.js`):
-    139/139 passed (27 suites).
+---
 
-================================================================================
-CRITICAL ISSUES
-================================================================================
+## A. Audit Metadata
 
-[CRIT-01] Active locked goals can be deleted (bypassing 409 goal_locked + failing security test)
-- Files: `internal/goals/service.go:352-376`, `internal/goals/repository.go:446-490`,
-         `internal/goals/security_test.go:137-157`
-- Symbols: `(*Service).Delete`, `(*Repository).Delete`, `TestTargetMutationSecurity_TargetLocking`
-- Details:
-  1. `Service.Delete` only checks `goal.Status == "proof_submitted"` (`ErrGoalInReview`) and does
-     not check whether an active/rejected goal has locked `BlockedApps`/`BlockedDomains`.
-  2. `Repository.Delete` deletes the goal from `r.memGoals` and `local_goals_fallback.json` BEFORE
-     executing DynamoDB `DeleteItem`, uses an 800ms timeout, includes `attribute_not_exists(PK) OR ...`
-     in `ConditionExpression`, and swallows non-conditional DynamoDB errors (`return nil` at line 486).
-  3. If `PutItem` timed out during `Create` (falling back to `memGoals`) or `DeleteItem` times out,
-     deleting an active locked goal returns HTTP 204 instead of 409 `goal_locked`.
-     Reproduced directly by `go test ./...` (`security_test.go:146`).
+- **Audit Date:** 2026-11-27 (Asia/Kolkata) / 2026-11-26 (UTC)
+- **Start Time:** 2026-11-27T01:59:09+05:30 (2026-11-26T20:29:09Z)
+- **End Time:** 2026-11-27T02:11:00+05:30 (2026-11-26T20:41:00Z)
+- **Presentation Timezone:** Asia/Kolkata (UTC+05:30), with UTC included for AWS/EC2 log correlation
+- **Repository Path:** `/home/devansh/onusly`
+- **Git Branch:** `main` (`## main...origin/main`)
+- **Git Commit:** `db9cb11` (`db9cb1121cc7736310dc37222a42da80fa113c52`)
+- **Git Working-Tree Status Before Audit:** Clean on tracked files; pre-existing untracked local artifacts (`onusly-server`, `server.log`, `local_goals_fallback.json`, `setup_edge_extension.bat`, `uploads/`, `scratch/`, `issue.txt` from earlier commit `80cb6b1`). No source code modifications made during audit.
+- **Git Working-Tree Status After Audit:** Only `issue.txt` updated in repository root; evidence screenshots/JSON stored outside tracked source under agent scratch workspace.
+- **Production Website URL:** `https://onusly.duckdns.org` (legacy domains `onusly.com`, `api.onusly.com`, `onusly.app` are NOT resolving/configured on current EC2 origin TLS cert)
+- **Backend API URL:** `https://onusly.duckdns.org` (same-origin reverse-proxied by Nginx `:443` -> Go `:8080`)
+- **AWS Account & Region:** Account `631690098190`, Region `eu-north-1` (Stockholm), AZ `eu-north-1b`
+- **EC2 Instance Identity:** `i-0dfb8ec15543e8457` (`t3.micro`, Amazon Linux 2023, Public IP `13.49.49.2`, Private IP `172.31.45.43`, IAM Instance Profile `onusly-ec2-backend-role`)
+- **Tested Windows Version:** None (No Windows VM or dedicated QA Windows host available in audit environment; Windows findings are static source + cross-compiled build/script analysis and marked `NOT TESTED` at runtime)
+- **Tested Browsers:** Headless Google Chrome `157.0.8103.38` via Chrome DevTools Protocol (CDP) across `1440x900`, `1280x800`, `390x844`, and `320x700`
+- **QA Account Roles Tested:** Designated QA Account A (Owner) and QA Account B (Partner) OAuth interactive credentials were not available in this CLI environment; all unauthenticated user flows, OAuth redirect initiation, route navigation, responsive rendering, network/headers, security boundaries, and production server telemetry/logs were tested live. Authenticated write-dependent user journeys are marked `BLOCKED BY ENVIRONMENT`.
+- **Tools Used:** Google Chrome 157 + Node v22.22.2 CDP script, `curl`, OpenSSL, AWS CLI v2.38.0 (read-only), SSH read-only EC2 inspection (`systemd`, `journalctl`, `nginx -T`, `ss`, `df`, `free`, IMDSv2), static source analysis across Go/React/JS/PowerShell/Kotlin.
 
-[CRIT-02] Any user can view and unilaterally approve/reject any "community" goal
-- Files: `internal/goals/models.go:73-79`, `internal/goals/service.go:193-195`,
-         `internal/approval/service.go:127-132`, `internal/proof/service.go:351,382`,
-         `internal/enforcement/service.go:447`
-- Symbols: `(*Goal).IsApprover`, `(*Goal).CanAccess`, `(*Service).CreateWithInput`, `(*Service).Decide`
-- Details:
-  `Goal.IsApprover` returns `true` unconditionally whenever `g.ApproverID == "COMMUNITY" ||
-  g.ApprovalType == "community"`. Any authenticated user (other than the owner) can view private
-  proofs (`GET /goals/{id}`, `GET /goals/{id}/proofs`, `GET /goals/{id}/submissions`) and
-  approve/reject/unlock any community goal (`POST /goals/{id}/proofs/{proofId}/approval`).
-  Also violates `AGENTS.md` ("single approver per goal", no community/quorum mode).
+---
 
-[CRIT-03] Approver impersonation via mutable/recycled @handle and "partner-" ID matching
-- Files: `internal/goals/models.go:80-100`, `internal/goals/service.go:146-180,200-234`,
-         `internal/auth/service.go:230-284`, `internal/auth/repository.go:323-414`
-- Symbols: `(*Goal).IsApprover`, `(*Service).CreateWithInput`, `(*Service).UpdateUserHandle`,
-           `(*DynamoRepository).UpdateUserHandle`
-- Details:
-  1. `IsApprover` grants approval authority if `callerHandle` matches `g.ApproverID` (with
-     `"partner-"` stripped) or `g.ApproverEmail`.
-  2. `UpdateUserHandle` (`auth/repository.go:383-397`) deletes the old `HANDLE#<old>` reservation
-     when a user changes handles. A third party can claim the freed handle via `PATCH /users/handle`,
-     re-login to mint a JWT with that handle claim, and approve/reject all goals referencing it.
-  3. `UpdateUserHandle` (`auth/repository.go:335-344,405-410`) mutates `r.memHandles` / `r.memUsers`
-     before `TransactWriteItems` and does not roll back on `ConditionalCheckFailed`.
+## B. Executive Summary
 
-[CRIT-04] Server crash (panic: send on closed channel) in WebSocket Hub
-- Files: `internal/realtime/hub.go:212-253,772-800,1359-1394`
-- Symbols: `(*Hub).Unregister`, `(*Hub).HandleClientMessage` (`"chat.message"`, `"community.message"`)
-- Details:
-  `Unregister` closes `c.send` under `h.mu.Lock()`. Both `"chat.message"` (lines 772-800) and
-  `"community.message"` (lines 1359-1394) collect target `*Client` pointers under `h.mu.RLock()`,
-  call `h.mu.RUnlock()`, and then send on `target.send <- data` outside the lock without `recover()`.
-  Concurrent disconnect between `RUnlock()` and send panics the server process.
+- **Overall Health Assessment:** ONUSLY has a solid core authorization model in several backend service layers (atomic DynamoDB transactions on proof submission/approval, owner vs. approver isolation in goal/proof/approval services, strict CSP/XSS guards on `/uploads/` headers), and its public landing page renders quickly on desktop (`LCP 1.82s`, `CLS 0.0016`) with HTTP->HTTPS redirect and Let's Encrypt TLS valid through `2027-02-23`. However, **live production runtime testing and deep cross-layer inspection uncovered critical production-breaking defects across Nginx routing, real-time WebSockets, upload authorization, Windows native-pipe installation, and EC2 operations.**
+- **Finding Counts (20 Total):**
+  - **CRITICAL:** 3 (`API-001`, `PROOF-001`, `SECURITY-001`)
+  - **HIGH:** 8 (`WEB-001`, `WEB-002`, `AWS-001`, `AWS-002`, `AWS-003`, `SECURITY-002`, `WIN-001`, `WIN-002`)
+  - **MEDIUM:** 6 (`AWS-004`, `SECURITY-003`, `WEB-003`, `GOAL-001`, `API-002`, `WIN-003`)
+  - **LOW:** 1 (`PERF-001`)
+  - **INFORMATIONAL:** 2 (`INFO-001`, `INFO-002`)
+- **Major Broken Production Journeys Observed:**
+  1. **Real-Time WebSocket Delivery Completely Broken in Production (`API-001`):** Every authenticated browser session in EC2 `journalctl` disconnects after 5–6 seconds with `websocket: close 4403: Authentication timed out` because `ServeWSWithValidator` authenticates via the `token` HttpOnly cookie and skips sending `{"type":"auth.success"}`.
+  2. **All PNG/JPG/JPEG/GIF Proof Photos Return 404 in Production (`PROOF-001`):** Nginx's nested static cache regex inside `location /` (`location ~* \.(?:css|js|woff2?|svg|png|jpg|jpeg|gif|ico)$`) intercepts `/uploads/proofs/*.png|jpg|jpeg|gif` before the Go backend proxy rule, returning `404 Not Found`.
+  3. **SPA Deep Links / Page Refresh Broken (`WEB-001`):** Refreshing `/goals`, `/goals/:id`, `/approvals`, `/friends`, `/communities`, `/wellbeing`, or `/auth` hits the Go API regex in Nginx instead of `index.html`, returning raw `missing authorization header` (`401`) or `404 page not found`.
+  4. **Landing Page Mobile Layout Broken (`WEB-002`):** Unwrapped header navigation (`film.css`) forces `390px` and `320px` viewports to widen to `523px`, creating a black margin bar on the right and overlapping brand/nav items.
+- **Major Windows Issues (`WIN-001`, `WIN-002`, `WIN-003`):** `OnuslySetup.exe` dials the named pipe without `SECURITY_IDENTIFICATION` SQOS flags (`0` instead of `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`), causing the agent's strict `impLevel != 1` check to reject every installer `ping`/`pair-request`/`pair-poll` call (`got 2`), AND `OnuslySetup.exe` installs as an unprivileged `HKCU` VBS runner rather than the hardened `LocalService` Windows service model assumed by `install.ps1` and `ONUSLY_Shield_Toggle.exe`.
+- **Major AWS Issues (`AWS-001`–`AWS-004`):** Root 8 GB EBS volume (`vol-087b33f32d9b0d6ca`, unencrypted) is at **91% capacity (`810 MB` free)**; SQS queues `proof-events` and `approval-events` do not exist (`NonExistentQueue`), forcing volatile in-memory queuing; proof uploads live solely on local EC2 EBS; zero CloudWatch alarms and disabled detailed monitoring.
+- **Major Security Concerns (`SECURITY-001`–`SECURITY-003`):** `GET /uploads/proofs/*` only verifies that the caller is *any* authenticated user (no owner/approver authorization check); `RequireUserToken`/`RequireDeviceToken` middleware are defined but never attached to routes; `Revoke All Sessions` skips `device` tokens and fails open on DB error.
+- **Blocked Tests:** Authenticated end-to-end UI workflows (Account A <-> Account B goal/proof/approval/chat execution) due to absence of pre-provisioned QA OAuth tokens, and live Windows runtime execution due to absence of a Windows VM.
+- **Honest Readiness Conclusion:** **NOT PRODUCTION READY.** Live production traffic currently suffers guaranteed WebSocket auth timeouts for every web user, HTTP 404 failures for standard PNG/JPG proof images, broken page refreshes on core SPA routes, critical upload authorization gaps, and near-full EC2 root storage (91%).
 
-[CRIT-05] Backend /enforcement/desktop/* routes operate on the EC2 server host instead of the user's PC
-- Files: `internal/enforcement/handler.go:294-526`, `cmd/server/main.go:383-387`,
-         `frontend/src/lib/api.js:474-499`, `frontend/src/components/DeviceCoverageSection.jsx:133,185,214,246`
-- Symbols: `GetDesktopStatus`, `ToggleDesktopDNS`, `SyncDesktop`, `AutoPairDesktop`, `ReconnectDesktop`
-- Details:
-  These HTTP handlers query local named pipes / Unix sockets (`queryLocalAgent`), spawn `netsh`
-  (`handler.go:319`), read `C:\ProgramData\Onusly\config\dns_backup.json` (`handler.go:325`), and
-  start `onusly-agent` on the API server host itself. When deployed on Linux EC2, every dashboard
-  poll/action hits the EC2 host instead of the user's workstation.
+---
 
-[CRIT-06] POST /goals and PATCH /goals/{id} silently drop `applicationTargets`
-- Files: `internal/goals/handler.go:23-30,196-203`, `frontend/src/lib/api.js:153,167`,
-         `android/app/src/main/java/com/onusly/app/data/model/GoalParser.kt:126-135,159-167`
-- Symbols: `createGoalRequest`, `(*Handler).Create`, `(*Handler).Update`
-- Details:
-  Neither `createGoalRequest` nor the anonymous `Update` request struct declares an
-  `ApplicationTargets` (`json:"applicationTargets"`) field. Explicitly typed `"desktop_app"` /
-  `"android_package"` targets sent by Frontend and Android are silently dropped during JSON decode.
+## C. System Architecture Discovered
 
-[CRIT-07] Windows & Linux desktop agents send unrecognized heartbeat issue codes (HTTP 400)
-- Files: `desktop/agent/cmd/runner_linux.go:294,299`, `desktop/agent/cmd/runner_windows.go:331,336`,
-         `internal/enforcement/models.go:71-77`
-- Symbols: `validIssues`, heartbeat ticker loops in `runner_linux.go` / `runner_windows.go`
-- Details:
-  Agents report `"dns_resolver_offline"` and `"app_enforcement_failed"`, neither of which is in
-  backend `validIssues` (`accessibility_disabled`, `policy_missing`, `incognito_allowed`,
-  `dns_drift`, `service_degraded`), causing `POST /enforcement/heartbeat` to fail with HTTP 400.
+### Actual Live Production Topology (`onusly.duckdns.org`)
 
-[CRIT-08] GUI `onusly-installer` never completes pairing and mismatches named pipe targets
-- Files: `desktop/installer/cmd/installer/main.go:28-29,200-239,267-272,349-374`,
-         `desktop/agent/internal/ipc/server_windows.go:20`, `desktop/agent/cmd/paths_windows.go:32-34`
-- Symbols: `main`, `DefaultWindowsNamedPipe`
-- Details:
-  1. `installer/main.go:349-374` calls `queryIPC("pair-request")`, opens the dashboard URL, and exits
-     without ever calling `pair-poll`; the agent never fetches or stores its device JWT.
-  2. `installer/main.go` passes `-socket \\.\pipe\OnuslyDesktopPipe` whereas `server_windows.go:20`
-     defaults to `\\.\pipe\OnuslyAgentIPC` (used by `install.ps1` / `service_windows.go`).
-  3. `installer/main.go:201-204` registers HKCU native messaging only for Chrome/Edge (omitting
-     Brave/Chromium/Firefox) and installs a HKCU Run VBScript instead of the Windows Service.
+```text
+Browser / Android Client / Chrome Extension (+ Native Host -> Windows/Linux Agent)
+        |
+        | HTTPS :443 / WSS :443 (NO Cloudflare in front; DNS points directly to EC2)
+        v
++-------------------------------------------------------------------+
+| EC2 t3.micro (i-0dfb8ec15543e8457, 13.49.49.2, eu-north-1b)       |
+| Ubuntu/Debian? No -> Amazon Linux 2023, 913 MiB RAM + 1 GiB Swap  |
+| 8.0 GiB gp3 EBS (Encrypted: false, 91% used / 810 MiB free)       |
+|                                                                   |
+|  Nginx 1.30.4 (:80 -> 301 HTTPS, :443 Let's Encrypt TLS)          |
+|   |- location /         -> /var/www/onusly/frontend/dist (Vite)   |
+|   |   `- nested ~* \.(css|js|...|png|jpg|jpeg|gif)$ [INTERCEPTS /uploads/*.png!]
+|   |- location ~ ^/(goals|auth|...|approvals|uploads|downloads)    |
+|   |   `- proxy_pass http://127.0.0.1:8080  [COLLIDES WITH SPA ROUTES!]
+|   `- location /ws       -> proxy_pass http://127.0.0.1:8080       |
+|                                                                   |
+|  systemd: onusly.service (User=ec2-user, /opt/onusly/server)      |
+|   |- HTTP/WS server on 127.0.0.1:8080 (Read/WriteTimeout: 30s)    |
+|   |- Local file storage: /opt/onusly/uploads/proofs/              |
+|   |- Local static downloads: /opt/onusly/frontend/public/downloads|
+|   `- Event Queue: IN-MEMORY ADAPTER (SQS URLs unset)              |
+|                                                                   |
+|  systemd timer: onusly-keepwarm.timer (every 5 min)               |
++-------------------------------------------------------------------+
+        | IAM Role: onusly-ec2-backend-role (IMDSv2)
+        v
++-------------------------------------------------------------------+
+| Amazon DynamoDB (Table: "Onusly", eu-north-1)                     |
+| PAY_PER_REQUEST | 1,257 items | 2.59 MB | GSI1 + GSI2 ACTIVE      |
+| PITR: ENABLED (35 days) | SSE: AWS-owned default (null)           |
++-------------------------------------------------------------------+
+```
 
-[CRIT-09] Android in-chat Approve/Reject passes chat `msg.id` as `proofId`
-- Files: `android/app/src/main/java/com/onusly/app/ui/ChatFragment.kt:567-625`,
-         `internal/approval/service.go:146-157`, `internal/chat/handler.go:333`
-- Symbols: `handleApproveProof`, `handleRejectProof`, `(*Service).Decide`
-- Details:
-  `ChatFragment.kt` uses `msg.id` (e.g. `msg-<uuid>` or `msg-<unixNano>`) directly as `proofId`
-  in `decideApproval(...)` instead of fetching the goal's actual `proofId`. `POST
-  /goals/{id}/proofs/{proofId}/approval` rejects it with 404/400 because no `PROOF#<goalId>#<proofId>`
-  item exists for that message ID.
+### Architecture & Documentation Discrepancies Observed
+1. **Deployment Path Drift (Historical Issue Resolved):** Prior audits noted `/home/ec2-user/ONUSLY/server` and missing `/etc/ssl/onusly/`. Current live deployment correctly runs `/opt/onusly/server` as `ec2-user` with `WorkingDirectory=/opt/onusly`, attached IAM instance profile `onusly-ec2-backend-role`, and valid Let's Encrypt TLS at `/etc/letsencrypt/live/onusly.duckdns.org/`. (`/home/ec2-user/ONUSLY` no longer exists.) However, developer workspace root `/home/devansh/onusly` still contains untracked historical `onusly-server` and `server.log`.
+2. **Cloudflare / Custom Domain vs DuckDNS:** `deploy/nginx/onusly.conf` comments and `README.md` describe Cloudflare Full (strict) in front of `api.onusly.com` / `onusly.app` / `onusly.com`. In reality, `onusly.duckdns.org` resolves directly to `13.49.49.2` with Let's Encrypt TLS (`CN=onusly.duckdns.org`), ports `80`/`443` open to `0.0.0.0/0` in SG `launch-wizard-1`, and the `api.onusly.com` vhost is rewritten to `server_name unused-api.onusly.invalid;`.
+3. **SQS vs In-Memory Queue:** `README.md` Section 3.6/4 states AWS SQS is used in cloud production. In reality, `PROOF_EVENTS_QUEUE_URL` and `APPROVAL_EVENTS_QUEUE_URL` are unset and neither queue exists in `eu-north-1`.
+4. **Metrics Format:** `README.md` Section 3.8 states "Prometheus Metrics (`/metrics`)". Live `GET http://127.0.0.1:8080/metrics` returns JSON (`MetricsSnapshot`), not Prometheus text exposition format.
+5. **macOS Claim vs Reality:** Live landing page (`LandingEnforcers.jsx:75`) advertises `"Windows & Mac / Linux"`, whereas only Linux and Windows desktop agents exist (`desktop/`).
+6. **Goal Rejection Status Drift:** `AGENTS.md` and `README.md` state rejection returns goals to `active`, while backend (`approval/service.go:179`) transitions rejected goals to `"rejected"`. Frontend `Goals.jsx` flips WS `goal.rejected` to `"active"`, `GoalDetail.jsx` flips it to `"rejected"`, and `Dashboard.jsx` filters `"rejected"` out of active lockouts.
+7. **Untargeted `community` Approval:** `AGENTS.md` forbids community/quorum approval mode and `Goal.IsApprover` denies `"COMMUNITY"`, yet `goals/service.go:186,530` still lets callers create/update untargeted goals with `approvalType: "community"` (`ApproverID = "COMMUNITY"`), creating orphaned unapprovable goals.
 
-================================================================================
-HIGH ISSUES
-================================================================================
+---
 
-[HIGH-01] Stored XSS on API origin and unauthenticated public exposure of `/uploads`
-- Files: `cmd/server/main.go:294-308,644-750`, `internal/middleware/security_headers.go:18-20`,
-         `internal/proof/service.go:57-111,215-250`
-- Symbols: `main` (`/uploads/`, `POST /uploads`), `SecurityHeaders`, `(*Service).SubmitWithFiles`
-- Details:
-  1. `POST /uploads` accepts arbitrary file extensions (including `.html`, `.htm`, `.svg`, `.js`)
-     with no extension/MIME allowlist or content verification. `GET /uploads/` serves them on the
-     API origin with CSP `default-src 'self'`, allowing uploaded HTML/JS to execute on the API
-     origin with credentials (`HttpOnly` cookie).
-  2. `GET /uploads/` has no JWT auth or ownership/approver check and sets `Access-Control-Allow-Origin: *`.
-  3. `SubmitWithFiles` (`proof/service.go:237-250`) skips MIME/size validation on `files[].dataUrl`
-     before `saveBase64ToFile`.
+## D. Issue Summary Table
 
-[HIGH-02] Unhandled `ReferenceError: API_BASE_URL is not defined` in `ConnectExtension.jsx`
-- Files: `frontend/src/components/ConnectExtension.jsx:17,275-293`
-- Symbols: `sendViaBridge`, `handleConnect`
-- Details:
-  Line 17 imports `{ getBlocklist, resolveApiOrigin }` without `API_BASE_URL`, while line 280 passes
-  `baseUrl: API_BASE_URL` in `window.postMessage(...)`. Calling `sendViaBridge()` immediately throws
-  `ReferenceError` and fails extension bridge pairing (`Promise.all` rejects). Also reported by ESLint.
+| ID | Severity | Confidence | Component | Issue | Phase 2 Status |
+|---|---|---|---|---|---|
+| API-001 | CRITICAL | CONFIRMED | Realtime / WebSocket | Cookie-authenticated WS handshake omits `auth.success`, causing 6s client timeout (`4403`) | `FIXED AND VERIFIED` (live EC2 binary deploy pending) |
+| PROOF-001 | CRITICAL | CONFIRMED | Nginx / Proof Uploads | Nginx nested static regex intercepts `/uploads/proofs/*.png\|jpg\|jpeg\|gif` and returns `404` | `FIXED — RUNTIME VERIFICATION PENDING` |
+| SECURITY-001 | CRITICAL | CONFIRMED | Backend `/uploads/` Authz | `GET /uploads/` checks valid JWT only; no owner/approver authz check; stored unencrypted locally | `FIXED AND VERIFIED` (at-rest EBS encryption tracked under `AWS-001`) |
+| WEB-001 | HIGH | CONFIRMED | Nginx / Frontend Routing | Nginx regex `^/(goals\|auth\|approvals\|friends\|communities\|wellbeing\|...)` intercepts SPA routes | `FIXED — RUNTIME VERIFICATION PENDING` |
+| WEB-002 | HIGH | CONFIRMED | Landing Page CSS / Mobile | Unwrapped `.film-header nav` widens `390px`/`320px` viewports to `523px` with black right strip | `FIXED AND VERIFIED` (Chrome local preview verified at 390/320px) |
+| AWS-001 | HIGH | CONFIRMED | AWS EC2 / EBS | 8 GB unencrypted root EBS is `91%` full (`810 MB` free); Go build cache & 5 old binaries eat >1.3 GB | `PARTIALLY FIXED` (deploy script prunes caches/backups; live EBS expand pending) |
+| AWS-002 | HIGH | CONFIRMED | AWS SQS / Notifications | `proof-events` & `approval-events` SQS queues do not exist; backend uses volatile in-memory queue | `PARTIALLY FIXED` (`deploy/aws/setup_queues_and_alarms.sh` added; live AWS run pending) |
+| AWS-003 | HIGH | CONFIRMED | Backend Repositories / Goals | `GET /goals` returns `200 []` on DB error; `enforcement`/`proof`/`approval` swallow errors; `FindByID` Scan | `FIXED AND VERIFIED` |
+| SECURITY-002 | HIGH | CONFIRMED | Backend Auth / Middleware | `RequireUserToken`/`RequireDeviceToken` unused; `Revoke All` skips `device` JWTs & fails open; weak device revoke check | `FIXED AND VERIFIED` |
+| WIN-001 | HIGH | CONFIRMED | Windows Installer / IPC | `OnuslySetup.exe` `dialNamedPipe` passes `dwFlagsAndAttributes=0`, rejected by `impLevel != 1` | `FIXED — RUNTIME VERIFICATION PENDING` (Windows `go vet` verified; no Win VM) |
+| WIN-002 | HIGH | CONFIRMED | Windows Installer / Service | `OnuslySetup.exe` runs unprivileged `HKCU` VBS runner instead of `LocalService` SCM; path mismatches | `PARTIALLY FIXED — RUNTIME VERIFICATION PENDING` (uninstaller + switcher paths fixed; full SCM/signing pending) |
+| AWS-004 | MEDIUM | CONFIRMED | AWS Monitoring / Logging | Zero CloudWatch alarms; detailed monitoring off; journal logs user emails; `/metrics` format drift | `PARTIALLY FIXED` (PII emails redacted in `hub.go`; CW alarm script added) |
+| SECURITY-003 | MEDIUM | CONFIRMED | Web/Android Auth & Headers | No `HSTS` header; 7d JWT in `localStorage`; `isAuthenticated` catch-returns true; Android plaintext fallback; stale Client ID | `PARTIALLY FIXED` (HSTS, `isAuthenticated`, stale Client ID & Android release fail-closed fixed; legacy bridge storage retained) |
+| WEB-003 | MEDIUM | CONFIRMED | Landing Copy & Assets | Claims macOS support; omits Android `.apk` link; missing `/privacy` & `/terms`; `favicon.ico` 404 | `FIXED AND VERIFIED` |
+| GOAL-001 | MEDIUM | CONFIRMED | Goals / Approval Workflow | `rejected` vs `active` contract mismatch across docs/frontend/backend; orphaned untargeted `community` goals | `FIXED AND VERIFIED` |
+| API-002 | MEDIUM | CONFIRMED | Backend HTTP / Downloads | 13.1 MB `.exe` & 50 MB uploads traverse Go `:8080` with `30s` `WriteTimeout` & Nginx disk buffering | `FIXED — RUNTIME VERIFICATION PENDING` |
+| WIN-003 | MEDIUM | CONFIRMED | Windows Native Host / PS1 | `dial_windows.go` tries wrong default pipe `OnuslyDesktopPipe` (`900ms` waste); `install.ps1` points to `api.onusly.com` | `FIXED — RUNTIME VERIFICATION PENDING` (`GOOS=windows` test compiled) |
+| PERF-001 | LOW | CONFIRMED | Frontend Bundle & Latency | Single `685 KB` JS chunk; no CDN (`650–943ms` TTFB from Asia); Vite mixed static+dynamic warning | `PARTIALLY FIXED` (`React.lazy` splits main bundle to `298.54 KB`; CloudFront CDN infra pending) |
+| INFO-001 | INFO | CONFIRMED | Repo Hygiene & EC2 Artifacts | Untracked binaries (`onusly-server`), `server.log`, `.bak` files in `/etc/nginx/conf.d/` and `/opt/onusly/` | `PARTIALLY FIXED` (`favicon.ico` added; EC2 prune script updated; local untracked artifacts untouched) |
+| INFO-002 | INFO | CONFIRMED | Chrome `1440/1280` Hero Img | Hero/mockup `<img>` elements extend `17-37px` past right viewport edge & film images have `alt=""` | `NOT A BUG — INVESTIGATED` (Intentional desktop edge bleed; `scrollWidth <= innerWidth`) |
 
-[HIGH-03] Frontend ESLint suite currently fails with 10 errors
-- Files:
-  - `frontend/src/components/ConnectExtension.jsx:280:22` (`no-undef`: `API_BASE_URL`), `362:19` (`no-empty`)
-  - `frontend/src/components/CreateGoalModal.jsx:26:5` (`react-hooks/set-state-in-effect`)
-  - `frontend/src/lib/auth.js:92:11` (`no-unused-vars`: `envBase`)
-  - `frontend/src/pages/Communities.jsx:313:9` (`react-hooks/immutability`: `setShowAddFriendModal`
-    accessed at line 313 before `useState` declaration at line 1300)
-  - `frontend/src/pages/Dashboard.jsx:15:3,16:3` (`no-unused-vars`: `Clock`, `Sparkles`)
-  - `frontend/src/pages/DigitalWellbeing.jsx:112:5` (`react-hooks/set-state-in-effect`),
-    `229:21` & `239:21` (`react-hooks/purity`: `Date.now()`)
+---
 
-[HIGH-04] `revokeAllSessions()` fails silently due to missing Bearer header and `SameSite=Lax`
-- Files: `frontend/src/lib/api.js:122-132`, `internal/auth/handler.go:56-64,93-101`
-- Symbols: `revokeAllSessions`, `GoogleLogin`, `GoogleCallback`
-- Details:
-  `revokeAllSessions()` sends `POST /auth/revoke-all` with `credentials: "include"` and no
-  `Authorization: Bearer <token>` header, swallowing errors in `catch {}`. When frontend and API
-  are on different sites (`onusly.app` vs `api.onusly.com`), `SameSite=Lax` cookies are withheld on
-  cross-site `POST`, causing `/auth/revoke-all` to fail with `401` without revoking sessions.
+## E. Detailed Findings
 
-[HIGH-05] Wrong/arbitrary proof selected when approving/rejecting in `GoalDetail` and `Communities`
-- Files: `frontend/src/pages/GoalDetail.jsx:968`, `frontend/src/pages/Communities.jsx:945-975`,
-         `internal/proof/models.go:3-16`, `internal/proof/repository.go:274-321`
-- Symbols: `Proof`, `(*Repository).ListByGoal`, `handleApproveChatProof`
-- Details:
-  Frontend selects `proofs.find((p) => p.status === "pending" || p.status === "proof_submitted") || proofs[0]?.id`.
-  `Proof` has no `status` field, and `ListByGoal` returns proofs ordered by UUID v4 sort key rather
-  than timestamp, so `proofs[0]` can pick an older rejected proof instead of the latest submission.
-  In `Communities.jsx:947-975`, `.catch()` swallows approval API failures and still marks the card
-  approved in UI/localStorage and broadcasts `chat.message.approved`.
+### [API-001] — WebSocket Cookie Authentication Omits `auth.success`, Causing Immediate 6s Disconnect (`4403`) for All Web Users
 
-[HIGH-06] OAuth Login CSRF and JWT leakage in redirect URL (`GET /auth/google/callback`)
-- Files: `internal/auth/handler.go:69-105`, `internal/auth/service.go:41-69`,
-         `frontend/src/pages/Auth.jsx:33-38`
-- Symbols: `(*Handler).GoogleCallback`, `(*Service).HandleCallback`
-- Details:
-  1. `GoogleCallback` does not generate or verify an OAuth `state` parameter (Login CSRF).
-  2. Redirects to `frontendURL + "/?token=" + token`, exposing the 7-day JWT in browser history,
-     access logs, and `Referer` headers.
+Severity: CRITICAL  
+Confidence: CONFIRMED  
+Status: FIXED AND VERIFIED (live EC2 binary deployment pending)  
+Component: Realtime WebSocket Gateway (`internal/realtime/handler.go`) & WebSocket Client (`frontend/src/lib/websocket.js`)  
+Environment: Production (`wss://onusly.duckdns.org/ws`) and local dev  
+Affected versions or commits: `db9cb11` (`main`)
 
-[HIGH-07] `RevokeAllSessions` bypass via DynamoDB fallback/cache overwrite & device tokens
-- Files: `internal/auth/service.go:167-199`, `internal/auth/repository.go:103-112,254-308,418-482`,
-         `internal/middleware/auth.go:132-138,153-157`, `internal/realtime/handler.go:134-141,200-209`
-- Symbols: `(*Service).GoogleLogin`, `(*DynamoRepository).GetUserByEmail`,
-           `(*DynamoRepository).IncrementTokenVersion`, `(*DynamoRepository).GetTokenVersion`,
-           `Auth`, `ValidateToken`, `checkUserTokenNotRevoked`
-- Details:
-  1. Transient DynamoDB error in `GetUserByEmail` returns `nil, nil`; `GoogleLogin` treats user as
-     new and resets `memUsers[user.ID].TokenVersion = 1`.
-  2. Cold-cache `IncrementTokenVersion` writes `User{ID: userID, TokenVersion: 2}` into `memUsers`
-     and `GetTokenVersion` reads only from `memUsers` without querying DynamoDB.
-  3. Non-`"user"` token types skip `TokenVersion` checks in `middleware.Auth` and
-     `checkUserTokenNotRevoked`; `ValidateToken` does not restrict `token_type` to `{"user", "device"}`.
-  4. `middleware.Auth` (`auth.go:155-156`) accepts spoofable `X-Device-ID` header if `device_id` claim
-     is absent on a `"device"` token.
+**1. What is the issue?**  
+When an authenticated web user opens a WebSocket connection, the browser sends the `token` HttpOnly cookie (set at login). The Go WebSocket handler sees `preAuthUser != nil`, registers the client, and exits `ServeWSWithValidator` **without emitting `{"type": "auth.success"}`**. Meanwhile, the frontend `WebSocketManager` waits `6000ms` for `{"type": "auth.success"}` before closing the socket with code `4403` ("Authentication timed out") and permanently halting reconnection (`isManuallyClosed = true`).
 
-[HIGH-08] DynamoDB write errors swallowed & non-atomic double-writes corrupt goal/proof/approval state
-- Files: `internal/proof/repository.go:175-181`, `internal/proof/service.go:283-291`,
-         `internal/approval/repository.go:165-171`, `internal/approval/service.go:184-192`,
-         `internal/goals/repository.go:104-113,281-294,637-682,716-759,796-849`
-- Symbols: `(*Repository).CreateWithGoalTransition`, `(*Repository).CreateDecision`, `(*Service).Decide`,
-           `(*Repository).List`, `(*Repository).Update`, `(*Repository).UpdateStatus`
-- Details:
-  1. `proof.Repository.CreateWithGoalTransition` and `approval.Repository.CreateDecision` log and
-     return `nil` on non-conditional DynamoDB errors (e.g., timeouts/throttling), causing `Decide`
-     to emit `goal.unlocked` and return success even when the approval was never persisted.
-  2. Both services issue a second unconditional `goalService.UpdateStatus` after the transaction.
-  3. `goals.Repository.List` merges `local_goals_fallback.json` into DynamoDB results, potentially
-     resurrecting deleted goals; `goals.Repository.Update` does not clear `GSI2PK`/`GSI2SK` when
-     changing `ApprovalType` from `"friend"` to `"none"`.
+**2. Expected behavior**  
+Once the server authenticates the WebSocket connection (either via pre-upgrade cookie/Bearer header OR first-message `{type:"auth"}` frame), it sends `{"type":"auth.success","payload":{"userId":...,"handle":...}}` (or handles an explicit client `{type:"auth"}` probe cleanly), allowing `WebSocketManager` to transition to `ConnectionState.AUTHENTICATED` and keep the socket open for real-time unlocks, chat, and notifications.
 
-[HIGH-09] Unauthorized community chat access, global WebSocket broadcast leak, and `OwnerID` spoofing
-- Files: `internal/chat/handler.go:113-125,336-412`, `internal/chat/repository.go:419-466,528-537`
-- Symbols: `(*Handler).GetHistory`, `(*Handler).SendMessage`, `(*Repository).ClearConversation`,
-           `(*Repository).DeleteMessage`
-- Details:
-  1. `GET /chat/messages?peer=comm-...` and `POST /chat/messages` do not verify community membership.
-  2. `POST /chat/messages` (`handler.go:384-393`) calls BOTH `SendToCommunity` and `bc.Broadcast(evt)`,
-     broadcasting every community message to ALL connected WebSocket users globally.
-  3. `SendMessage` trusts non-empty `req.OwnerID` from the request body, and `DeleteMessage` allows
-     `foundItem.OwnerID == callerID` to delete the message.
-  4. `ClearConversation` deletes both `user#peer` and `peer#user` from `r.memMessages`, wiping the
-     peer's in-memory history.
+**3. Actual behavior**  
+Every browser session connects to `/ws`, gets logged as `[WebSocket] Connected: ...` on the server, never receives `auth.success`, hits client `AUTH_TIMEOUT_MS` (`6000ms`), and closes cleanly with WebSocket close frame `4403: Authentication timed out`. No real-time unlocks, chat messages, or limit alerts arrive over WebSocket.
 
-[HIGH-10] WebSocket community hijacking and arbitrary `chat.message` ID overwrite
-- Files: `internal/realtime/hub.go:738-741,978-1071`, `internal/chat/repository.go:135`
-- Symbols: `(*Hub).HandleClientMessage` (`"community.register"`, `"chat.message"`)
-- Details:
-  1. `"community.register"` lets any authenticated user claim `CreatorID` of an unregistered
-     `community.id` and unconditionally overwrites `h.commByCode[cleanCode]`.
-  2. `"chat.message"` trusts client-supplied `req.ID`, allowing overwriting existing `memAllMessages[msg.ID]`.
+**4. Why is it happening?**  
+Confirmed root cause:  
+- `internal/auth/handler.go:93` (`GoogleLogin`) and `154` (`GoogleCallback`) set cookie `token=<jwt>; HttpOnly; Secure; SameSite=Lax; Path=/`.  
+- Because the frontend and backend share origin `https://onusly.duckdns.org`, the browser attaches `Cookie: token=...` to the `wss://onusly.duckdns.org/ws` upgrade request.  
+- `internal/realtime/handler.go:247-284` populates `preAuthUser` from the cookie, upgrades the socket, calls `hub.Register(client)`, starts `WritePump`/`ReadPump`, and returns immediately **without sending `auth.success`** (whereas only `handleHandshake` at line 368 sends `auth.success`).  
+- `frontend/src/lib/websocket.js:121-206` sends `{type:"auth", token}` in `ws.onopen`, stays in `AUTHENTICATING`, ignores all non-`auth.success` messages, and after `6000ms` (line 111) calls `_handleAuthFailure(ws, generation, "Authentication timed out")`, sending close code `4403` and setting `this.isManuallyClosed = true` (line 263).  
+- `Client.ReadPump()` on the server reads `{type:"auth"}` as a regular message, silently drops it in `HandleClientMessage`, and logs the `4403` close 5–6 seconds later.
 
-[HIGH-11] Hardcoded `localhost` / `127.0.0.1` CORS & WebSocket origins allowed in production
-- Files: `cmd/server/main.go:150-158,178`, `internal/realtime/handler.go:42-55`,
-         `internal/config/config.go:143-147`
-- Symbols: `isAllowedOrigin`, `cors`, `isAllowedWebSocketOrigin`
-- Details:
-  Despite `config.Validate()` rejecting localhost in `ALLOWED_ORIGINS` in production, both
-  `isAllowedOrigin` and `isAllowedWebSocketOrigin` unconditionally allow `http://localhost:*` and
-  `http://127.0.0.1:*` (ports 3000, 5173, 8080, plus 8081 for WS) with `Access-Control-Allow-Credentials: true`
-  and omit `Vary: Origin`.
+**5. Evidence**  
+Live production `journalctl -u onusly` on `i-0dfb8ec15543e8457` (2026-11-26 UTC; PII redacted):
+```text
+Nov 26 10:35:55 ... [WebSocket] Connected: userID=<REDACTED-1> email=<REDACTED> handle=<REDACTED> (user tabs: 1)
+Nov 26 10:35:57 ... [WebSocket] Connected: userID=<REDACTED-1> email=<REDACTED> handle=<REDACTED> (user tabs: 2)
+Nov 26 10:36:01 ... [WebSocket] Read error for user <REDACTED-1>: websocket: close 4403: Authentication timed out
+Nov 26 10:36:04 ... [WebSocket] Read error for user <REDACTED-1>: websocket: close 4403: Authentication timed out
+...
+Nov 26 19:28:29 ... [WebSocket] Connected: userID=<REDACTED-2> email=<REDACTED> handle=<REDACTED> (user tabs: 1)
+Nov 26 19:28:34 ... [WebSocket] Read error for user <REDACTED-2>: websocket: close 4403: Authentication timed out
+Nov 26 19:46:52 ... [WebSocket] Connected: userID=<REDACTED-1> email=<REDACTED> handle=<REDACTED> (user tabs: 1)
+Nov 26 19:46:57 ... [WebSocket] Read error for user <REDACTED-1>: websocket: close 4403: Authentication timed out
+```
+Source references: `internal/realtime/handler.go:247-284,368-375`, `internal/realtime/hub.go:183-213`, `frontend/src/lib/websocket.js:11,111-176,259-275`, `internal/auth/handler.go:93`.
 
-[HIGH-12] Pairing endpoint issues `"user"` JWT when `DeviceID` is empty & lacks input validation
-- Files: `internal/enforcement/handler.go:213-234`, `internal/enforcement/service.go:520-602`,
-         `internal/auth/service.go:348-366`, `internal/enforcement/repository.go:235-302,418-421`
-- Symbols: `(*Handler).RequestPairing`, `(*Service).InitiatePairing`, `(*Service).GenerateDeviceToken`,
-           `(*DynamoRepository).RevokeDevice`, `(*DynamoRepository).ConfirmPairingSession`
-- Details:
-  1. If `session.DeviceID == ""`, `GenerateDeviceToken` downgrades `tokenType` to `"user"`, issuing
-     a 30-day user-type JWT instead of a device-scoped JWT.
-  2. `ConfirmPairingSession` and `RevokeDevice` swallow non-conditional DynamoDB errors and return `nil`.
+**6. Steps to reproduce**  
+1. Sign into `https://onusly.duckdns.org` with Google (`POST /auth/google` sets the `token` cookie).  
+2. Open Dashboard (`/dashboard`) or Goal Detail (`/goals/:id`) and open Browser DevTools -> Console / Network (WS).  
+3. Observe `wss://onusly.duckdns.org/ws` connect, receive no `auth.success`, emit `[WebSocket] Authentication timed out on client` after 6 seconds, and close with code `4403`.
 
-[HIGH-13] Idempotency middleware key collisions across endpoints & CORS header cache poisoning
-- Files: `internal/middleware/idempotency.go:190-195,224-226,262-265`
-- Symbols: `Idempotency`
-- Details:
-  1. Authenticated idempotency scope (`"user:" + userID`) omits HTTP method and path; reusing an
-     `Idempotency-Key` across two endpoints (e.g., empty-body POSTs) replays the wrong response.
-  2. Replays cached `Access-Control-Allow-Origin` headers across different request origins.
+**7. User and system impact**  
+100% of real-time web updates fail in production: instant unlock banners upon partner approval, real-time goal rejection updates, live chat message push, live friend request updates, and `wellbeing.limit_reached` notifications never arrive without manual page refreshes.
 
-[HIGH-14] Race condition, lost updates & global lock contention in Digital Wellbeing service/repo
-- Files: `internal/wellbeing/repository.go:55-102,455-521`, `internal/wellbeing/service.go:229-272,690-700`
-- Symbols: `(*DynamoRepository).UpsertDailyDevice`, `(*DynamoRepository).GetRulesRecord`,
-           `(*Service).Ingest`, `(*Service).getRulesInternal`
-- Details:
-  1. `UpsertDailyDevice` reads DynamoDB and calls `persistItem` outside `r.mu.Lock()`, risking lost
-     increments on concurrent ingestion or out-of-order writes.
-  2. `GetRulesRecord` serves indefinitely from `r.memRules` without checking DynamoDB; `persistItem`
-     and `SaveRulesRecord` swallow DynamoDB errors.
-  3. `Service.rulesMu` is a single global mutex across all users held during synchronous DynamoDB calls.
+**8. Recommended resolution**  
+In `internal/realtime/handler.go:278-284`, when `preAuthUser != nil`, emit the exact same `{"type":"auth.success","payload":{"userId":preAuthUser.ID,"handle":preAuthUser.Handle}}` message immediately after `hub.Register(client)` (via `client.SendEvent(...)` or `conn.WriteMessage` before `ReadPump`), AND ignore/acknowledge an idempotent follow-up `{"type":"auth"}` message in `HandleClientMessage` if already authenticated. Ensure `ReadPump` updates `auth` cleanly and tests cover cookie-authenticated WS handshakes against `WebSocketManager`.
 
-[HIGH-15] Extension `onMessage` + `http://localhost/*` bridge allows any local port to hijack auth/sync
-- Files: `extension/background.js:599-624`, `extension/manifest.json:102-115`
-- Symbols: `chrome.runtime.onMessage` listener, `dashboardBridge.js` content script
-- Details:
-  `manifest.json` injects `dashboardBridge.js` on `"http://localhost/*"` and `"http://127.0.0.1/*"`
-  (all ports), and `chrome.runtime.onMessage` handles `ONUSLY_AUTH_HANDOFF`, `ONUSLY_DISCONNECT`,
-  `ONUSLY_SYNC`, and `ONUSLY_PING` without calling `isAuthorizedOrigin(sender)`.
+**9. Verification criteria**  
+1. Unit/integration test authenticating `/ws` with an `HttpOnly` `token` cookie verifies `auth.success` arrives immediately and socket stays open past 10 seconds.  
+2. Production DevTools WS frame log shows `auth.success` received within <1s and dashboard live-sync stays green.
 
-[HIGH-16] Expired JWT session blocks subsequent user's blocklist cache in extension storage
-- Files: `extension/background.js:338-343`, `extension/src/storage.js:85-96,147-162`
-- Symbols: `processAuthHandoff`, `getSession`, `saveBlocklistCache`
-- Details:
-  When User A's JWT expires, `storage.getSession()` returns `null`. `processAuthHandoff` only clears
-  storage `if (currentSession && currentSession.userId !== userId)`, leaving User A's cache intact.
-  When User B logs in, `saveBlocklistCache` rejects saving because `existing.userId !== userB`.
+**10. Related issues**  
+`AWS-004` (PII logged in `[WebSocket] Connected`), `WEB-001`
 
-[HIGH-17] Extension `pairDesktopAgent()` sets managed mode on unconfirmed `pair-request`
-- Files: `extension/background.js:505-548`, `desktop/core/models.go:118-121`,
-         `desktop/agent/internal/ipc/server.go:237-294`
-- Symbols: `pairDesktopAgent`, `IPCRequest`
-- Details:
-  `IPCRequest` ignores `extensionId`/`userId`/`token`, and `pair-request` only returns a 6-char
-  code without pairing the agent. `pairDesktopAgent()` treats `response.success === true` as paired
-  and enables `storage.setManagedMode(true)`.
+---
 
-[HIGH-18] Native messaging host permits privileged DNS & pairing mutations contrary to policy comment
-- Files: `desktop/native-host/main.go:25-35`
-- Symbols: `handleNativeFrame`
-- Details:
-  Allows `"dns-enable"`, `"dns-restore"`, and `"pair-request"` from browser native messaging despite
-  comment asserting read-only queries only.
+### [PROOF-001] — PNG, JPG, JPEG, and GIF Proof Uploads Return HTTP 404 in Production Due to Nginx Regex Precedence
 
-[HIGH-19] Windows Service runs as `LocalService` without `SeDebugPrivilege` while terminating user apps
-- Files: `desktop/core/windows/service_manager.go:90,124,145`, `desktop/installer/windows/install.ps1:611-619`,
-         `desktop/agent/internal/apps/enforcer_windows.go:57-89`
-- Symbols: `WindowsServiceManager`, `(*WindowsAppEnforcer).Enforce`
-- Details:
-  `OnuslyDesktopAgent` runs under `NT AUTHORITY\LocalService` (without `SeDebugPrivilege`), so
-  `OpenProcess(PROCESS_TERMINATE)` against interactive user desktop processes fails with `ERROR_ACCESS_DENIED`.
+Severity: CRITICAL  
+Confidence: CONFIRMED  
+Status: FIXED — RUNTIME VERIFICATION PENDING (Nginx config updated; live cutover deferred)  
+Component: Nginx Reverse Proxy (`deploy/nginx/onusly.conf` / `/etc/nginx/conf.d/onusly.conf`)  
+Environment: Production (`https://onusly.duckdns.org`)  
+Affected versions or commits: `db9cb11`
 
-[HIGH-20] Android release build uses debug signing, disables minification, and defaults to emulator URL
-- Files: `android/app/build.gradle.kts:52-59`,
-         `android/app/src/main/java/com/onusly/app/data/SyncRepository.kt:24`,
-         `android/app/src/main/java/com/onusly/app/data/api/OnuslyApiClient.kt:85`
-- Symbols: `buildTypes.release`, `DEFAULT_BASE_URL`, `defaultBaseUrl`
-- Details:
-  Release APK is signed with debug keystore, has `isMinifyEnabled = false`, and defaults API URL
-  to `"http://10.0.2.2:8080"` on physical devices.
+**1. What is the issue?**  
+Authenticated proof image URLs ending in `.png`, `.jpg`, `.jpeg`, `.gif` (e.g. `/uploads/proofs/<file>.png`) are intercepted by Nginx's nested static asset cache regex inside `location /` instead of being proxied to Go `:8080`, resulting in `HTTP 404 Not Found` from `/var/www/onusly/frontend/dist`.
 
-[HIGH-21] `deploy/setup_ec2.sh` Let's Encrypt single-domain cert mismatch & skipped extension rebuilds
-- Files: `deploy/setup_ec2.sh:295,307-320,496-507,559-566`, `deploy/nginx/onusly.conf:135-142`
-- Details:
-  1. With `CERT_MODE=letsencrypt`, `certbot` issues a cert only for `PUBLIC_DOMAIN` (default
-     `api.onusly.com`, or `onusly.duckdns.org` on the current EC2 host), while `setup_ec2.sh:560-563`
-     substitutes that cert path into all Nginx `server` blocks (including `onusly.com`/`onusly.app`).
-  2. `setup_ec2.sh:496-499` skips `npm run build` (`package-extension.py`) whenever
-     `onusly-extension.zip` and `updates.xml` already exist in `frontend/public/downloads/`,
-     shipping stale extension archives after `extension/` changes.
+**2. Expected behavior**  
+All `/uploads/...` requests (regardless of extension: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.pdf`, `.txt`) must proxy to Go (`127.0.0.1:8080`), enforce JWT auth (`401` unauthenticated), and serve uploaded proof files from `/opt/onusly/uploads/`.
 
-[HIGH-22] `deploy/setup_mumbai.sh` produces a broken Nginx/production deployment
-- Files: `deploy/setup_mumbai.sh:19-39`, `internal/config/config.go:125-154`,
-         `deploy/aws/ec2_dynamodb_policy.json:19-34`
-- Details:
-  Omits `ENV=production`, `HOST=127.0.0.1`, `ALLOWED_ORIGINS`, `FRONTEND_URL`, `GOOGLE_REDIRECT_URL`;
-  runs `nginx -t` without TLS cert/key files; targets `ap-south-1` while IAM policy locks to
-  `eu-north-1`; and never builds `frontend/dist`.
+**3. Actual behavior**  
+Only `.webp`, `.pdf`, and `.txt` reach the Go backend (`401` unauthenticated). Requests to `/uploads/proofs/*.png`, `*.jpg`, `*.jpeg`, and `*.gif` are handled locally by Nginx's static root `/var/www/onusly/frontend/dist` and fail with Nginx `404 Not Found`.
 
-================================================================================
-MEDIUM ISSUES
-================================================================================
+**4. Why is it happening?**  
+Confirmed root cause in `/etc/nginx/conf.d/onusly.conf` (`deploy/nginx/onusly.conf:203-233`):  
+- API proxy location uses regular expression `location ~ ^/(goals|...|uploads|approvals|downloads)` (line 203).  
+- Frontend SPA block `location /` (line 218) nests `location ~* \.(?:css|js|woff2?|svg|png|jpg|jpeg|gif|ico)$` (line 228).  
+- Because `location /` is the matching prefix block and contains a nested regex location covering `png|jpg|jpeg|gif|svg|ico`, Nginx routes `/uploads/proofs/*.png` (and `.jpg/.jpeg/.gif`) to the static `dist` root instead of `proxy_pass http://onusly_backend`.
 
-[MED-01] Unprotected `/metrics` endpoint when `ONUSLY_METRICS_TOKEN` is unset
-- Files: `internal/metrics/metrics.go:683-709`, `cmd/server/main.go:271`
-- Symbols: `isAuthorizedMetricsRequest`
-- Details: Returns `true` for all remote IPs when `ONUSLY_METRICS_TOKEN` is empty, and `config.Validate()`
-  does not require it in production. (Mitigated externally only if Nginx blocks `/metrics`.)
+**5. Evidence**  
+Live HTTP probes against `https://onusly.duckdns.org` executed at `2026-11-27T02:07:48+05:30` (`2026-11-26T20:37:48Z`):
+```text
+GET /uploads/proofs/nonexistent.png  -> http=404 (body: <center><h1>404 Not Found</h1></center><hr><center>nginx/1.30.4</center>)
+GET /uploads/proofs/nonexistent.jpg  -> http=404
+GET /uploads/proofs/nonexistent.jpeg -> http=404
+GET /uploads/proofs/nonexistent.gif  -> http=404
+GET /uploads/proofs/nonexistent.webp -> http=401 (Go: missing authorization header)
+GET /uploads/proofs/nonexistent.pdf  -> http=401
+GET /uploads/proofs/nonexistent.txt  -> http=401
+```
+Source reference: `deploy/nginx/onusly.conf:203-233`, `/etc/nginx/conf.d/onusly.conf` lines 1239–1267 (`nginx -T`).
 
-[MED-02] Rate limiter trivially bypassed via spoofed `X-Forwarded-For` header
-- Files: `internal/middleware/ratelimit.go:54-72`
-- Symbols: `(*RateLimiter).getClientIP`
-- Details: Trusts `X-Forwarded-For` unconditionally without checking trusted proxy IP, bypassing
-  `authLimiter` and `pairingLimiter`.
+**6. Steps to reproduce**  
+1. Upload a PNG or JPEG screenshot proof via `POST /uploads` or `SubmitProofModal`.  
+2. Open the returned `/uploads/proofs/<id>.png` URL in Approval Center / EvidenceLightbox.  
+3. Observe HTTP `404 Not Found` from `nginx/1.30.4` (also reproducible unauthenticated via `curl -i https://onusly.duckdns.org/uploads/proofs/nonexistent.png`).
 
-[MED-03] `approval.Decide` sets `"rejected"` goal status (`AGENTS.md` violation) & broken `GetSubmissions` stats
-- Files: `internal/approval/service.go:179-182,545-570`, `internal/goals/repository.go:328-329`,
-         `internal/proof/service.go:262`
-- Symbols: `(*Service).Decide`, `(*Service).GetSubmissions`
-- Details:
-  1. `Decide` sets goal status to `"rejected"` instead of `"active"`, conflicting with `AGENTS.md`.
-  2. `GetSubmissions` computes `TotalRejected = len(auditLog) - completedCount` (subtracting global
-     completed goals from a single goal's audit log) and computes `CurrentStreak` over unsorted map order.
+**7. User and system impact**  
+Every standard phone/desktop screenshot or camera photo (`.png`, `.jpg`, `.jpeg`) uploaded as proof fails to load for both the goal owner and the accountability partner (`EvidenceLightbox` broken image), blocking proof verification on the core accountability workflow.
 
-[MED-04] Friends repository swallows DynamoDB errors & non-atomic `SendRequest`
-- Files: `internal/friends/repository.go:126-129,367-370,414-416,500-503`, `internal/friends/service.go:56-98`
-- Symbols: `SaveFriendRequest`, `AcceptFriendRequest`, `RejectFriendRequest`, `SendRequest`
-- Details: Mutates in-memory state before `TransactWriteItems` and swallows `ConditionalCheckFailed` /
-  DB errors; `SendRequest` does not prevent concurrent duplicate or reciprocal requests.
+**8. Recommended resolution**  
+Use prefix match `location ^~` for `/uploads/` (and other non-SPA API paths) so Nginx halts regex matching before `location /` and its nested asset cache regex, and scope static asset caching solely to `/assets/` (`location ^~ /assets/`). Also check `WEB-001` so SPA browser navigations are not intercepted by API prefix rules.
 
-[MED-05] Notifications: `MarkAllAsRead` capped at 100, tight 250ms retry loop, unreachable targets
-- Files: `internal/notifications/repository.go:161-174`, `internal/notifications/worker.go:142-170`,
-         `internal/notifications/service.go:32-36`
-- Symbols: `MarkAllAsRead`, `processProofMessage`, `processApprovalMessage`, `CreateFromProofSubmitted`
-- Details: `MarkAllAsRead` only fetches 100 items and ignores errors; `Worker` retries failed
-  messages in `MemoryQueue` every 250ms without backoff; `CreateFromProofSubmitted` writes
-  notifications for `"COMMUNITY"` / `"partner-*"` IDs that have no user.
+**9. Verification criteria**  
+`curl -i https://onusly.duckdns.org/uploads/proofs/nonexistent.png` returns HTTP `401` (Go auth middleware, not Nginx 404), and authenticated PNG/JPG uploads render in `EvidenceLightbox`.
 
-[MED-06] Duplicate chat messages when sending attachments in `Communities.jsx`
-- Files: `frontend/src/pages/Communities.jsx:811-843,855-889`, `internal/realtime/hub.go:738-741`,
-         `internal/chat/handler.go:333`
-- Symbols: `handleSendAttachment`, `SendMessage`
-- Details: Attachment sends emit both a WebSocket event and a separate `POST /chat/messages` call
-  with different generated IDs and mismatched attachment fields, producing duplicates on history sync.
+**10. Related issues**  
+`SECURITY-001`, `WEB-001`, `API-002`
 
-[MED-07] Broken Windows download links & hardcoded developer paths in `.bat` files
-- Files: `frontend/src/components/DeviceCoverageSection.jsx:384-402`,
-         `frontend/public/downloads/ONUSLY_Setup_Edge.bat:14,21`,
-         `frontend/public/downloads/onusly-shield-toggle.bat:46,107`
-- Details: Links `/downloads/OnuslySetup.exe` and `/downloads/ONUSLY_Shield_Toggle.exe` do not exist
-  in `frontend/public/downloads/`; `.bat` scripts reference `C:\onusly\ONUSLY\...` and `localhost:5173`.
+---
 
-[MED-08] `uploadProofFiles()` omits `credentials: "include"` and `401` handling
-- Files: `frontend/src/lib/api.js:205-227`, `frontend/src/components/approvals/SubmitProofModal.jsx:196-214`
-- Symbols: `uploadProofFiles`
-- Details: Omits `credentials: "include"` and `401` handling; `SubmitProofModal` silently falls back
-  to inline `data:` URLs on upload failure.
+### [SECURITY-001] — `GET /uploads/` Only Validates Generic Authentication, Not Resource Ownership or Approver/Chat Authorization
 
-[MED-09] `onusly.crx` built with `0600` permissions & `updates.xml` hardcoded to `api.onusly.com`
-- Files: `scripts/package-extension.py:113-133`, `frontend/public/downloads/onusly.crx`,
-         `frontend/public/downloads/updates.xml:4`
-- Details: `shutil.move` from `TemporaryDirectory()` leaves `onusly.crx` mode `0600`; `updates.xml`
-  defaults `codebase` to `https://api.onusly.com/downloads/onusly.crx` (mismatching `onusly.duckdns.org`
-  unless overridden during build).
+Severity: CRITICAL  
+Confidence: CONFIRMED  
+Status: FIXED AND VERIFIED (EBS at-rest encryption tracked under AWS-001)  
+Component: Backend Proof Uploads Static Handler (`cmd/server/main.go`)  
+Environment: Backend API (All environments)  
+Affected versions or commits: `db9cb11`
 
-[MED-10] Windows named-pipe accept loop leaks Security Descriptor memory
-- Files: `desktop/agent/internal/ipc/server_windows.go:78-109`
-- Symbols: `namedPipeAcceptLoop`
-- Details: `defer win.ProcLocalFree.Call(pSD)` (line 104) is inside the infinite `for {}` loop, so
-  `pSD` is never freed until process exit.
+**1. What is the issue?**  
+While `GET /uploads/` wraps the file server with `middleware.Auth(...)`, it performs **zero authorization checks** on whether the authenticated user owns the proof, is the designated approver on the goal, or is a participant in a chat containing the attachment.
 
-[MED-11] `pair-request` over IPC hardcodes platform `"windows"` on Linux
-- Files: `desktop/agent/internal/ipc/server.go:281`
-- Details: `client.RequestCode(ctx, apiURL, "desktop_agent", "windows", deviceID)` hardcodes `"windows"`
-  instead of `runtime.GOOS`.
+**2. Expected behavior**  
+Accessing an uploaded proof file must verify that the caller is authorized for that specific resource (goal owner, assigned approver, or authorized chat recipient/sender), or serve short-lived signed URLs/streamed responses gated by backend authorization.
 
-[MED-12] `LinuxAdapterManager.BackupDNS` overwrites `dns_backup.json` unconditionally
-- Files: `desktop/agent/internal/dns/adapter_linux.go:115-151,163`
-- Symbols: `(*LinuxAdapterManager).BackupDNS`
-- Details: Unlike Windows, Linux overwrites `dns_backup.json` even if current DNS is already `127.0.0.1`.
+**3. Actual behavior**  
+`cmd/server/main.go:304-328` immediately delegates `/uploads/<path>` to `http.StripPrefix("/uploads/", ... uploadFileServer.ServeHTTP(w, r))` after checking only `middleware.Auth` (any valid ONUSLY JWT) and extension allowlists. Upload filenames are constructed as `<unix_sec>-<uuid_8_hex>-<sanitized_filename>` (`main.go:753`, `proof/service.go:122`), and files are stored unencrypted on EC2 EBS (`/opt/onusly/uploads/proofs/`) — where existing EC2 proof files were even observed with `0755` (`-rwxr-xr-x`) permissions.
 
-[MED-13] Windows `install.ps1` points Firefox `install_url` at Omaha `updates.xml`; CLI `update` defaults to HTTP
-- Files: `desktop/installer/windows/install.ps1:7,803-804`, `desktop/agent/cmd/update_commands.go:88,190`
-- Details: Firefox `ExtensionSettings.install_url` expects an `.xpi`, not Google Omaha `updates.xml`;
-  `update check`/`stage` default `-feed-url` to plaintext `http://localhost:8080/downloads/update_manifest.json`.
+**4. Why is it happening?**  
+`protectedUploads` in `cmd/server/main.go:304-328` attaches only authentication (`middleware.Auth`) and response CSP headers around `http.FileServer`, with no database lookup mapping uploaded file keys to authorized user IDs.
 
-[MED-14] Go CSP header blocks Google GSI/Fonts if serving HTML; Nginx static block sets no CSP
-- Files: `internal/middleware/security_headers.go:23`, `deploy/nginx/onusly.conf:216-225`
-- Details: `SecurityHeaders` lacks `accounts.google.com/gsi/client` and `fonts.googleapis.com` in CSP;
-  Nginx serves `frontend/dist` directly without adding a CSP header.
+**5. Evidence**  
+- Source: `cmd/server/main.go:304-328, 753-779` and `internal/proof/service.go:122-129`.  
+- Live EC2 check (`2026-11-27T02:02+05:30`): `/opt/onusly/uploads/proofs/` contains `.webp` proof files stored locally on EC2 EBS with mode `-rwxr-xr-x`.
 
-[MED-15] `deploy/dynamodb/migrate.go` ignores `UnprocessedItems` and writes DB dump into repo
-- Files: `deploy/dynamodb/migrate.go:65-66,122-125`
-- Details: Discards `BatchWriteItem` `UnprocessedItems` and writes `deploy/dynamodb/stockholm_items.json`
-  with `0644` permissions inside the repo.
+**6. Steps to reproduce**  
+1. Authenticate as User A (`JWT_A`).  
+2. Request `GET /uploads/proofs/<User_B_proof_filename.webp>` using `Authorization: Bearer <JWT_A>`.  
+3. Backend validates `JWT_A` signature and serves User B's private evidence with `HTTP 200` (for non-Nginx-intercepted extensions like `.webp` / `.pdf` / `.txt`). *(Not executed against real user files during audit per production safety rules.)*
 
-[MED-16] Operational runbooks out of sync with codebase CLI flags, schema, and routes
-- Files: `docs/runbooks/UPDATE_ROLLBACK_RUNBOOK.md`, `docs/runbooks/installation_and_pairing.md`,
-         `docs/runbooks/dns_recovery.md`
-- Details: Documents non-existent flags/commands (`update build-manifest`, `--manifest-url`,
-  `--staging-dir`), old manifest schema (`desktop/core/update/manifest.go`), wrong pipe name
-  (`onusly-agent` vs `OnuslyAgentIPC`), non-existent `/devices/pair` and `/api/v1/enforcement/device/policy`
-  routes, and wrong `dns_backup.json` path.
+**7. User and system impact**  
+Privacy breach risk for sensitive personal accountability proof documents/photos if an upload URL leaks or filename entropy (32-bit UUID prefix + timestamp) is guessed/disclosed, plus complete loss of uploaded proof history if EC2 root EBS is lost or replaced.
 
-================================================================================
-LOW ISSUES
-================================================================================
+**8. Recommended resolution**  
+1. Store proof object metadata (`ownerId`, `goalId`, `allowedApproverId` / chat participants, or user-scoped prefix `/uploads/proofs/{ownerId}/...` backed by DynamoDB lookup or private S3 bucket with authorization-gated pre-signed URLs).  
+2. Verify caller authorization in `GET /uploads/` handler before reading/streaming bytes.  
+3. Move `/uploads/proofs/` out of local EC2 EBS into encrypted S3 (`SSE-S3` or `SSE-KMS`), and use `0600`/`0640` file permissions if local temp storage is ever used.
 
-[LOW-01] Unmanaged secondary HTTP listener on `127.0.0.1:8765` & partial upload files left on disk
-- Files: `cmd/server/main.go:706-711,818-826`
-- Details: `fixtureServer` on `:8765` exposes all `rootHandler` routes, ignores `ListenAndServe()`
-  errors, and is never shut down gracefully; failed `io.Copy` in `POST /uploads` leaves partial files.
+**9. Verification criteria**  
+Authenticated User C requesting User A's proof file URL receives `403 Forbidden`; only User A (owner) and User B (assigned approver) receive `200 OK`.
 
-[LOW-02] Extension `detectBrowser()` `"opera"` mismatch with backend heartbeat allowlist
-- Files: `extension/background.js:24-31`, `extension/src/syncService.js:7-14`,
-         `internal/enforcement/models.go:63-69`
-- Details: `background.js` can emit `"opera"`, which is rejected by backend `validBrowsers`.
+**10. Related issues**  
+`PROOF-001`, `AWS-001`, `API-002`
 
-[LOW-03] Production EC2 Nginx emits deprecated `listen ... http2` warnings & `GOOGLE_CLIENT_SECRET` unset
-- Files: `deploy/nginx/onusly.conf:47-48,136-137`, EC2 `/etc/onusly/onusly.env`
-- Details: `nginx -t` warns that `listen ... http2` is deprecated in favor of `http2 on;`.
-  On the live EC2 instance, `GOOGLE_CLIENT_SECRET` is empty in `/etc/onusly/onusly.env` (causing
-  `/auth/google/callback` redirect logins to fail until configured, though ID-token login works).
+---
+
+### [WEB-001] — Nginx Routes All Core SPA Paths (`/goals`, `/approvals`, `/friends`, `/communities`, `/wellbeing`, `/auth`) to Go API Instead of `index.html`
+
+Severity: HIGH  
+Confidence: CONFIRMED  
+Status: FIXED — RUNTIME VERIFICATION PENDING (Nginx config updated; live cutover deferred)  
+Component: Nginx Reverse Proxy (`deploy/nginx/onusly.conf`) & Frontend Router (`frontend/src/App.jsx`)  
+Environment: Production (`https://onusly.duckdns.org`)  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+Same-origin Nginx uses a broad regex `location ~ ^/(goals|auth|health|chat|users|notifications|enforcement|friends|communities|wellbeing|uploads|approvals|downloads)` (`onusly.conf:203`) that proxies browser page requests directly to Go `:8080` instead of serving React's `index.html`.
+
+**2. Expected behavior**  
+Navigating directly to, bookmarking, opening from a notification/pairing link, or pressing F5 refresh on `/goals`, `/goals/:id`, `/approvals`, `/communities`, `/wellbeing`, or `/friends` must load the React SPA (`index.html`), after which React Router and `ProtectedRoute` handle view rendering or redirect to `/`. API calls (`fetch` with `Accept: application/json` / `Authorization` / XHR or dedicated `/api/...` prefix) should hit Go `:8080`.
+
+**3. Actual behavior**  
+Only `/`, `/dashboard`, `/community-friends`, and `/settings` reach `index.html` (because those paths aren't in the regex). Direct navigation or page refresh on `/goals`, `/goals/<id>`, `/approvals`, `/friends`, `/communities`, `/wellbeing`, or `/auth` hits Go directly and displays a bare white text page showing `"missing authorization header"` (`HTTP 401`) or `"404 page not found"` (`HTTP 404` for `/auth`).
+
+**4. Why is it happening?**  
+Confirmed root cause: Nginx serves both the SPA and the REST API on `https://onusly.duckdns.org` (`VITE_API_BASE_URL=""` same-origin mode), and shares top-level path prefixes (`/goals`, `/approvals`, `/communities`, `/wellbeing`, `/friends`, `/auth`) between React Router (`frontend/src/App.jsx`) and Go (`cmd/server/main.go`) with no `/api` namespace or `Accept: text/html` content-negotiation split in Nginx.
+
+**5. Evidence**  
+Headless Chrome live audit (`browser_audit_result.json`, `2026-11-26T20:32:44Z–20:32:58Z`):
+- `GET https://onusly.duckdns.org/dashboard` -> `finalPath: "/"`, `textLen: 7703` (React SPA redirect works)
+- `GET https://onusly.duckdns.org/goals` -> `HTTP 401`, body `"missing authorization header"`
+- `GET https://onusly.duckdns.org/goals/test-nonexistent` -> `HTTP 401`, body `"missing authorization header"`
+- `GET https://onusly.duckdns.org/approvals` -> `HTTP 401`, body `"missing authorization header"`
+- `GET https://onusly.duckdns.org/friends` -> `HTTP 401`, body `"missing authorization header"`
+- `GET https://onusly.duckdns.org/communities` -> `HTTP 401`, body `"missing authorization header"`
+- `GET https://onusly.duckdns.org/wellbeing` -> `HTTP 401`, body `"missing authorization header"`
+- `GET https://onusly.duckdns.org/auth` -> `HTTP 404`, body `"404 page not found"`
+
+**6. Steps to reproduce**  
+1. Visit `https://onusly.duckdns.org/goals` or `/approvals` or `/wellbeing` directly in any browser (or sign in, navigate to My Goals / Review Inbox / Digital Wellbeing, and press **Refresh / F5**).  
+2. Browser displays plain text `missing authorization header` (`401`). *(Even when signed in, if `token` cookie expires/is absent or for exact-collision UI routes without auth header, Refresh hits the API handler instead of `index.html`; worse, when signed in with the HttpOnly `token` cookie, refreshing `/goals` renders raw JSON array `[{...}]` in the browser tab instead of the React UI!)*
+
+**7. User and system impact**  
+Clicking any shared Goal link (`/goals/<id>?ownerId=...` copied in `GoalDetail`), reloading `/goals`, `/approvals`, `/wellbeing`, or `/communities`, or following browser bookmarks either crashes to raw `401` text or dumps raw JSON directly onto the screen when authenticated via cookie.
+
+**8. Recommended resolution**  
+Namespace API traffic under `/api/` (or a dedicated API subdomain `api.*`), **or** in Nginx route browser `GET`/`HEAD` requests with `Accept ~* "text/html"` (excluding `/auth/google/*`, `/downloads/*`, `/uploads/*`) to `/var/www/onusly/frontend/dist/index.html` while proxying JSON/XHR/API requests to `onusly_backend`. Long-term, `/api/*` separation eliminates ambiguity completely.
+
+**9. Verification criteria**  
+Hard-reloading (`Ctrl+Shift+R`) `/goals`, `/goals/123`, `/approvals`, `/communities`, `/wellbeing`, and `/friends` while signed in and signed out serves `index.html` (`200 OK`, `text/html`), while API `fetch()` calls still reach Go `:8080`.
+
+**10. Related issues**  
+`PROOF-001`, `API-001`
+
+---
+
+### [WEB-002] — Landing Page Mobile Viewport Breaks at `390px` and `320px` (Expands to `523px` with Dead Right Margin & Colliding Navbar)
+
+Severity: HIGH  
+Confidence: CONFIRMED  
+Status: FIXED AND VERIFIED (live Chrome local preview verified at 390/320px)  
+Component: Landing Page CSS (`frontend/src/components/film.css`, `frontend/src/lock.css`)  
+Environment: Production (`https://onusly.duckdns.org`) at mobile (`390x844`) and narrow mobile (`320x700`)  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+At mobile viewports (`390x844` and `320x700`), the landing page layout overflows horizontally to an effective layout viewport width of `523px`, creating a solid black vertical bar covering ~25–39% of the right edge, slamming the `ONUSLY` logo directly into `Mechanism` with zero gap, and forcing the `Sign in` button to wrap vertically onto 2 lines.
+
+**2. Expected behavior**  
+At `320px` and `390px`, `window.innerWidth === document.documentElement.scrollWidth === 320` (or `390`) with zero horizontal overflow, responsive spacing between the logo and navigation controls (mobile menu drawer or collapsed header links at `<=700px`), and full-bleed background imagery without a black right void.
+
+**3. Actual behavior**  
+Measured in headless Chrome with `Emulation.setDeviceMetricsOverride({ width: 390, mobile: true })` and `{ width: 320, mobile: true }`: both viewports expanded to `innerWidth: 523, scrollWidth: 523`.
+
+**4. Why is it happening?**  
+Confirmed root cause in `frontend/src/components/film.css:8-10, 21`:  
+- `.film-header` renders `Brand` plus `<nav>` containing 6 links (`Mechanism`, `Enforcers`, `Protocol`, `Catalog`, `FAQ`, `Sign in` button) in a single non-wrapping flex row (`display:flex; align-items:center`) with `gap:clamp(15px,3vw,44px)`.  
+- `@media(max-width:700px)` shrinks font-size/stage height slightly but **never collapses, hides, or wraps `.film-header nav`**. Its intrinsic minimum width (~`523px`) exceeds mobile screen width, forcing mobile Chromium's viewport scaler to zoom out to `523px`.
+
+**5. Evidence**  
+- Chrome CDP measurements (`browser_audit_result.json`, `2026-11-26T20:33:03Z`): `mobile-390` -> `innerWidth: 523, scrollWidth: 523`; `narrow-320` -> `innerWidth: 523, scrollWidth: 523`.  
+- Visual screenshots captured during audit: `scratch/landing-mobile-390.png` and `scratch/landing-narrow-320.png`.  
+- Source: `frontend/src/components/LockFilm.jsx:53`, `frontend/src/components/film.css:8-10, 21`.
+
+**6. Steps to reproduce**  
+1. Open `https://onusly.duckdns.org/` in Chrome DevTools Device Toolbar (iPhone 12/14 `390x844` or `320x700`).  
+2. Observe navbar compression (`ONUSLYMechanism...`), two-line `Sign in` box, and right-side black void spanning the hero and lower sections.
+
+**7. User and system impact**  
+Degrades first-impression visual quality and mobile tap ergonomics for every mobile visitor and Android downloader arriving on the landing page.
+
+**8. Recommended resolution**  
+Under `@media (max-width: 760px)` in `film.css` / `LockFilm.jsx`, collapse secondary anchor links (`Mechanism`..`FAQ`) into a mobile menu button or clean horizontal scroll/drawer while keeping `Brand` and `Sign in` cleanly spaced (`flex-shrink: 0`), and verify `overflow-x: clip` on `.film-track`/section wrappers.
+
+**9. Verification criteria**  
+`innerWidth === scrollWidth === 390` (at 390px) and `320` (at 320px), zero right-edge black bar, and `Sign in` button remains single-line with >= 44px tap height.
+
+**10. Related issues**  
+`INFO-002`
+
+---
+
+### [AWS-001] — EC2 Root EBS Volume at 91% Utilization (`810 MB` Free / `8.0 GB`) & Unencrypted Volume
+
+Severity: HIGH  
+Confidence: CONFIRMED  
+Status: PARTIALLY FIXED (deploy_setup_ec2 prunes backups/cache; live EBS expand pending)  
+Component: AWS EC2 / EBS (`i-0dfb8ec15543e8457`, `vol-087b33f32d9b0d6ca`)  
+Environment: Production (`eu-north-1b`)  
+Affected versions or commits: Live infrastructure
+
+**1. What is the issue?**  
+The single `8.0 GB` `gp3` root EBS volume (`/dev/nvme0n1p1`) on the production EC2 server is **91% full (`7.2 GB` used, `810 MB` available)** and has **EBS encryption disabled (`"Encrypted": false`)**.
+
+**2. Expected behavior**  
+Production server root volumes should maintain >= 35–40% free capacity with automated log/backup pruning, zero developer build caches left on production hosts (or separated CI artifact builds), and EBS encryption at rest enabled.
+
+**3. Actual behavior**  
+Live inspection showed:
+- `/home/ec2-user/go`: `843 MB`
+- `/home/ec2-user/.cache`: `312 MB` (Go build cache / npm cache)
+- `/opt/onusly/server` + 5 unpruned `server.bak.*` binaries: `~189 MB` total (`32 MB` each)
+- `/opt/onusly` total: `625 MB` (includes `node_modules`, cross-compiled `.exe` installers, `.apk`)
+- Nginx `client_max_body_size` is `50M` and Go `ParseMultipartForm` spills >32 MB uploads to `/tmp` on `/`; Nginx also buffers `13.1 MB` `.exe` downloads to `/var/lib/nginx/tmp/proxy`.
+
+**4. Why is it happening?**  
+`deploy/setup_ec2.sh` compiles Go binaries, Windows installers, and Vite bundles **directly on the `8 GB` t3.micro EC2 host**, retaining Go module/build caches under `/home/ec2-user` and accumulating timestamped `server.bak.*` and `onusly.conf.bak.*` backups on every deploy without retention cleanup. Root EBS was provisioned at the 8 GB AMI default without encryption.
+
+**5. Evidence**  
+Live EC2 & AWS CLI output (`2026-11-27T01:59–02:05+05:30`):  
+- `df -h /`: `/dev/nvme0n1p1 8.0G 7.2G 810M 91% /`  
+- `aws ec2 describe-volumes`: `VolumeId: vol-087b33f32d9b0d6ca, Size: 8, VolumeType: gp3, Encrypted: false`  
+- `du -sh`: `843M /home/ec2-user/go`, `312M /home/ec2-user/.cache`, `625M /opt/onusly`, 5x `31-32M` `server.bak.*` binaries.
+
+**6. Steps to reproduce**  
+Run `df -h /` and `sudo du -sh /home/ec2-user/* /opt/onusly/*` on `13.49.49.2`, or inspect `vol-087b33f32d9b0d6ca` via `aws ec2 describe-volumes --region eu-north-1`.
+
+**7. User and system impact**  
+A few more deploys (`git` history growth + Go cache + `server.bak.*`), log bursts, or concurrent 50 MB proof uploads will push `/` to `100%`, causing Nginx `502`/upload failures, systemd journal write failures, failed deployments, and inability for Let's Encrypt certbot or keepwarm scripts to write state files. Lack of EBS encryption violates encryption-at-rest best practices (especially while proof uploads are stored on `/opt/onusly/uploads/`).
+
+**8. Recommended resolution**  
+1. Expand EBS volume `vol-087b33f32d9b0d6ca` to >= `20–30 GB` and migrate to an encrypted EBS snapshot/volume (plus move `/uploads/` to encrypted S3).  
+2. Update `deploy/setup_ec2.sh` to prune `server.bak.*` and `/etc/nginx/conf.d/*.bak.*` keeping only the latest 1–2 backups, run `go clean -cache -modcache` (or build artifacts in CI instead of on EC2), and configure journald `SystemMaxUse=200M`.
+
+**9. Verification criteria**  
+Root filesystem `/` free space > 60%, `Encrypted: true` on production EBS volume, and `setup_ec2.sh` keeps <= 2 rolling backups.
+
+**10. Related issues**  
+`AWS-004`, `SECURITY-001`, `API-002`
+
+---
+
+### [AWS-002] — Production SQS Queues Missing (`NonExistentQueue`); Live Server Uses Volatile In-Memory Queue
+
+Severity: HIGH  
+Confidence: CONFIRMED  
+Status: PARTIALLY FIXED (deploy/aws/setup_queues_and_alarms.sh added; live SQS setup pending)  
+Component: AWS SQS & Async Notification Worker (`cmd/server/main.go`, `/etc/onusly/onusly.env`)  
+Environment: Production (`eu-north-1`, account `631690098190`)  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+Production `onusly.service` runs with the in-memory queue adapter (`queue.NewMemoryQueue()`) because `PROOF_EVENTS_QUEUE_URL` and `APPROVAL_EVENTS_QUEUE_URL` are unset in `/etc/onusly/onusly.env`, and the `proof-events` / `approval-events` SQS queues referenced in `deploy/aws/ec2_dynamodb_policy.json` do not exist in AWS `eu-north-1`.
+
+**2. Expected behavior**  
+Production should provision `proof-events` and `approval-events` SQS queues (SSE-KMS or SSE-SQS encrypted, plus Dead-Letter Queues and redrive policies) and pass their URLs via `/etc/onusly/onusly.env` so asynchronous proof/approval events survive process restarts and failed deliveries retry reliably.
+
+**3. Actual behavior**  
+Startup logs in `journalctl -u onusly` explicitly emit:
+`[Queue] Using in-memory queue adapter (set PROOF_EVENTS_QUEUE_URL and APPROVAL_EVENTS_QUEUE_URL to use AWS SQS)`
+and `aws sqs get-queue-url` fails with `AWS.SimpleQueueService.NonExistentQueue`.
+
+**4. Why is it happening?**  
+Confirmed root cause: Neither SQS queue was created in AWS `eu-north-1`, and `deploy/setup_ec2.sh` does not provision or check `PROOF_EVENTS_QUEUE_URL`/`APPROVAL_EVENTS_QUEUE_URL` in production validation.
+
+**5. Evidence**  
+- `sudo journalctl -u onusly`: `2026/11/26 20:03:17 [Queue] Using in-memory queue adapter (set PROOF_EVENTS_QUEUE_URL and APPROVAL_EVENTS_QUEUE_URL to use AWS SQS)`  
+- `/etc/onusly/onusly.env` keys check: neither `PROOF_EVENTS_QUEUE_URL` nor `APPROVAL_EVENTS_QUEUE_URL` present.  
+- `aws sqs get-queue-url --region eu-north-1 --queue-name proof-events` & `approval-events`: `AWS.SimpleQueueService.NonExistentQueue`.  
+- `deploy/aws/ec2_dynamodb_policy.json:32-35` references `arn:aws:sqs:eu-north-1:631690098190:proof-events` and `approval-events`.
+
+**6. Steps to reproduce**  
+Inspect `journalctl -u onusly` on startup and run `aws sqs get-queue-url --region eu-north-1 --queue-name proof-events`.
+
+**7. User and system impact**  
+Any proof-submitted or approval-decided event still queued in memory during a restart, deploy, OOM kill, or transient notification write failure is permanently lost, leaving partners or owners without async notifications/push alerts.
+
+**8. Recommended resolution**  
+Create `proof-events`, `approval-events`, and paired DLQs (`proof-events-dlq`, `approval-events-dlq`) in `eu-north-1` with SSE enabled and `maxReceiveCount` redrive policies; set `PROOF_EVENTS_QUEUE_URL` and `APPROVAL_EVENTS_QUEUE_URL` in `/etc/onusly/onusly.env`; fail or warn loudly in `config.Validate()` if `ENV=production` lacks SQS URLs.
+
+**9. Verification criteria**  
+`journalctl -u onusly` logs `[Queue] Using AWS SQS queue adapter with configured queue URLs` on startup, and DLQ CloudWatch alarms trigger on `ApproximateNumberOfMessagesVisible > 0`.
+
+**10. Related issues**  
+`AWS-004`
+
+---
+
+### [AWS-003] — Silent Error Swallowing, Stale In-Memory Masking & Full-Table DynamoDB `Scan` Fallbacks
+
+Severity: HIGH  
+Confidence: CONFIRMED  
+Status: FIXED AND VERIFIED  
+Component: Backend Handlers & DynamoDB Repositories (`internal/goals`, `internal/enforcement`, `internal/proof`, `internal/approval`)  
+Environment: Go Backend (`cmd/server` & `internal/*`)  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+Multiple core API handlers and DynamoDB repositories mask database failures as successful empty responses (`200 OK`) or silent in-memory mutations, use overly tight `800ms` DB timeouts, and execute unindexed full-table `Scan` operations when `GSI1` lookups yield empty results.
+
+**2. Expected behavior**  
+1. DynamoDB errors on reads (`GET /goals`, `GetDevices`, `GetDevice`) must surface as HTTP `500`/`503` errors rather than masquerading as empty lists (`200 []`) or stale in-memory state.  
+2. Writes (`UpdateHeartbeat`, `UpsertDevice`, `SavePairingSession`, `proof/approval Repository.Create`) must propagate DynamoDB failures rather than logging a notice and returning `nil`.  
+3. `FindByID` in `production` should rely strictly on `PK/SK` and `GSI1` without falling back to a full-table `Scan`.
+
+**3. Actual behavior**  
+- `internal/goals/handler.go:96-99`: When `List` or `ListForApproverWithStatus` returns an error, `Goals Handler.List` logs a notice and returns **`200 OK` with `goals = []Goal{}`**!  
+- `internal/enforcement/repository.go:66-76,108-129,157-166,209-226,327-338`: Uses `800ms` contexts for DynamoDB calls, caches in `memDevices`/`memSessions` **before** DynamoDB write, and returns **`nil`** (or falls back to `memDevices`) when `PutItem`/`Query`/`GetItem` errors!  
+- `internal/enforcement/service.go:278`: `existing, _ := s.deviceRepo.GetDevice(...)` discards repository errors; `internal/enforcement/service.go:619`: `_ = s.deviceRepo.UpsertDevice(ctx, dev)` ignores errors during pairing confirmation.  
+- `internal/proof/repository.go:58-68` and `internal/approval/repository.go:57-67`: `Create` mutates memory first, uses `800ms` timeout, and returns `nil` on DynamoDB error.  
+- `internal/goals/repository.go:185-215`: `FindByID` runs an unindexed `db.Scan` across the entire `Onusly` table whenever `GSI1` returns 0 items (e.g., invalid/nonexistent `goalID`).
+
+**4. Why is it happening?**  
+Legacy offline/test fallback scaffolding (`memGoals`, `memDevices`, `800ms` timeouts, `Scan` fallback) remains active even when `r.db != nil` in production.
+
+**5. Evidence**  
+Verified directly in source files:  
+- `internal/goals/handler.go:96-99`  
+- `internal/goals/repository.go:185-215`  
+- `internal/enforcement/repository.go:66-76, 108-129, 157-166, 209-226, 327-338`  
+- `internal/enforcement/service.go:278, 619`  
+- `internal/proof/repository.go:58-68`, `internal/approval/repository.go:57-67`
+
+**6. Steps to reproduce**  
+1. Call `GET /goals/{nonexistent-id}` as an authenticated user -> `FindByID` queries `GSI1` (0 items) and executes a full-table `dynamodb:Scan` across the `Onusly` table.  
+2. Under transient DynamoDB throttling or >800ms latency, `GET /goals` returns `HTTP 200 []`, making the Dashboard show `0 Active goals`, and `POST /enforcement/heartbeat` returns `200 OK` without updating DynamoDB.
+
+**7. User and system impact**  
+- Users may falsely believe their goals disappeared (Dashboard renders `0` instead of an error state) or see false device offline statuses after silent `UpdateHeartbeat` write drops.  
+- Full-table `Scan` latency and RCU costs scale linearly with total multi-tenant table size on every bad `goalId` request.
+
+**8. Recommended resolution**  
+1. Remove in-memory fallbacks and `Scan` fallback when `r.db != nil` in production repositories; standardize DynamoDB timeouts (`3s–5s` with bounded retries).  
+2. Propagate DB read/write errors properly so handlers return HTTP `503 Service Unavailable` / `500`.  
+3. Only update process memory caches (if any) *after* DynamoDB confirms persistence, or drop process-local entity caches when `r.db != nil`.
+
+**9. Verification criteria**  
+Mock DynamoDB timeout/error tests verify `GET /goals`, `POST /enforcement/heartbeat`, and `SavePairingSession` return `5xx` errors rather than `200 []` or `nil`, and `FindByID` executes zero `Scan` operations when `r.db != nil`.
+
+**10. Related issues**  
+`AWS-004`, `GOAL-001`
+
+---
+
+### [SECURITY-002] — `RequireUserToken`/`RequireDeviceToken` Unused; `Revoke All Sessions` Skips Device Tokens & Fails Open
+
+Severity: HIGH  
+Confidence: CONFIRMED  
+Status: FIXED AND VERIFIED  
+Component: Auth Middleware & Enforcement Routes (`internal/middleware/auth.go`, `cmd/server/main.go`, `internal/enforcement/service.go`)  
+Environment: Backend API  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+Three auth/device-token hardening gaps undermine session isolation:  
+1. `middleware.RequireUserToken` and `middleware.RequireDeviceToken` (`internal/middleware/auth.go:165-187`) are **never wired onto any route in `cmd/server/main.go`** (only tested in `d13_security_test.go`).  
+2. `middleware.Auth` (`internal/middleware/auth.go:132-138`) checks `token_version` revocation **only for `tokenType == "user"`**, and **fails open** if `cfg.validator.GetTokenVersion` returns a DB error (`if err == nil ...`).  
+3. `enforcement/service.go:250-259` (`GetBlocklist`) checks device revocation solely via `middleware.GetDeviceID(ctx)` (present only on `device` tokens), ignoring user-token extension clients passing `X-Device-ID`.
+
+**2. Expected behavior**  
+- User-plane routes (`POST/PATCH/DELETE /goals`, approvals, friends, `/auth/revoke-all`, `/users/handle`, `/enforcement/devices/*/revoke`) must require `RequireUserToken`, restricting 30-day `device` tokens solely to device telemetry/sync (`/enforcement/blocklist`, `/enforcement/heartbeat`, `/wellbeing/ingest`).  
+- `POST /auth/revoke-all` (`IncrementTokenVersion`) should revoke **all** sessions or explicitly document & enforce device credential checks, and transient DB validator failures should fail closed (`503`/`401`) or use bounded circuit rules rather than silently bypassing revocation.
+
+**3. Actual behavior**  
+A paired 30-day `device` JWT (`token_type: "device"`) accepted by `middleware.Auth` passes into `goalRoutes` and can create/delete goals, approve/reject submissions, revoke other devices, or call `/auth/revoke-all`. Meanwhile, calling `POST /auth/revoke-all` does not invalidate active `device` JWTs (`tokenType == "device"` skips line 132).
+
+**4. Why is it happening?**  
+`RequireUserToken` and `RequireDeviceToken` were created in `internal/middleware/auth.go` during remediation (`d13_security_test.go`) but were never wrapped around `goalRoutes` in `cmd/server/main.go`.
+
+**5. Evidence**  
+- `grep -rn "RequireUserToken\|RequireDeviceToken"` returned hits ONLY in `internal/middleware/auth.go:165-187` and `internal/middleware/d13_security_test.go:64,71` — **0 hits in `cmd/server/main.go`**.  
+- `internal/middleware/auth.go:132-138`: `if cfg.validator != nil && tokenType == "user" { expectedVer, err := ...; if err == nil && ... }`
+
+**6. Steps to reproduce**  
+1. Pair a desktop or Android device via `/enforcement/pair/exchange` to obtain a 30-day `device` token (`token_type: "device"`).  
+2. Send `POST /goals` or `POST /goals/{id}/proofs/{proofId}/approval` or `POST /auth/revoke-all` using that device token.  
+3. `middleware.Auth` allows the request into `goalRoutes` because `RequireUserToken` is absent.
+
+**7. User and system impact**  
+Increases blast radius if a desktop agent DPAPI/keyring token or Android device token is extracted, and prevents "Sign out all sessions" (`Revoke All`) from invalidating previously paired long-lived device tokens.
+
+**8. Recommended resolution**  
+Wire `RequireUserToken` on all human-account endpoints in `cmd/server/main.go`, allow both user & device tokens on `/enforcement/blocklist`, `/enforcement/heartbeat`, and `/wellbeing/ingest`, enforce `token_version` verification cleanly (with fail-closed behavior or short-lived cache on transient DB error), and check `X-Device-ID` revocation on `/enforcement/blocklist`.
+
+**9. Verification criteria**  
+Sending `POST /goals`, `DELETE /goals/{id}`, or `POST /auth/revoke-all` with a `device` token returns `403 Forbidden`; calling `GET /enforcement/blocklist` with a `user` token + revoked `X-Device-ID` returns `403 DEVICE_REVOKED`.
+
+**10. Related issues**  
+`SECURITY-003`
+
+---
+
+### [WIN-001] — `OnuslySetup.exe` Named Pipe Client Omits SQOS Flags (`0`), Failing `authenticateCaller` (`expected impLevel=1, got 2`)
+
+Severity: HIGH  
+Confidence: CONFIRMED (Static Source + Cross-Compile Analysis; NOT TESTED on live Windows VM)  
+Status: FIXED — RUNTIME VERIFICATION PENDING (GOOS=windows go vet passed; no Windows VM)  
+Component: Windows Installer (`desktop/installer/cmd/installer/main.go`) & Agent IPC Server (`desktop/agent/internal/ipc/server_windows.go`)  
+Environment: Windows 10/11  
+Affected versions or commits: `db9cb11` (live downloadable `OnuslySetup.exe` `13,160,960 bytes`)
+
+**1. What is the issue?**  
+The Windows standalone installer `OnuslySetup.exe` opens `\\.\pipe\OnuslyAgentIPC` with `dwFlagsAndAttributes = 0`, whereas the desktop agent IPC server (`server_windows.go:337`) strictly requires `TokenImpersonationLevel == 1` (`SecurityIdentification`).
+
+**2. Expected behavior**  
+`OnuslySetup.exe` should pass `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION` (`0x00100000 | 0x00010000`) when opening the named pipe (matching `desktop/agent/internal/ipc/client_windows.go:32` and `desktop/native-host/dial_windows.go:42`), so `queryIPC("ping")`, `queryIPC("pair-request")`, and `queryIPCWithCode("pair-poll")` authenticate cleanly and open `https://onusly.duckdns.org/dashboard?pairCode=XXXXXX`.
+
+**3. Actual behavior**  
+In `desktop/installer/cmd/installer/main.go:97-105`:
+```go
+h, err := windows.CreateFile(
+    &pathUTF16[0],
+    windows.GENERIC_READ|windows.GENERIC_WRITE,
+    0, nil, windows.OPEN_EXISTING, 0, 0, // <-- passes 0 instead of SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION
+)
+```
+On Windows, passing `0` without SQOS defaults client pipe impersonation level to `SecurityImpersonation` (`2`). `server_windows.go:337` checks `if impLevel != 1 { return "", fmt.Errorf("expected TokenImpersonationLevel=1 (SecurityIdentification), got %d", impLevel) }`, rejecting every request from `OnuslySetup.exe`! Consequently, `installer/main.go:390-398` hits `pairErr != nil || !pairResp.Success`, never retrieves a pairing code, and never opens `/dashboard?pairCode=...`. *(Also note: `dialNamedPipe` has no read timeout/Overlapped check and `net.Dial("unix", p)` is unnecessarily attempted first on Windows named pipes.)*
+
+**4. Why is it happening?**  
+`desktop/native-host/dial_windows.go:42` and `desktop/agent/internal/ipc/client_windows.go:32` were updated to pass `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`, but `desktop/installer/cmd/installer/main.go:103` was missed.
+
+**5. Evidence**  
+- Source: `desktop/installer/cmd/installer/main.go:55-63, 97-105, 381-407` vs `desktop/agent/internal/ipc/server_windows.go:327-339`.  
+- Also note: `OnuslySetup.exe` in production `https://onusly.duckdns.org/downloads/OnuslySetup.exe` (`13,160,960 bytes`) was compiled directly from `desktop/installer/cmd/installer` on `2026-11-26T20:03Z`.
+
+**6. Steps to reproduce**  
+1. Download and run `OnuslySetup.exe` on Windows.  
+2. Inspect agent logs (`%LOCALAPPDATA%\Onusly\...` or service logs) or notice the installer shows `"Open your dashboard to link your device"` without `?pairCode=` in the URL and `ping` always fails (attempting a duplicate `startDetachedDaemon` even if already running).
+
+**7. User and system impact**  
+1-click pairing in `OnuslySetup.exe` fails silently, never pre-filling `?pairCode=` in the browser and never completing `pair-poll` confirmation inside the installer.
+
+**8. Recommended resolution**  
+Reuse `desktop/agent/internal/ipc.Query(...)` (or pass `win.SECURITY_SQOS_PRESENT | win.SECURITY_IDENTIFICATION` and remove `net.Dial("unix", ...)` in `installer/main.go`), and consider whether `server_windows.go:337` should check `impLevel != 1 && impLevel != 2` or strictly enforce SQOS flags on all local IPC clients.
+
+**9. Verification criteria**  
+On Windows 10/11 QA VM, `OnuslySetup.exe` connects to `\\.\pipe\OnuslyAgentIPC`, obtains a 6-character pairing code, launches `https://onusly.duckdns.org/dashboard?pairCode=XXXXXX`, and displays `"ONUSLY Desktop Protection is now ACTIVE, PAIRED..."` after confirmation.
+
+**10. Related issues**  
+`WIN-002`, `WIN-003`
+
+---
+
+### [WIN-002] — `OnuslySetup.exe` Uses Unprivileged `HKCU` VBS Runner Instead of `LocalService` SCM Service, Breaking Anti-Tamper, DNS Privileges & Switcher Paths
+
+Severity: HIGH  
+Confidence: CONFIRMED (Static Source Analysis; NOT TESTED on live Windows VM)  
+Status: PARTIALLY FIXED — RUNTIME VERIFICATION PENDING (uninstaller + switcher paths fixed; full SCM/signing pending)  
+Component: Windows Installer, Service Architecture & Shield Toggle (`desktop/installer/cmd/installer/main.go`, `desktop/agent/cmd/paths_windows.go`, `desktop/agent/cmd/switcher/main.go`)  
+Environment: Windows 10/11  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+The Windows installer delivered on the website (`OnuslySetup.exe`) implements a completely different, unprivileged deployment topology than the Windows Service (`OnuslyDesktopAgent`) engineered in `desktop/core/windows/service_manager.go`, `install.ps1`, and `ONUSLY_Shield_Toggle.exe`.
+
+**2. Expected behavior**  
+Windows installation from `OnuslySetup.exe` should match the production security architecture: elevated install (`Program Files\Onusly`, `ProgramData\Onusly` ACL-locked to `LocalService` + Admins), `OnuslyDesktopAgent` registered as an auto-start `NT AUTHORITY\LocalService` Windows service with `SeDebugPrivilege` and failure recovery, consistent paths across agent/switcher/uninstaller, and an Add/Remove Programs uninstaller.
+
+**3. Actual behavior**  
+Inspecting `desktop/installer/cmd/installer/main.go:258-387` and `desktop/agent/cmd/paths_windows.go:16-50`:  
+1. `OnuslySetup.exe` has no UAC elevation manifest, installs to user-writable `%LOCALAPPDATA%\Onusly\bin`, creates NO SCM service, and starts `onusly-agent.exe` via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` -> `wscript.exe onusly-agent-silent.vbs` as the interactive user.  
+2. Any user can kill `onusly-agent.exe` in Task Manager (`End task`), delete the `%LOCALAPPDATA%\Onusly` folder, or disable `OnuslyDesktopAgent` in Task Manager -> Startup without administrator rights — contradicting Landing Page Rule 03 / FAQ ("can't bypass by restarting or closing background windows").  
+3. Modifying Windows adapter DNS (`netsh`/`Set-DnsClientServerAddress` in `adapter_windows.go`) and binding `127.0.0.1:53` fail or trigger failures without Administrator/Network Configuration Operator privileges.  
+4. Path split: `OnuslySetup.exe` passes `-config-dir %LOCALAPPDATA%\Onusly\config -data-dir %LOCALAPPDATA%\Onusly\data`, whereas `paths_windows.go`, `ONUSLY_Shield_Toggle.exe`, and `onusly-shield-toggle.bat` look in `C:\ProgramData\Onusly\...` and `C:\Program Files\Onusly\...`, so the 1-Click Switcher cannot locate the `OnuslySetup.exe` agent or `dns_backup.json`.  
+5. `OnuslySetup.exe` registers zero Add/Remove Programs (`HKLM\...\Uninstall`) entry and bundles no uninstaller. *(And unsigned PE executables trigger Windows SmartScreen warnings.)*
+
+**4. Why is it happening?**  
+`install.ps1` (intended for elevated PowerShell/SCM install) and `desktop/installer/cmd/installer/main.go` (quick standalone `.exe` bundler) diverged without sharing service installation logic (`WindowsServiceManager` in `desktop/core/windows/service_manager.go`).
+
+**5. Evidence**  
+- `desktop/installer/cmd/installer/main.go:258-388` (writes `.vbs` to `%LOCALAPPDATA%` + `HKCU\...\Run`, never calls `WindowsServiceManager` or `sc.exe`).  
+- `desktop/agent/cmd/paths_windows.go:16-50` vs `frontend/public/downloads/onusly-shield-toggle.bat:24,45` vs `desktop/agent/cmd/switcher/main.go`.  
+- `desktop/core/windows/service_manager.go:75-210` (implements full native SCM creation with `LocalService` + `SeDebugPrivilege`, unused by `OnuslySetup.exe`).
+
+**6. Steps to reproduce**  
+Inspect `desktop/installer/cmd/installer/main.go` vs `desktop/installer/windows/install.ps1` and `desktop/core/windows/service_manager.go`, or run `OnuslySetup.exe` on Windows and check `sc.exe query OnuslyDesktopAgent` (does not exist) and Task Manager (shows `onusly-agent.exe` running under user account, killable without UAC).
+
+**7. User and system impact**  
+- Desktop accountability enforcement is trivially bypassable by any standard user via Task Manager or deleting `%LOCALAPPDATA%\Onusly`.  
+- Machine-wide DNS Shield fails to configure Windows NICs without elevation.  
+- `ONUSLY_Shield_Toggle.exe` fails to find files installed by `OnuslySetup.exe`.
+
+**8. Recommended resolution**  
+Embed UAC elevation (`requireAdministrator` manifest or self-elevation) and wire `WindowsServiceManager.InstallServiceNative()` + `ApplyDirectoryACLs` + uninstaller registration directly into `OnuslySetup.exe` (matching `install.ps1`'s `Program Files\Onusly` & `ProgramData\Onusly` paths), and sign `OnuslySetup.exe`, `onusly-agent.exe`, and `ONUSLY_Shield_Toggle.exe` with an Authenticode certificate before public rollout.
+
+**9. Verification criteria**  
+Running `OnuslySetup.exe` on a clean Windows 11 VM prompts UAC once, installs to `C:\Program Files\Onusly`, creates `OnuslyDesktopAgent` under `NT AUTHORITY\LocalService`, prevents non-admin task termination/deletion, enables DNS Shield & Switcher against `C:\ProgramData\Onusly`, and uninstalls cleanly via Settings -> Installed Apps.
+
+**10. Related issues**  
+`WIN-001`, `WIN-003`, `WEB-003`
+
+---
+
+### [AWS-004] — Zero CloudWatch Alarms, Detailed Monitoring Disabled, Journal Logs PII Emails & `/metrics` Format Drift
+
+Severity: MEDIUM  
+Confidence: CONFIRMED  
+Status: PARTIALLY FIXED (PII emails redacted in hub.go; CW alarm setup script added)  
+Component: Observability & Logging (`eu-north-1` CloudWatch, `internal/realtime/hub.go`, `internal/metrics/metrics.go`)  
+Environment: Production (`i-0dfb8ec15543e8457`, `t3.micro`)  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+Production has zero CloudWatch metric or log alarms, EC2 detailed monitoring is disabled, `internal/realtime/hub.go:212` logs user email addresses and handles to `systemd` journal, and `/metrics` serves JSON despite documentation claiming Prometheus format.
+
+**2. Expected behavior**  
+1. Alarms on EC2 `StatusCheckFailed`, `CPUUtilization`, disk/memory pressure (via CloudWatch Agent), `nginx` 5xx spikes, and DynamoDB `ThrottledRequests` / `SystemErrors`.  
+2. Production logs must never emit raw user emails or PII (`userID` pseudonyms or hashed IDs only).  
+3. `/metrics` format should match documented monitoring scrapers or update documentation accurately.
+
+**3. Actual behavior**  
+- `aws cloudwatch describe-alarms --region eu-north-1` returns `MetricAlarms: [], CompositeAlarms: []`.  
+- `ec2 describe-instances` shows `Monitoring.State: disabled`, `InstanceType: t3.micro` (`913 MiB` RAM + `1 GiB` swap).  
+- `journalctl -u onusly` contains `email=<user-email> handle=<user-handle>` on every WebSocket connect (`internal/realtime/hub.go:212`).
+
+**4. Why is it happening?**  
+Alarms and CloudWatch Agent were never provisioned alongside EC2 setup; `hub.go:212` includes `c.email` and `c.handle` in `log.Printf`.
+
+**5. Evidence**  
+- AWS CLI outputs (`2026-11-27T02:01:25+05:30`).  
+- `internal/realtime/hub.go:212` and live `journalctl -u onusly` output.  
+- Live loopback `/metrics` JSON output (`2026-11-27T02:01:55+05:30`).
+
+**6. Steps to reproduce**  
+Run `aws cloudwatch describe-alarms --region eu-north-1`, `sudo journalctl -u onusly -n 50`, and `curl -H "Authorization: Bearer ..." http://127.0.0.1:8080/metrics` on EC2.
+
+**7. User and system impact**  
+Live incidents (such as `API-001` WebSocket timeouts, `PROOF-001` 404s, or 91% EBS disk fill) occur silently without operator alerting, while journal logs needlessly retain user PII emails.
+
+**8. Recommended resolution**  
+Create CloudWatch alarms + SNS email/Slack alert notifications, install CloudWatch Agent for memory/disk metrics, strip `email` and `handle` from `hub.go:212` logs, and align `/metrics` format with Prometheus or clarify docs.
+
+**9. Verification criteria**  
+`aws cloudwatch describe-alarms` lists active CPU, status-check, disk, and DynamoDB alarms; `journalctl -u onusly` contains zero email addresses.
+
+**10. Related issues**  
+`AWS-001`, `AWS-002`, `API-001`
+
+---
+
+### [SECURITY-003] — Missing HSTS Header, Dual JWT in `localStorage`, Broken `isAuthenticated()` Catch-Return, Android Plaintext Prefs Fallback & Legacy OAuth Client ID
+
+Severity: MEDIUM  
+Confidence: CONFIRMED  
+Status: PARTIALLY FIXED (HSTS, isAuthenticated, stale Client ID & Android release fail-closed fixed)  
+Component: Nginx Headers, Web Auth (`frontend/src/lib/auth.js`), Android Auth (`AuthManager.kt`), Backend Auth (`internal/auth/service.go`)  
+Environment: Production Web, Backend, Android  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+Several defense-in-depth weaknesses weaken session/transport posture across web, backend, and Android:  
+1. Live HTTPS responses on `https://onusly.duckdns.org/` omit `Strict-Transport-Security` (HSTS).  
+2. `frontend/src/lib/auth.js:58-67` writes the 7-day JWT into `localStorage` twice (`token` and `onusly_auth_token`) even though the backend issues an `HttpOnly` session cookie.  
+3. `frontend/src/lib/auth.js:135-139` catches JWT parse exceptions in `isAuthenticated()` and returns `true`, letting malformed non-JWT strings pass `ProtectedRoute`.  
+4. `android/.../AuthManager.kt:67-74` silently falls back to unencrypted `SharedPreferences` if `EncryptedSharedPreferences` throws a KeyStore error, persisting JWTs in plaintext XML.  
+5. `internal/auth/service.go:142-146` still trusts a hardcoded legacy Google Client ID (`316293252544-...`) from an older project alongside the active GCP project (`24284302254-*`), while omitting any explicit `GOOGLE_CLIENT_ID` restriction gate.
+
+**2. Expected behavior**  
+- Nginx HTTPS responses should send `Strict-Transport-Security: max-age=31536000; includeSubDomains`.  
+- Frontend should rely on the `HttpOnly` session cookie (with explicit extension handoff endpoint or short-lived scoped token if needed) and fail closed (`return false`) when a stored JWT cannot be parsed cleanly.  
+- Android `AuthManager` should fail closed / prompt re-authentication rather than storing bearer JWTs in unencrypted `SharedPreferences`.  
+- Backend `authorizedIDs` should be strictly configured from `GOOGLE_CLIENT_ID` without stale third-project client IDs.
+
+**3. Actual behavior**  
+Confirmed via live response headers (`curl -sI https://onusly.duckdns.org/` has no `strict-transport-security`) and direct source inspection.
+
+**4. Why is it happening?**  
+Nginx config omitted `HSTS` during migration from Cloudflare TLS defaults; frontend/extension bridging still reads `getToken()` from `localStorage`; Android test fallback was placed inside runtime `getSecurePreferences` catch blocks; `authorizedIDs` kept historical IDs.
+
+**5. Evidence**  
+- Live HTTP header capture (`2026-11-27T02:07+05:30`): no `strict-transport-security` header present on `/` or `/health`.  
+- `frontend/src/lib/auth.js:58-67, 117-140`.  
+- `android/app/src/main/java/com/onusly/app/data/auth/AuthManager.kt:57-76`.  
+- `internal/auth/service.go:141-155`.
+
+**6. Steps to reproduce**  
+1. Run `curl -sI https://onusly.duckdns.org/ | grep -i strict-transport` -> empty output.  
+2. Open DevTools Console on `/`, set `localStorage.setItem("token", "not-a-jwt")`, visit `/dashboard` -> `isAuthenticated()` returns `true` and renders `/dashboard`.
+
+**7. User and system impact**  
+Increases vulnerability to SSL stripping on first visit (no HSTS), expands XSS/extension-bug JWT theft impact (`localStorage` + plaintext Android fallback), and widens accepted OAuth token audiences.
+
+**8. Recommended resolution**  
+Add HSTS to Nginx HTTPS server blocks; fail closed in `auth.js` `isAuthenticated()` (check 3 segments + valid JSON + numeric `exp > now`); transition web API auth strictly to `HttpOnly` cookies (avoiding duplicate `localStorage` JWTs); restrict `AuthManager` unencrypted fallback to explicit test injection only; configure `GOOGLE_CLIENT_ID` explicitly in env without hardcoded stale project IDs.
+
+**9. Verification criteria**  
+`Strict-Transport-Security` header returned on all HTTPS routes; `localStorage.setItem("token","bad")` redirects cleanly back to `/` instead of rendering `/dashboard`; production `authorizedIDs` contains only active web/Android client IDs.
+
+**10. Related issues**  
+`SECURITY-001`, `SECURITY-002`
+
+---
+
+### [WEB-003] — Landing Page Advertises Unsupported macOS, Omits Android Download, Lacks `/privacy` & `/terms`, and Triggers `favicon.ico` 404s
+
+Severity: MEDIUM  
+Confidence: CONFIRMED  
+Status: FIXED AND VERIFIED  
+Component: Landing Page & Frontend Public Assets (`frontend/src/components/landing/`, `frontend/src/App.jsx`, `frontend/index.html`)  
+Environment: Production (`https://onusly.duckdns.org`)  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+1. `LandingEnforcers.jsx:75` claims ONUSLY works on **"Windows & Mac / Linux"**, whereas no macOS desktop agent exists in `desktop/`.  
+2. `LandingEnforcers.jsx:115` showcases phone locking, yet `LandingFooter.jsx:45-113` lists Windows, Chrome/Brave/Edge, Firefox, and 1-Click Switcher downloads while **omitting `onusly.apk`**.  
+3. Public `/privacy` and `/terms` routes do not exist (`App.jsx` `<Route path="*">` silently redirects to `/`), which blocks Google OAuth verification & Play Store policy compliance.  
+4. `/var/www/onusly/frontend/dist/favicon.ico` does not exist (only `/lock.svg` exists), generating `404` errors on requests to `/favicon.ico` (observed in live Chrome audit on `/goals` and live EC2 Nginx error logs).
+
+**2. Expected behavior**  
+Landing page claims must match supported OSes (Windows & Linux, with macOS marked coming soon if unbuilt); Android `.apk` should be accessible from the landing downloads section alongside Windows/Extension; `/privacy` and `/terms` should render real policy pages; `/favicon.ico` should resolve cleanly (`200 OK`).
+
+**3. Actual behavior**  
+Confirmed in headless Chrome (`browser_audit_result.json`), landing copy extraction, and live `curl -sI https://onusly.duckdns.org/favicon.ico` -> `HTTP/2 404`.
+
+**4. Why is it happening?**  
+Copy and footer cards were written ahead of macOS agent creation and Android `.apk` upload; `/favicon.ico` was omitted from `frontend/public/` while API error pages (plain text from Go) still trigger browser default `/favicon.ico` requests.
+
+**5. Evidence**  
+- `frontend/src/components/landing/LandingEnforcers.jsx:75`  
+- `frontend/src/components/landing/LandingFooter.jsx:45-113`  
+- `browser_audit_result.json:853-857, 966-983`  
+- EC2 Nginx error log (`2026-11-26T19:03:08Z`): `open() "/var/www/onusly/frontend/dist/favicon.ico" failed (2: No such file or directory)`  
+- Live `curl -sI https://onusly.duckdns.org/favicon.ico`: `HTTP/2 404`
+
+**6. Steps to reproduce**  
+Visit `https://onusly.duckdns.org/#enforcers`, `#downloads`, `/privacy`, `/terms`, and `https://onusly.duckdns.org/favicon.ico`.
+
+**7. User and system impact**  
+Mac visitors are misled into downloading incompatible installers; Android users cannot find the APK on the landing page without signing in first; Google OAuth / Play Console publication requires hosted Privacy Policy & Terms pages.
+
+**8. Recommended resolution**  
+Update `LandingEnforcers.jsx:75` to `"Windows & Linux"`, add an Android `.apk` card to `LandingFooter.jsx`, implement dedicated `/privacy` and `/terms` views linked in footer, and add `frontend/public/favicon.ico`.
+
+**9. Verification criteria**  
+`GET /favicon.ico` returns `200`, `/privacy` & `/terms` render policy content, and landing platform claims accurately reflect supported clients.
+
+**10. Related issues**  
+`WEB-001`, `WEB-002`
+
+---
+
+### [GOAL-001] — Goal `rejected` vs `active` State Contract Drift & Unapprovable Untargeted `community` Goals
+
+Severity: MEDIUM  
+Confidence: CONFIRMED  
+Status: FIXED AND VERIFIED  
+Component: Goals & Approval State Machine (`internal/approval/service.go`, `internal/goals/service.go`, `frontend/src/pages/Dashboard.jsx`, `Goals.jsx`)  
+Environment: Full Stack  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+1. Backend `approval/service.go:179-182` sets goal status to `"rejected"` upon proof rejection, while documentation (`AGENTS.md`, `README.md`) specifies `"active"`, `Goals.jsx:106` flips WS `goal.rejected` to `"active"`, `GoalDetail.jsx:188` flips it to `"rejected"`, and **`Dashboard.jsx:111, 173` checks ONLY `g.status === "active" || g.status === "proof_submitted"` — causing rejected goals to vanish from Dashboard `activeGoals` counter and `activeLockouts` list even though shields remain active!**  
+2. `goals/service.go:186-188, 530-534` still permits creating/updating untargeted goals with `approvalType == "community"` (`approverID = "COMMUNITY"`), while `Goal.IsApprover` (`models.go:83-85`) strictly rejects `"COMMUNITY"`.
+
+**2. Expected behavior**  
+Frontend, backend, and documentation should agree on whether a rejected goal has status `"rejected"` (with Dashboard `activeGoals`/`activeLockouts` including `"rejected"` alongside `"active"` & `"proof_submitted"`) or `"active"`. Untargeted `"community"` approval should either be disallowed (`friend` or `none` only per Phase 1 scope) or clearly handled without leaving permanently unapprovable goals.
+
+**3. Actual behavior**  
+A rejected goal's apps/sites stay blocked (`enforcement/service.go:170` blocks `"rejected"`), yet `Dashboard.jsx:111` excludes `"rejected"` from `activeGoals` count (`Active goals: 0`!) and hides it from the dashboard `activeLockouts` feed unless pinned! And any untargeted `community` goal cannot be approved by anyone.
+
+**4. Why is it happening?**  
+Partial deprecation of `"community"` mode and inconsistent migration between `"rejected"` vs `"active"` status names across `approval`, `goals`, and UI components.
+
+**5. Evidence**  
+- `internal/approval/service.go:179-182` (`goalStatus = "rejected"`)  
+- `internal/enforcement/service.go:170` (enforces `active`, `proof_submitted`, `rejected`)  
+- `frontend/src/pages/Dashboard.jsx:111, 173` (omits `"rejected"`!)  
+- `frontend/src/pages/Goals.jsx:106` vs `frontend/src/pages/GoalDetail.jsx:188`  
+- `internal/goals/service.go:186-188, 530-534` vs `internal/goals/models.go:83-85`
+
+**6. Steps to reproduce**  
+1. Review `Dashboard.jsx:111` & `173` against `approval/service.go:179`: when a partner rejects a goal's proof, its backend `status` becomes `"rejected"`, removing it from `activeLockouts` on the Dashboard home view while blocks remain enforced.  
+2. Send `POST /goals` with `{"title":"No Targets","approvalType":"community"}` -> succeeds (`201`) with `approverId: "COMMUNITY"`, which no partner can ever approve.
+
+**7. User and system impact**  
+Users whose proof was rejected lose visibility of the active lock on their Lock Desk (`Dashboard`) while sites/apps stay blocked, leading to confusion over why websites remain blocked.
+
+**8. Recommended resolution**  
+Include `"rejected"` in `Dashboard.jsx` `activeGoals`/`activeLockouts` (or show a distinct `Needs Resubmission` active badge), align `Goals.jsx:106` to `"rejected"` (and update `AGENTS.md`/`README.md` or normalize consistently), and reject `approvalType: "community"` in `goals/service.go` until Phase 2 quorum is built.
+
+**9. Verification criteria**  
+After proof rejection, goal remains visible in Dashboard active lockouts with clear resubmission prompt and enforced badge until re-submitted and approved.
+
+**10. Related issues**  
+`API-001`
+
+---
+
+### [API-002] — 13.1 MB Binary Downloads & 50 MB Uploads Proxied Through Go `:8080` with `30s` `WriteTimeout` and Disk Proxy Buffering
+
+Severity: MEDIUM  
+Confidence: CONFIRMED  
+Status: FIXED — RUNTIME VERIFICATION PENDING (Nginx direct downloads + Go SetWriteDeadline added)  
+Component: Go HTTP Server (`cmd/server/main.go`) & Nginx (`deploy/nginx/onusly.conf`)  
+Environment: Production (`https://onusly.duckdns.org`)  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+Large static installer/APK downloads (`/downloads/OnuslySetup.exe` `13.16 MB`, `onusly.apk` `2.68 MB`) and large proof uploads (`/uploads` up to `50 MB`) share Go's `http.Server` (`ReadTimeout: 30 * time.Second`, `WriteTimeout: 30 * time.Second`), and Nginx proxies `/downloads/` through `:8080` causing disk proxy buffering warnings.
+
+**2. Expected behavior**  
+Static `/downloads/` artifacts should be served directly by Nginx from disk (`alias` / `root` with proper MIME types and `sendfile on`) with zero Go goroutine or `30s` timeout involvement; proof uploads/streams should allow `http.ResponseController.SetWriteDeadline` / longer timeouts (`>= 120s`) matched to Nginx `proxy_read_timeout`.
+
+**3. Actual behavior**  
+Live Nginx error log (`2026-11-26T19:30:51Z`) recorded:
+`[warn] *314 an upstream response is buffered to a temporary file /var/lib/nginx/tmp/proxy/1/00/0000000001 while reading upstream, client: ..., request: "GET /downloads/OnuslySetup.exe HTTP/2.0", upstream: "http://127.0.0.1:8080/downloads/OnuslySetup.exe"`
+Measured live `onusly.apk` (`2.68 MB`) took `4.07s`; a `13.1 MB` `OnuslySetup.exe` over ~3.5 Mbps mobile tethering exceeds `30s` and will be abruptly severed mid-download by `cmd/server/main.go:860`.
+
+**4. Why is it happening?**  
+Nginx passes `/downloads/*` to `http://onusly_backend` (`cmd/server/main.go:298,859-860`), where Go enforces a hard 30-second socket read/write deadline.
+
+**5. Evidence**  
+- `cmd/server/main.go:281-298, 856-862`  
+- EC2 `/var/log/nginx/error.log` lines 378–379 (`2026-11-26 19:30:51Z`, `19:30:53Z`)  
+- Live timing probe: `onusly.apk` `2,678,547` bytes took `4.071s` (`~658 KB/s` from Asia/Kolkata; extrapolated `13.16 MB` ~20s, dangerously close to `30s`).
+
+**6. Steps to reproduce**  
+Throttle connection to <= 3 Mbps (e.g. Fast 3G) and download `https://onusly.duckdns.org/downloads/OnuslySetup.exe`, or inspect `/var/log/nginx/error.log` after downloading `.exe` artifacts.
+
+**7. User and system impact**  
+Slower-connection users fail mid-download of the Windows installer or timeout uploading 32–50 MB documents, while Nginx burns extra root EBS I/O buffering files from `:8080` to `/var/lib/nginx/tmp/proxy`.
+
+**8. Recommended resolution**  
+Serve `/downloads/` directly in Nginx (`location ^~ /downloads/ { alias /opt/onusly/frontend/public/downloads/; ... }` or sync into `/var/www/onusly/downloads/`) with MIME types for `.crx`, `.apk`, `.xml`, and `.exe`, and raise Go `ReadTimeout`/`WriteTimeout` or use per-handler `http.ResponseController` deadlines on `/uploads`.
+
+**9. Verification criteria**  
+`HEAD /downloads/OnuslySetup.exe` serves directly from Nginx with zero `upstream response is buffered` warnings in `error.log` and succeeds under bandwidth throttling > 30s.
+
+**10. Related issues**  
+`AWS-001`, `PROOF-001`
+
+---
+
+### [WIN-003] — Native Host Windows Pipe Default Order (`OnuslyDesktopPipe` First) Adds Latency & `install.ps1` Targets Dead `api.onusly.com`
+
+Severity: MEDIUM  
+Confidence: CONFIRMED (Static Source Analysis)  
+Status: FIXED — RUNTIME VERIFICATION PENDING (GOOS=windows test compiled cleanly)  
+Component: Windows Native Host (`desktop/native-host/dial_windows.go`) & PS1 Installer (`desktop/installer/windows/install.ps1`)  
+Environment: Windows 10/11  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+1. `desktop/native-host/dial_windows.go:17-18` still sets `DefaultWindowsIPCPath = \\.\pipe\OnuslyDesktopPipe` and `FallbackWindowsIPCPath = \\.\pipe\OnuslyAgentIPC`, whereas `server_windows.go` listens ONLY on `\\.\pipe\OnuslyAgentIPC`. Every native-host IPC call loops on `OnuslyDesktopPipe` up to `900ms` before trying `OnuslyAgentIPC`.  
+2. `desktop/installer/windows/install.ps1:6-7` hardcodes defaults `$ApiUrl = "https://api.onusly.com"` and `$UpdateUrl = "https://api.onusly.com/downloads/updates.xml"`, and `desktop/installer/cmd/installer/main.go:35-36` defaults standalone `go build` without ldflags to `https://api.onusly.com` / `https://onusly.com`.
+
+**2. Expected behavior**  
+`dial_windows.go` should try `\\.\pipe\OnuslyAgentIPC` first (matching `server_windows.go`, `paths_windows.go`, and `installer/main.go`) and fall back to `OnuslyDesktopPipe`; `install.ps1` and `installer/main.go` defaults should match live `https://onusly.duckdns.org` (or require explicit configuration in CI).
+
+**3. Actual behavior**  
+Up to 900ms wasted per Chrome extension -> Native Host call (`ONUSLY_DESKTOP_STATUS`, `SYNC`, `PAIR_REQUEST`, `PAIR_POLL`), and running `install.ps1` without overriding parameters installs an agent pointing to unreachable `api.onusly.com`. *(Also `dial_windows.go` omits a read deadline on `ProcReadFile`, so a wedged agent pipe would hang the native-host child process.)*
+
+**4. Why is it happening?**  
+Pipe order normalization was applied in `installer/main.go` and `paths_windows.go`, not in `dial_windows.go`; `install.ps1` defaults predate DuckDNS migration.
+
+**5. Evidence**  
+- `desktop/native-host/dial_windows.go:17-18, 52-78`  
+- `desktop/installer/windows/install.ps1:6-7`  
+- `desktop/installer/cmd/installer/main.go:35-36`
+
+**6. Steps to reproduce**  
+Inspect `desktop/native-host/dial_windows.go:17-82` vs `desktop/agent/internal/ipc/server_windows.go:20`, and `desktop/installer/windows/install.ps1:6-7`.
+
+**7. User and system impact**  
+Sluggish dashboard agent status/pairing responses (~1s+ overhead per call) and broken agent connectivity if installed via `install.ps1` defaults.
+
+**8. Recommended resolution**  
+Swap `DefaultWindowsIPCPath` and `FallbackWindowsIPCPath` in `dial_windows.go`, add bounded overlapped read timeout, and update `install.ps1` / `installer/main.go` fallback defaults to `https://onusly.duckdns.org`.
+
+**9. Verification criteria**  
+Native host connects immediately on `\\.\pipe\OnuslyAgentIPC` without retry delay; `install.ps1` defaults resolve cleanly against production.
+
+**10. Related issues**  
+`WIN-001`, `WIN-002`
+
+---
+
+### [PERF-001] — Large Unsplit `685 KB` JS Bundle & `650–943ms` Cross-Region TTFB Without Edge CDN
+
+Severity: LOW  
+Confidence: CONFIRMED  
+Status: PARTIALLY FIXED (React.lazy splits main bundle to 298.54 KB; CloudFront CDN pending)  
+Component: Frontend Vite Build & Network Edge (`frontend/`, `eu-north-1` direct origin)  
+Environment: Production (`https://onusly.duckdns.org`)  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+1. Vite outputs all frontend JS (Three.js/3D lock, Google OAuth, Recharts/Lucide, pages) into a single `685 KB` (`180.9 KB` gzip) bundle (`index-*.js`), emitting a `>500 kB` chunk warning and noting ineffective dynamic import of `api.js`.  
+2. Direct origin hosting in Stockholm (`eu-north-1`) with no CDN yields `650–943ms` TTFB from Asia/Kolkata.
+
+**2. Expected behavior**  
+Route-level `React.lazy` splitting keeps the public landing chunk small (excluding Workspace/Recharts/3D-heavy dashboard code from initial download), and static/SPA edge caching reduces global TTFB below 200ms.
+
+**3. Actual behavior**  
+Observed in Vite build (`index-Dfh1WGvL.js: 700.28 kB`, `index-Bbk8n8G-.js: 700.49 kB` uncompressed / `180.9 KB` gzip) and live curl timings (`2026-11-27T02:07+05:30`: `/` TTFB `0.943s`, `/health` TTFB `0.656s`). Desktop Chrome CWV stayed within budget (`LCP 1.816s`, `CLS 0.0016`, `DOMContentLoaded 1.724s`), though mobile/3G users download the full workspace JS before landing interactivity.
+
+**4. Why is it happening?**  
+`frontend/src/App.jsx` imports all authenticated pages (`Dashboard`, `Goals`, `GoalDetail`, `Communities`, `ApprovalCenter`, `DigitalWellbeing`) eagerly, and `onusly.duckdns.org` points directly to EC2 `13.49.49.2` with no CDN/edge proxy.
+
+**5. Evidence**  
+- Vite build output (`vite v8.3.8`)  
+- Chrome CDP navigation/CWV output (`browser_audit_result.json`)  
+- `curl -w` timing measurements (`2026-11-27T02:07+05:30`)
+
+**6. Steps to reproduce**  
+Run `cd frontend && npm run build` and `curl -w "ttfb=%{time_starttransfer}\n" -o /dev/null -s https://onusly.duckdns.org/`.
+
+**7. User and system impact**  
+Higher initial parse/download payload on low-end mobile devices and ~0.7–0.9s TTFB overhead outside Europe.
+
+**8. Recommended resolution**  
+Use `React.lazy` + `Suspense` for authenticated pages (`Dashboard`, `Communities`, `DigitalWellbeing`, `ApprovalCenter`), standardize static `api.js` imports, and enable CDN/Cloudflare caching once a custom domain is attached.
+
+**9. Verification criteria**  
+Vite builds with zero `>500 kB` chunk warnings and landing JS payload drops below 200 KB uncompressed (~60 KB gzip).
+
+**10. Related issues**  
+`WEB-002`, `API-002`
+
+---
+
+### [INFO-001] — Untracked Historical Artifacts on Dev Host & Config Backup Clutter on EC2
+
+Severity: INFORMATIONAL  
+Confidence: CONFIRMED  
+Status: PARTIALLY FIXED (favicon.ico added; deploy_setup_ec2 backup/cache pruning updated)  
+Component: Repository Root & `/etc/nginx/conf.d/`  
+Environment: Local Dev (`/home/devansh/onusly`) & EC2  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+Developer workspace root contains untracked historical files (`onusly-server` 31 MB Nov 6, `server.log`, `local_goals_fallback.json`, `setup_edge_extension.bat`), and EC2 `/etc/nginx/conf.d/` accumulates `onusly.conf.bak.*` alongside `/opt/onusly/server.bak.*`.
+
+**2. Expected behavior**  
+Only intended runtime artifacts exist on EC2 (bounded backup retention) and developer root remains clean.
+
+**3. Actual behavior**  
+`ls -la` on dev and EC2 shows multiple stale/untracked artifacts (`setup_edge_extension.bat` duplicates `/downloads/ONUSLY_Setup_Edge.bat`).
+
+**4. Why is it happening?**  
+Manual local server runs prior to `deploy/` automation and unbounded `.bak.<timestamp>` creation in `setup_ec2.sh`.
+
+**5. Evidence**  
+Directory listings in Phase 1 (`ls -la` local and EC2 `/etc/nginx/conf.d/`, `/opt/onusly/`).
+
+**6. Steps to reproduce**  
+Run `ls -la /home/devansh/onusly` and `ssh ... ls -la /etc/nginx/conf.d /opt/onusly`.
+
+**7. User and system impact**  
+Confusion during ops triage and unnecessary disk growth (`AWS-001`).
+
+**8. Recommended resolution**  
+Prune old `.bak.*` files in `setup_ec2.sh`, move nginx backups outside `/etc/nginx/conf.d/`, and archive/clean stale untracked local artifacts.
+
+**9. Verification criteria**  
+At most 2 rolling backup binaries in `/opt/onusly` and zero `.bak` files in `/etc/nginx/conf.d/`.
+
+**10. Related issues**  
+`AWS-001`
+
+---
+
+### [INFO-002] — Minor Desktop Hero Image Overflow & Decorative `alt=""` Images Reported by Automated DOM Audit
+
+Severity: INFORMATIONAL  
+Confidence: CONFIRMED  
+Status: NOT A BUG — INVESTIGATED (intentional desktop hero bleed; zero scroll overflow)  
+Component: Landing Page (`LockFilm.jsx`, `lock.css`)  
+Environment: Production (`https://onusly.duckdns.org`) at `1440x900` / `1280x800`  
+Affected versions or commits: `db9cb11`
+
+**1. What is the issue?**  
+On `1440x900` and `1280x800`, headless Chrome bounding-rect inspection flagged two `<img>` elements extending `17–37px` past the viewport right edge (`right: 1457` on `1440px`, `right: 1311` on `1280px`) due to `scale(var(--push, 1.04))` inside `.film-screen` (`overflow:hidden`), and 3 `film-layer` images with `alt=""` inside `<div className="film-screen" aria-hidden="true">`.
+
+**2. Expected behavior**  
+`scrollWidth === innerWidth` (`1430` observed vs `1440` due to 10px scrollbar gutter; `.film-layer img` transform stays contained), and decorative background images remain explicitly `aria-hidden="true"` / `alt=""`.
+
+**3. Actual behavior**  
+Documented in `browser_audit_result.json`; `.film-screen` properly sets `overflow:hidden` and `aria-hidden="true"`, so desktop visual rendering is unaffected (`overflowX: false`), unlike mobile (`WEB-002`).
+
+**4. Why is it happening?**  
+CSS scale transform `--push: 1.04+` expands the image bounding client rect inside `overflow:hidden`, and empty `alt=""` was flagged by generic image audit selector.
+
+**5. Evidence**  
+`browser_audit_result.json:10-49`, `frontend/src/components/LockFilm.jsx:51-52`, `frontend/src/components/film.css:4,7`.
+
+**6. Steps to reproduce**  
+Inspect `landing-desktop-1440.png` and query `img.getBoundingClientRect().right` in DevTools.
+
+**7. User and system impact**  
+Negligible visual impact on desktop; `alt=""` on `aria-hidden="true"` decorative backgrounds is WCAG-valid, though keeping `overflow-x: clip` prevents stray element rect expansion.
+
+**8. Recommended resolution**  
+No urgent change required on desktop; ensure `.film-stage` / `main` enforces `overflow-x: clip` if additional animations are added.
+
+**9. Verification criteria**  
+Zero overflowing element bounding rects reported on desktop.
+
+**10. Related issues**  
+`WEB-002`
+
+---
+
+## F. Real-User Journey Results
+
+| Journey | Role | Actions Performed | Expected Result | Actual Result | Verdict | Evidence / Issues |
+|---|---|---|---|---|---|---|
+| Landing page desktop & laptop (`1440x900`, `1280x800`) | Anonymous User | Load `/`, check images, CTAs, interactive tabs, FAQ accordion, footer downloads, console/network | Clean load, zero console/network errors, accurate claims | Loads cleanly (`LCP 1.82s`, `CLS 0.0016`, 0 console errors), **but** claims unsupported Mac support (`LandingEnforcers.jsx`), omits Android `.apk` link, and `/favicon.ico` returns 404 | **FAIL** (Minor/Med copy & favicon issues) | `browser_audit_result.json`, `landing-desktop-1440.png`, `WEB-003`, `INFO-002` |
+| Landing page mobile (`390x844`, `320x700`) | Anonymous User | Render `/` at mobile and narrow mobile viewports | Responsive single-column layout fitting exact viewport width | Layout widens to `523px`, creating wide right black void and colliding header nav (`ONUSLYMechanism`) | **FAIL** | `landing-mobile-390.png`, `landing-narrow-320.png`, `WEB-002` |
+| Google OAuth Sign-In Entry (`GET /auth/google/login` & GSI Modal) | Anonymous User | Click `Sign in`, verify Google GSI iframe renders, probe `GET /auth/google/login` | GSI button renders; `/auth/google/login` sets `oauth_state` HttpOnly cookie & redirects cleanly | Google GSI button rendered (`hasGsiButton: true`); `/auth/google/login` returned `302` to Google with `oauth_state` cookie (`HttpOnly; Secure; SameSite=Lax`) | **PASS** (Redirect & modal render; full interactive OAuth completion blocked without QA test Google account) | `browser_audit_result.json`, `task-1157` OAuth probe |
+| Unauthenticated SPA Route Guard & Deep Linking | Anonymous User | Navigate directly to `/dashboard`, `/goals`, `/goals/id`, `/approvals`, `/friends`, `/communities`, `/wellbeing`, `/settings`, `/auth` | SPA loads & redirects signed-out user cleanly to `/` | `/dashboard` and `/settings` redirect to `/`. **`/goals`, `/goals/*`, `/approvals`, `/friends`, `/communities`, `/wellbeing`, `/auth` hit Go directly (`401` / `404` raw text)** | **FAIL** | `browser_audit_result.json`, `WEB-001` |
+| Download Client Artifacts (`/downloads/*`) | Anonymous / Desktop / Android User | Fetch headers/availability for `.exe`, `.zip`, `.crx`, `.xml`, `.apk`, `.bat` | HTTP 200 valid MIME/payloads | All 9 artifacts return `HTTP 200`; proxied through Go `:8080` causing `WriteTimeout` risk & Nginx disk temp buffer warnings | **PASS (Availability) / FAIL (Perf/Timeout)** | `task-1157`, `/var/log/nginx/error.log`, `API-002` |
+| Authenticated Dashboard & Goal Lifecycle (Account A) | Goal Owner | Create goal, edit, pin, submit proof, verify WebSocket unlock | Goals load, WS stays connected, PNG/JPG proof loads, unlock releases lock | **Blocked for interactive click-through** (no QA OAuth credentials), **CONFIRMED BROKEN via code + live EC2 diagnostics**: WS drops at 6s (`4403`), PNG/JPG proofs 404, refresh on `/goals` breaks, rejected goals hidden from Dashboard lockouts | **BLOCKED / CONFIRMED FAILURES** | `API-001`, `PROOF-001`, `WEB-001`, `GOAL-001`, `AWS-003` |
+| Partner Approval Workflow (Account A -> Account B) | Owner -> Approver | Account B reviews proof in Approval Center, approves/rejects | Pending item appears, proof photo renders, decision commits atomically, owner notified live | **Blocked for interactive click-through** (no QA Account A/B credentials). Backend `approval.Decide` transaction verified solid in code, **but** live PNG/JPG proof inspection (`PROOF-001`) and live WS notification (`API-001`) fail | **BLOCKED / PARTIAL FAIL** | `PROOF-001`, `API-001`, `GOAL-001` |
+| Community, Friends, Chat & Notifications | Account A <-> Account B | Friend requests, community join, DM/community chat, unread badges | Messages persist & deliver live | **Blocked** (no QA Account A/B tokens). WS live chat delivery fails in production (`API-001`) | **BLOCKED / CONFIRMED WS FAIL** | `API-001` |
+
+---
+
+## G. Windows Audit Results
+
+> **Execution Scope Notice:** No Windows VM or dedicated Windows test host was present in the audit environment (`virsh list --all` empty). **Zero Windows runtime tests executed during this audit.** All findings below are from static source inspection (`desktop/...`, `scripts/...`) and cross-compile verification (`GOOS=windows GOARCH=amd64 go vet ./desktop/...` prior to audit). Runtime Windows verification is explicitly marked **NOT TESTED**.
+
+- **Installer (`desktop/installer/cmd/installer/main.go`, `desktop/installer/windows/install.ps1`):**
+  - Static check: Divergent installers (`OnuslySetup.exe` vs `install.ps1`). `OnuslySetup.exe` lacks UAC elevation, installs to `%LOCALAPPDATA%\Onusly\bin`, creates no SCM service, passes wrong pipe flags (`WIN-001`), and omits Add/Remove Programs uninstall registration (`WIN-002`). `install.ps1` defaults to unreachable `api.onusly.com` (`WIN-003`). Live execution: **NOT TESTED**.
+- **Service (`desktop/core/windows/service_manager.go`, `desktop/agent/cmd/runner_windows.go`):**
+  - Static check: `WindowsServiceManager` properly configures `NT AUTHORITY\LocalService`, `SERVICE_SID_TYPE_UNRESTRICTED`, `SeChangeNotifyPrivilege` + `SeDebugPrivilege`, and restart recovery actions (`5s`/`10s`), **but is never invoked by `OnuslySetup.exe`** (`WIN-002`). Live execution: **NOT TESTED**.
+- **Service Security & DPAPI (`desktop/core/windows/acl.go`, `desktop/agent/internal/ipc/server_windows.go`):**
+  - Static check: `server_windows.go` enforces session ID matching, `ImpersonateNamedPipeClient`, `RevertToSelf`, SID comparison, and `LocalFree(pSD)`. Strict `impLevel != 1` check breaks `OnuslySetup.exe` (`WIN-001`). Unprivileged `HKCU` mode installed by `OnuslySetup.exe` eliminates service isolation (`WIN-002`). Live execution: **NOT TESTED**.
+- **Device Identity & Pairing (`desktop/agent/internal/auth/`, `desktop/agent/internal/identity/`):**
+  - Static check: Two-phase pairing & DPAPI token storage (`token.dat`) exist cleanly in code, though standalone user-mode DPAPI tokens (`%LOCALAPPDATA%`) are incompatible with `LocalService` DPAPI (`ProgramData`). Live execution: **NOT TESTED**.
+- **Native Messaging (`desktop/native-host/main.go`, `dial_windows.go`, `installer/main.go`):**
+  - Static check: Allowlist updated (`ping`, `get-status`, `sync`, `pair-request`, `pair-poll`; rejects `dns-enable`/`dns-restore`). However, `dial_windows.go:17` still defaults to `\\.\pipe\OnuslyDesktopPipe` before falling back to `\\.\pipe\OnuslyAgentIPC` (`WIN-003`), wasting 900ms per request, and lacks a read deadline. Live execution: **NOT TESTED**.
+- **Browser Compatibility (`extension/manifest.json`, `desktop/policy/windows_policy.go`, `ONUSLY_Setup_Edge.bat`):**
+  - Static check: Manifests registered for Chrome, Edge, Brave, Chromium, Firefox. Extension unit tests (`140/140`) pass on Node. Live Windows Chrome/Edge/Brave/Firefox tests: **NOT TESTED**.
+- **Enforcement, Offline Behavior, Recovery, DNS & Performance (`desktop/agent/internal/apps/`, `dns/`, `cache/`):**
+  - Static check: `matcher.go` protects critical Windows binaries (`csrss.exe`, `lsass.exe`, `explorer.exe`, `taskmgr.exe`, `onusly-agent.exe`), skips path-scoped Shorts rules in DNS (`policy.go`), and refuses stale disk cache when unpaired (`syncer.go`). However, without Administrator/`LocalService` elevation in `OnuslySetup.exe` installs, DNS interface mutations (`adapter_windows.go`) and anti-tamper persistence fail (`WIN-002`), and `ONUSLY_Shield_Toggle.exe` checks `C:\ProgramData\Onusly` instead of `%LOCALAPPDATA%\Onusly`. Sustained Windows CPU/RAM/DNS recovery: **NOT TESTED**.
+- **Uninstall (`desktop/installer/windows/uninstall.ps1`, `OnuslySetup.exe`):**
+  - Static check: `OnuslySetup.exe` creates no uninstaller; `uninstall.ps1` only tears down `Program Files`/`ProgramData` SCM installs (`WIN-002`). Live execution: **NOT TESTED**.
+
+---
+
+## H. AWS and Production Audit Results
+
+- **EC2 (`i-0dfb8ec15543e8457`, `eu-north-1b`):**
+  - `t3.micro` (1 vCPU core / 2 threads, `913 MiB` RAM, `1.0 GiB` `/swapfile` — 25.6 MiB used), Amazon Linux 2023 (`kernel 6.18.48`).
+  - Public IP `13.49.49.2`, Private IP `172.31.45.43`, VPC `vpc-02cef9ea8f02dc089`, Subnet `subnet-07c18b6333f25750e`.
+  - IMDSv2 (`HttpTokens: required`, `HttpPutResponseHopLimit: 2`) verified working.
+- **IAM (`onusly-ec2-backend-role`):**
+  - Attached cleanly via instance profile `AIPAZGE5J6YHIXTXJ4KSE`; `aws sts get-caller-identity` resolves `arn:aws:sts::631690098190:assumed-role/onusly-ec2-backend-role/i-0dfb8ec15543e8457`. Trust policy restricts AssumeRole to `ec2.amazonaws.com`.
+  - Backend uses instance role credentials (zero static AWS keys in `/etc/onusly/onusly.env`).
+  - `iam:ListAttachedRolePolicies` / `ListRolePolicies` denied on `devansh-local`, so exact attached live IAM policy JSON on AWS could not be read (`BLOCKED`), though `deploy/aws/ec2_dynamodb_policy.json` notably permits `dynamodb:Scan` on the entire `Onusly` table and omits explicit `dynamodb:ConditionCheckItem` documentation.
+- **Networking & Security Groups (`sg-0683c679c7dae25d2` — `launch-wizard-1`):**
+  - Inbound: TCP `22` restricted to `203.92.58.30/32`; TCP `80` and `443` open to `0.0.0.0/0` (direct origin access, no Cloudflare WAF/CDN shield). Outbound: `-1` all to `0.0.0.0/0`.
+- **EBS (`vol-087b33f32d9b0d6ca`):**
+  - `8 GiB` `gp3`, `3000 IOPS`, `DeleteOnTermination: true`, **`Encrypted: false`**, **`91%` used (`810 MB` free)** (`AWS-001`).
+- **DynamoDB (`Onusly`, `eu-north-1`):**
+  - Status `ACTIVE`, `PAY_PER_REQUEST`, `1,257` items, `2,593,672` bytes (~`2.59 MB`).
+  - Keys: `PK` (HASH), `SK` (RANGE); `GSI1` (`GSI1PK`/`GSI1SK`) `ACTIVE`, `GSI2` (`GSI2PK`/`GSI2SK`) `ACTIVE`.
+  - PITR: `ENABLED` (35-day recovery window, restorable continuously up to current timestamp). SSE: default AWS-owned (`null`). ThrottledRequests: `[]` (last 6h).
+  - Repository issues found (`AWS-003`): full-table `Scan` fallback in `goals/repository.go:185`, `800ms` timeouts + swallowed DB errors in `enforcement`/`proof`/`approval`, and `200 []` error masking in `GET /goals`.
+- **SQS:**
+  - `proof-events` and `approval-events` queues do **not exist** (`NonExistentQueue`), and `PROOF_EVENTS_QUEUE_URL` / `APPROVAL_EVENTS_QUEUE_URL` are unset; production runs on `MemoryQueue` (`AWS-002`).
+- **Nginx (`1.30.4`):**
+  - `/etc/nginx/conf.d/onusly.conf` proxies `/ws`, `/goals|auth|...|uploads|approvals|downloads` -> `127.0.0.1:8080`, serves SPA from `/var/www/onusly/frontend/dist`.
+  - Critical bugs: intercepts `.png/.jpg/.jpeg/.gif` under `/uploads/proofs/` -> `404` (`PROOF-001`), intercepts SPA page routes (`WEB-001`), omits HSTS (`SECURITY-003`), buffers `OnuslySetup.exe` to temp disk (`API-002`).
+- **TLS & DNS:**
+  - `onusly.duckdns.org` resolves directly to `13.49.49.2`.
+  - Let's Encrypt certificate (`CN=onusly.duckdns.org`, issuer `Let's Encrypt YE2`, valid `Nov 25 2026` to `Feb 23 2027`) matches private key, `certbot-renew.timer` is `enabled`/`active`, TLS 1.2/1.3 configured, port 80 redirects `301` to HTTPS.
+- **Backend Service (`onusly.service`), Logs, Monitoring, Backups & Recovery:**
+  - Running `/opt/onusly/server` (commit `db9cb11`) as `ec2-user` on `127.0.0.1:8080`, `Memory: 29.4M`, `LimitNOFILE=65536`, `NoNewPrivileges=true`. `onusly-keepwarm.timer` fires every 5 minutes and warms DynamoDB/Nginx.
+  - Monitoring gaps: zero CloudWatch alarms, `Detailed Monitoring` off, `journalctl` emits raw user email/handle on WS connects (`AWS-004`). `/health/warm` and `/metrics` are properly blocked externally (`403` by Nginx).
+
+---
+
+## I. Security Findings
+
+- **Verified Vulnerabilities / Weaknesses:**
+  1. `[SECURITY-001]` (**CRITICAL**): `GET /uploads/` verifies valid JWT only, permitting cross-user access to `/uploads/proofs/<filename>` for non-Nginx-blocked extensions (`.webp`, `.pdf`, `.txt`) without goal ownership or approver verification.
+  2. `[SECURITY-002]` (**HIGH**): `RequireUserToken` and `RequireDeviceToken` middleware are unwired in `cmd/server/main.go`, enabling 30-day `device` JWTs to call user-plane endpoints (`POST /goals`, `DELETE /goals`, `POST /auth/revoke-all`, `POST /.../approval`); `Revoke All Sessions` skips `device` tokens and fails open on validator DB errors; `GetBlocklist` misses `X-Device-ID` revocation on user JWTs.
+  3. `[SECURITY-003]` (**MEDIUM**): Missing `Strict-Transport-Security` header; 7-day JWT persisted twice in browser `localStorage` despite `HttpOnly` cookie; `auth.js` `isAuthenticated()` catches decode errors and returns `true`; Android `AuthManager` falls back to plaintext `SharedPreferences` on KeyStore failure; legacy unused GCP Client ID `316293252544-...` trusted in `internal/auth/service.go`.
+  4. `[WIN-002]` (**HIGH**): `OnuslySetup.exe` launches an unprivileged user-session VBS runner under `HKCU\...\Run`, allowing trivial Task Manager kill or folder deletion without admin elevation.
+  5. `[AWS-004]` (**MEDIUM**): User email addresses and handles logged in plaintext to systemd journal on WebSocket connect (`internal/realtime/hub.go:212`).
+- **Verified Sound Security Controls:**
+  - `/health/warm` (`403`) and `/metrics` (`403`) blocked externally by Nginx; Go refuses non-loopback bind without `ALLOW_INSECURE_BIND=true`.
+  - Unauthenticated `/goals`, `/approvals/inbox`, `/users/me`, `/notifications`, `/friends`, `/wellbeing/summary`, `/enforcement/desktop/status` all enforce `401`.
+  - CORS `OPTIONS` from `https://evil-attacker.example` properly rejected (`403`).
+  - `GET /auth/google/login` sets CSRF `oauth_state` cookie (`HttpOnly; Secure; SameSite=Lax`).
+  - Backend `/uploads/` applies strict `sandbox; script-src 'none'` CSP and content MIME sniffing; `Goal.IsApprover` & `approval.Service.Decide` enforce owner/approver isolation and atomic conditional transitions (`TransactWriteItems`).
+- **Areas Not Conclusively Runtime-Tested:**
+  - Cross-account live API exploits (IDOR tests with two live signed-in QA accounts A & B) were deferred per safety rules (no designated QA OAuth accounts available); verified via source inspection.
+  - Windows pipe impersonation & ACL security boundaries verified statically only (`NOT TESTED` on live Windows host).
+
+---
+
+## J. Performance and Reliability
+
+Measured between `2026-11-27T02:00+05:30` and `2026-11-27T02:08+05:30` (`2026-11-26T20:30–20:38Z`) from client host in India against `https://onusly.duckdns.org` (`eu-north-1b` origin) and directly on `i-0dfb8ec15543e8457`:
+
+- **Landing Page Core Web Vitals (Desktop Chrome `1440x900`):**
+  - `LCP`: **1816 ms** (Target `<= 2500 ms` — **PASS**)
+  - `CLS`: **0.0016** (Target `<= 0.1` — **PASS**)
+  - `DOMContentLoaded` / `Load`: **1724 ms**
+  - `TTFB` (cold first request): **790 ms** (CDP nav entry) / **943 ms** (`curl`)
+  - `INP`: Not measured for authenticated SPA interactions (0 interactive clicks on logged-in workspace; FAQ/sample tabs responsive locally).
+- **Live HTTP Endpoint Latencies (`curl -w`, TLS handshake included):**
+  - `GET /`: `http=200`, `dns=0.332s`, `tls=0.744s`, `ttfb=0.943s`, `total=0.944s`, `size=1,061 B`
+  - `GET /health`: `http=200`, `ttfb=0.656s`, `total=0.656s`, `size=16 B`
+  - `GET /goals` (unauth): `http=401`, `ttfb=0.650s`, `total=0.650s`, `size=29 B`
+  - `GET /downloads/onusly.crx`: `http=200`, `ttfb=0.704s`, `total=1.154s`, `size=41,208 B`
+  - `GET /downloads/onusly.apk`: `http=200`, `ttfb=0.668s`, `total=4.071s`, `size=2,678,547 B`
+- **Built Frontend Asset Sizes (`vite v8.3.8`):**
+  - `index-*.js`: `685 KB` (`~180.9 KB` gzip) — exceeds Vite 500 KB chunk limit (`PERF-001`)
+  - `index-*.css`: `109 KB` (`~19.5 KB` gzip)
+  - WebP landing images: `lock-assembly` `198 KB`, `film-engaged` `83 KB`, `film-released` `70 KB`, `film-review` `57 KB`.
+- **EC2 Utilization & Uptime (`20:29:43Z` on `i-0dfb8ec15543e8457`):**
+  - System uptime: `10 days, 2:47` (latest deploy restart at `20:03:17Z`).
+  - RAM: `178 MiB` used / `913 MiB` total (`586 MiB` available; `onusly` Go server `29.4M`, `nginx` `6.4M`); Swap: `25.6 MiB` used / `1.0 GiB`.
+  - Disk: **`7.2 GiB / 8.0 GiB` (`91%` used, `810 MiB` free)** (`AWS-001`).
+  - CloudWatch EC2 CPUUtilization (past 2h): ~`0.28%–0.54%` idle baseline, peaking at `23.6%` during deployment compilation at `01:26 IST` (`19:56Z`).
+  - DynamoDB `ThrottledRequests`: `0` datapoints over last 6h.
+- **Reliability Failures Observed:**
+  - 100% live WebSocket auth timeout rate (`API-001`).
+  - 100% live 404 failure on `.png/.jpg/.jpeg/.gif` uploads (`PROOF-001`).
+  - Volatile in-memory event queue (`AWS-002`) and silent repository DB error masking (`AWS-003`).
+
+---
+
+## K. Not Tested and Blocked Items
+
+| Area | Reason Blocked / Not Tested | Impact on Confidence |
+|---|---|---|
+| Authenticated Web User Journeys (Create/Edit/Delete Goal, Proof Upload/Submit, Approval Inbox Approve/Reject, Community/DM Chat, Notification Feed) | No designated QA Account A / QA Account B Google OAuth credentials or pre-minted QA tokens available; live real-user accounts were strictly avoided per Section 3 safety rules. | Backend/frontend state machines inspected via code + live EC2 logs (`API-001` & `PROOF-001` independently confirmed); full authenticated browser click-through remains `BLOCKED BY ENVIRONMENT`. |
+| Live Windows Desktop Installation, Service, DPAPI, Named Pipe Runtime, Task Manager Kill Resistance & DNS Shield | No dedicated Windows 10/11 VM or test machine attached (`virsh list --all` empty); host is Fedora Linux. | Critical Windows IPC flag defect (`WIN-001`) and privilege architecture gap (`WIN-002`) confirmed via source/installer analysis; actual Windows OS runtime remains `NOT TESTED`. |
+| Live Multi-Browser Windows Extension E2E (Chrome/Edge/Brave/Firefox unpacked/enterprise load + Native Host spawn) | Blocked by absence of Windows QA VM and Chrome Web Store / live browser GUI session. | Manifest & bridge logic verified statically and via 140 JS unit tests; live Windows browser IPC spawn remains `NOT TESTED`. |
+| Live Android Device Enforcement (Accessibility Service, `OnuslyDnsVpnService`, Proof Submission from APK) | No interactive QA OAuth credentials on live production and no interactive human UI pass against production. | Source code and build config audited statically; live device behavior remains `NOT TESTED`. |
+| Live AWS IAM Role Inline/Attached Policy Documents (`iam:ListAttachedRolePolicies`, `iam:ListRolePolicies`) | `devansh-local` IAM user received `AccessDenied` on `iam:List*` and `sqs:ListQueues`. | Assumed-role STS identity, EC2, EBS, CloudWatch alarms, DynamoDB `DescribeTable`+PITR, and `sqs:GetQueueUrl` on expected queue names were directly verified; exact IAM policy text attached to `onusly-ec2-backend-role` could not be dumped (`BLOCKED`). |
+| Live Write/Load/Mutation & Destructive Pen-Tests | Explicitly prohibited against live production per Section 9 rules. | Safe read-only probes used exclusively. |
+
+---
+
+## L. Recommended Remediation Order
+
+1. **Critical Security & Production Outage Blockers (`SECURITY-001`, `API-001`, `PROOF-001`):**
+   - Authorize `GET /uploads/` per goal owner / assigned approver / chat participant and migrate proof storage to encrypted S3.
+   - Emit `auth.success` immediately in `ServeWSWithValidator` cookie pre-auth path (`internal/realtime/handler.go:278-284`) so WebSockets stay authenticated.
+   - Fix Nginx `/etc/nginx/conf.d/onusly.conf` (`location ^~ /uploads/` + stop nesting global extension cache regex over proxy paths).
+2. **Production Availability & Infrastructure Survival (`AWS-001`, `WEB-001`, `AWS-002`):**
+   - Expand EC2 root EBS (>= 20–30 GB), enable encryption, prune EC2 Go caches & old `.bak` binaries.
+   - Separate SPA routes from API routes cleanly (prefix APIs under `/api/` or route `Accept: text/html` to `index.html`).
+   - Provision `proof-events` and `approval-events` SQS queues + DLQs in `eu-north-1` and set their URLs in `/etc/onusly/onusly.env`.
+3. **Authentication, Authorization & Revocation (`SECURITY-002`, `SECURITY-003`):**
+   - Attach `RequireUserToken` / `RequireDeviceToken` in `cmd/server/main.go`; enforce `token_version` & `X-Device-ID` revocation fail-closed; remove legacy unused OAuth client ID; add `Strict-Transport-Security`; harden frontend `auth.js` `isAuthenticated()` and eliminate dual `localStorage` JWTs / Android plaintext SharedPreferences fallback.
+4. **Backend & Database Consistency (`AWS-003`, `GOAL-001`):**
+   - Stop masking DB failures as `200 []` (`GET /goals`) or `nil` (`enforcement`, `proof`, `approval` repos); remove `FindByID` full-table `Scan` fallback in production; fix `rejected` vs `active` contract across Dashboard/Goals/docs and disallow orphaned untargeted `"community"` goals.
+5. **Windows Installer, Service Security & Native Messaging (`WIN-001`, `WIN-002`, `WIN-003`):**
+   - Fix `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION` flags in `desktop/installer/cmd/installer/main.go`; unify `OnuslySetup.exe` on elevated `LocalService` (`Program Files` / `ProgramData` ACLs) + Add/Remove Programs uninstaller + code signing; swap `dial_windows.go` default pipe to `OnuslyAgentIPC`; update `install.ps1` defaults to `onusly.duckdns.org`.
+6. **Observability & HTTP Delivery (`AWS-004`, `API-002`):**
+   - Add CloudWatch alarms + disk/memory monitoring; remove PII emails from `hub.go` logs; serve `/downloads/` directly via Nginx and extend `/uploads` write deadlines.
+7. **Frontend Mobile Layout, Landing Accuracy & Performance (`WEB-002`, `WEB-003`, `PERF-001`):**
+   - Fix landing mobile navbar responsiveness (`film.css`) eliminating the `523px` viewport expansion; remove false macOS claim, add Android `.apk` card, add `/privacy` & `/terms` pages, add `/favicon.ico`, and code-split `App.jsx` routes with `React.lazy`.
+
+---
+
+## M. Final Assessment
+
+1. **Can a new user register and use ONUSLY?**
+   Partially: Landing -> Google Sign-In (`GET /auth/google/login` / GSI modal) initiates properly, **but** mobile landing layout breaks (`523px`), refreshing any subpage except `/dashboard` returns raw `401`/`404` (`WEB-001`), and live WebSockets break after 6s (`API-001`).
+2. **Can a user reliably create and manage goals?**
+   Backend `Create`/`Update`/`Delete` authorization and validation logic is well-tested, **but** UI refreshes on `/goals` fail in Nginx (`WEB-001`), `GET /goals` masks DynamoDB failures as empty lists (`AWS-003`), rejected goals vanish from Dashboard active lockouts (`GOAL-001`), and untargeted `community` goals get stranded (`GOAL-001`).
+3. **Does restriction enforcement actually work?**
+   Extension unit logic (`140/140` JS tests) and Go/Android policy code are well-structured, **but** on Windows, `OnuslySetup.exe` fails IPC pairing (`WIN-001`) and runs unprivileged in `HKCU` where users can terminate it in Task Manager or skip DNS changes (`WIN-002`), while live Windows runtime was not testable here.
+4. **Does proof submission work?**
+   Text, `.webp`, `.pdf`, and `.txt` proofs reach Go (`POST /uploads` / `POST /goals/{id}/proofs`), **but ALL `.png`, `.jpg`, `.jpeg`, and `.gif` proof images return `HTTP 404` from Nginx in production (`PROOF-001`)**, and `/uploads/` lacks cross-user authorization (`SECURITY-001`).
+5. **Can an authorized partner review and approve?**
+   Core backend approval transactions (`CreateDecision`) are atomic and well-guarded, **but** approvers cannot view standard PNG/JPG proof images (`PROOF-001`), live approval notifications over WS fail (`API-001`), and refreshing `/approvals` returns `401` (`WEB-001`).
+6. **Are restrictions released correctly?**
+   Backend state transitions and blocklist hashing are sound, **but** real-time WebSocket unlock push (`goal.unlocked`) fails in production due to `API-001`, forcing clients to rely solely on polling intervals, and device revocation is unchecked for user-token extension syncs (`SECURITY-002`).
+7. **Does the Windows application work reliably?**
+   **No (confirmed architectural/IPC defects `WIN-001`, `WIN-002`, `WIN-003`; runtime `NOT TESTED` due to missing Windows VM).**
+8. **Does AWS infrastructure appear correctly configured?**
+   **No.** IAM role, DynamoDB PITR, Let's Encrypt TLS, and keepwarm work, **but** root EBS (`vol-087b33f32d9b0d6ca`) is `91%` full and unencrypted (`AWS-001`), SQS queues don't exist (`AWS-002`), CloudWatch has zero alarms (`AWS-004`), and Nginx misroutes `/uploads/*.png` and SPA paths (`PROOF-001`, `WEB-001`).
+9. **Are there major security risks?**
+   **Yes.** Lack of resource-level authorization on `GET /uploads/` (`SECURITY-001`), unused token-type isolation allowing `device` tokens onto user routes (`SECURITY-002`), unprivileged Windows `OnuslySetup.exe` runner (`WIN-002`), unencrypted EBS + local proof storage (`AWS-001`), and missing HSTS / dual `localStorage` JWTs (`SECURITY-003`).
+10. **Is the product safe to continue operating in production?**
+    **Not without remediation.** Fix `API-001`, `PROOF-001`, `SECURITY-001`, `WEB-001`, `AWS-001`, and `WIN-001`/`WIN-002` before onboarding real users.
+
+---
+
+## 13. Audit Coverage Matrix
+
+| Area | Source Inspected | Runtime Tested | Result |
+|---|---|---|---|
+| Landing page | Yes | Yes (Live Chrome 4 viewports) | **FAIL** — Desktop loads cleanly (`LCP 1.82s`), but mobile `390px`/`320px` expands to `523px` (`WEB-002`), `/favicon.ico` 404s, Mac claim false & APK omitted (`WEB-003`). |
+| Authentication | Yes | Partial (OAuth redirect & cookie/CORS headers live; interactive login blocked) | **PARTIAL FAIL** — CSRF state & unauth 401 work; WebSocket cookie auth broken (`API-001`); `localStorage` JWT / catch bypass / Android plaintext fallback (`SECURITY-003`). |
+| Dashboard | Yes | Partial (Route guard live; signed-in UI blocked) | **PARTIAL FAIL** — Signed-out `/dashboard` redirects cleanly; `Dashboard.jsx` omits `"rejected"` goals from active lockouts (`GOAL-001`) & relies on broken WS (`API-001`). |
+| Goals | Yes | Partial (Unauth boundary & Nginx routing live; signed-in CRUD blocked) | **FAIL** — `/goals` & `/goals/:id` break on F5 refresh (`WEB-001`); `GET /goals` masks DB errors as `[]` (`AWS-003`); `FindByID` has table Scan (`AWS-003`). |
+| Proof submission | Yes | Partial (Upload extension/auth probes live; signed-in submit blocked) | **FAIL** — Production `.png`/`.jpg`/`.jpeg`/`.gif` proofs 404 in Nginx (`PROOF-001`); `GET /uploads/` lacks owner/approver authz (`SECURITY-001`). |
+| Approval Center | Yes | Partial (Route & unauth API live; signed-in A->B blocked) | **FAIL** — `/approvals` breaks on refresh (`WEB-001`); approver proof PNG/JPG images 404 (`PROOF-001`); live WS updates fail (`API-001`). |
+| Community | Yes | Partial (Route & unauth API live; signed-in chat blocked) | **FAIL** — `/communities` & `/friends` break on refresh (`WEB-001`); WS chat broken (`API-001`). |
+| Notifications | Yes | Partial (EC2 logs & unauth API live) | **FAIL** — In-memory queue only (no SQS queues `AWS-002`); WS push broken (`API-001`). |
+| Windows installer | Yes | No (No Windows VM) | **FAIL (Static) / NOT TESTED (Runtime)** — Pipe SQOS flags `0` rejected by agent (`WIN-001`); unprivileged `HKCU` VBS runner vs `LocalService` (`WIN-002`). |
+| Windows service | Yes | No (No Windows VM) | **FAIL (Architecture Drift) / NOT TESTED (Runtime)** — `OnuslySetup.exe` does not install `OnuslyDesktopAgent` SCM service (`WIN-002`). |
+| Device pairing | Yes | Partial (Code audit & `/enforcement/` auth probes live) | **PARTIAL FAIL** — `OnuslySetup.exe` IPC pairing broken (`WIN-001`); repo DB errors swallowed (`AWS-003`). |
+| Native messaging | Yes | No (No Windows VM) | **PARTIAL FAIL (Static) / NOT TESTED (Runtime)** — Tries wrong default pipe `OnuslyDesktopPipe` (`900ms` delay, `WIN-003`); lacks read deadline. |
+| Browser extensions | Yes | Partial (Code + 140 JS tests verified earlier; no live Chrome GUI load) | **PASS (Code/Unit) / NOT TESTED (Live Browser Ext)** — Bridge & Shorts logic verified in tests; relies on fixed native-host binary update. |
+| Enforcement | Yes | Partial (Code & blocklist unauth probe live; Windows/Android runtime not tested) | **PARTIAL FAIL** — DNS Shorts fix present in Go, **but** Windows non-admin install weakens tamper/DNS enforcement (`WIN-002`) and user-token extension ignores revocation (`SECURITY-002`). |
+| EC2 | Yes | Yes (Live SSH + AWS CLI) | **FAIL** — `91%` disk full (`810 MB` free) & unencrypted 8 GB EBS (`AWS-001`). |
+| IAM | Yes | Partial (Live STS/IMDSv2; `ListAttachedRolePolicies` AccessDenied) | **PASS (Role attached / no static keys) / BLOCKED (Policy inspection)** — Instance profile active; dev user blocked from reading IAM policy docs. |
+| DynamoDB | Yes | Yes (Live `DescribeTable` + `ContinuousBackups`) | **PASS (Schema/PITR) / FAIL (Repo usage)** — Table, GSIs, PITR healthy; Go code has `Scan` fallback & swallows errors (`AWS-003`). |
+| SQS | Yes | Yes (Live `GetQueueUrl` + EC2 logs) | **FAIL** — `proof-events` and `approval-events` queues do not exist; backend uses volatile `MemoryQueue` (`AWS-002`). |
+| Nginx and TLS | Yes | Yes (Live `nginx -T`, `curl`, Chrome, TLS probe) | **FAIL** — TLS & certbot timer healthy, **but** Nginx breaks `.png/.jpg` proofs (`PROOF-001`), breaks SPA routes (`WEB-001`), lacks HSTS (`SECURITY-003`), buffers EXEs (`API-002`). |
+| Security | Yes | Partial (Safe HTTP/CORS/auth probes live; cross-user IDOR untested live) | **FAIL** — Unchecked `/uploads/` cross-user authz (`SECURITY-001`), unwired `RequireUserToken`/`DeviceToken` (`SECURITY-002`), HSTS/storage/PII-log gaps (`SECURITY-003`, `AWS-004`). |
+| Performance | Yes | Yes (Live Chrome CWV + `curl` + `vite` build inspection) | **PARTIAL PASS** — Desktop CWV `LCP 1.82s` & `CLS 0.0016` meet targets, **but** `685 KB` JS chunk, `650–943ms` Asia TTFB (`PERF-001`), and `30s` Go download timeout (`API-002`). |
+
+---
+
+## N. Phase 2 Remediation Update (2026-11-27, Branch `fix/onusly-audit-remediation`)
+
+All code, configuration, and automated regression test fixes from Phase 2 have been implemented and verified in isolated tests on `fix/onusly-audit-remediation` (full details in `REMEDIATION_REPORT.md`, deployment cutover checklist in `docs/runbooks/PRODUCTION_REMEDIATION_DEPLOYMENT.md`):
+
+- **Resolved & Verified in Code + Automated Suites:** `API-001`, `SECURITY-001`, `WEB-002`, `AWS-003`, `SECURITY-002`, `WEB-003`, `GOAL-001` (`go test -race -count=1 ./...`, `node --test` `143/143`, `npm run lint && npm run build`, Android `testDebugUnitTest`, and live headless Chrome viewport verification across `1440x900`, `1280x800`, `390x844`, `320x700` on built Vite preview).
+- **Fixed in Code/Config — Live Production / Windows VM Verification Pending (blocked by production freeze & absent Windows VM):** `PROOF-001`, `WEB-001`, `API-002` (Nginx & Go delivery fixes verified locally; production Nginx cutover deferred), `WIN-001`, `WIN-003` (verified via `GOOS=windows GOARCH=amd64 go vet ./desktop/...` and `native-host` test compile).
+- **Partially Fixed (Follow-Up AWS Infrastructure / Signing Actions Documented):** `AWS-001`, `AWS-002`, `AWS-004`, `WIN-002`, `SECURITY-003`, `PERF-001`, `INFO-001`.
+- **Not a Bug (Investigated):** `INFO-002` (intentional edge bleed, zero document horizontal overflow).
