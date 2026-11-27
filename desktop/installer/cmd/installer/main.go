@@ -222,6 +222,23 @@ func registerNativeMessagingManifest(manifestPath, nativeHostBinPath string) err
 		}
 	}
 
+	// Best-effort disable Browser DoH when installer runs elevated so local DNS blocking works across all browsers
+	for _, polKey := range []string{
+		`SOFTWARE\Policies\Google\Chrome`,
+		`SOFTWARE\Policies\Microsoft\Edge`,
+		`SOFTWARE\Policies\BraveSoftware\Brave`,
+		`SOFTWARE\Policies\Chromium`,
+	} {
+		if pk, _, err := registry.CreateKey(registry.LOCAL_MACHINE, polKey, registry.SET_VALUE); err == nil {
+			_ = pk.SetStringValue("DnsOverHttpsMode", "off")
+			pk.Close()
+		}
+	}
+	if fpk, _, err := registry.CreateKey(registry.LOCAL_MACHINE, `SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS`, registry.SET_VALUE); err == nil {
+		_ = fpk.SetDWordValue("Enabled", 0)
+		fpk.Close()
+	}
+
 	// Also register Mozilla/Firefox native messaging manifest (uses allowed_extensions)
 	type firefoxManifest struct {
 		Name              string   `json:"name"`
@@ -363,6 +380,8 @@ func uninstallApplication() {
 		`Software\Google\Chrome\NativeMessagingHosts\com.onusly.desktop_agent`,
 		`Software\Microsoft\Edge\NativeMessagingHosts\com.onusly.desktop_agent`,
 		`Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.onusly.desktop_agent`,
+		`Software\BraveSoftware\Brave\NativeMessagingHosts\com.onusly.desktop_agent`,
+		`Software\Chromium\NativeMessagingHosts\com.onusly.desktop_agent`,
 		`Software\Mozilla\NativeMessagingHosts\com.onusly.desktop_agent`,
 		`Software\Microsoft\Windows\CurrentVersion\Uninstall\Onusly`,
 	} {

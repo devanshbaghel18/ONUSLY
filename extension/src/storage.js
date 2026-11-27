@@ -144,7 +144,7 @@ export function createStorage(customAdapter = null) {
      * @param {string} expectedUserId - The authenticated user's ID.
      * @returns {Promise<boolean>}
      */
-    async saveBlocklistCache(response, expectedUserId) {
+    async saveBlocklistCache(response, expectedUserId, options = {}) {
       if (!response || !response.userId || !expectedUserId) {
         return false;
       }
@@ -153,12 +153,14 @@ export function createStorage(customAdapter = null) {
         return false;
       }
 
-      const existingData = await adapter.get([KEY_CACHE]);
-      const existing = existingData[KEY_CACHE] || null;
+      if (!options.forceManaged) {
+        const existingData = await adapter.get([KEY_CACHE]);
+        const existing = existingData[KEY_CACHE] || null;
 
-      if (existing && existing.userId && existing.userId !== expectedUserId) {
-        // Multi-user isolation: do not overwrite User A's non-empty cache with User B's data
-        return false;
+        if (existing && existing.userId && existing.userId !== expectedUserId) {
+          // Multi-user isolation: do not overwrite User A's non-empty cache with User B's data
+          return false;
+        }
       }
 
       const cacheEntry = {
@@ -200,10 +202,10 @@ export function createStorage(customAdapter = null) {
       const data = await adapter.get([KEY_SETTINGS]);
       const settings = data[KEY_SETTINGS] || {};
       if (!settings.baseUrl) {
-        settings.baseUrl = "https://api.onusly.com";
+        settings.baseUrl = "https://onusly.duckdns.org";
       }
       if (!settings.dashboardUrl) {
-        settings.dashboardUrl = "https://onusly.com";
+        settings.dashboardUrl = "https://onusly.duckdns.org";
       }
       return settings;
     },

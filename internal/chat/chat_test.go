@@ -1558,3 +1558,94 @@ func TestSendMessage_PreservesClientIDAndDoesNotEchoBackToSender(t *testing.T) {
 		t.Fatalf("expected broadcast exclusively to ['user-bob'], got: %v", broadcaster.sentTo)
 	}
 }
+
+func TestChatRepository_PersistsFilesAndReplyTo(t *testing.T) {
+	repo := NewRepository(nil, "Onusly")
+	ctx := context.Background()
+
+	files := []map[string]interface{}{
+		{"name": "notes.pdf", "type": "application/pdf", "url": "/uploads/chat/notes.pdf", "isPdf": true},
+	}
+	replyTo := map[string]interface{}{"id": "orig-1", "text": "send the pdf"}
+
+	stored := realtime.StoredMessage{
+		ID:             "msg-pdf-1",
+		SenderID:       "user-alice",
+		SenderEmail:    "alice@example.com",
+		RecipientID:    "user-bob",
+		RecipientEmail: "bob@example.com",
+		Text:           "",
+		Images:         []string{"/uploads/chat/img1.png"},
+		Files:          files,
+		ExternalLink:   "https://example.com",
+		ReplyTo:        replyTo,
+		Time:           "2026-11-27T12:00:00Z",
+	}
+
+	if err := repo.SaveMessage(ctx, stored, false); err != nil {
+		t.Fatalf("SaveMessage failed: %v", err)
+	}
+
+	pending, err := repo.GetPendingMessages(ctx, "user-bob")
+	if err != nil {
+		t.Fatalf("GetPendingMessages failed: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Files == nil || len(pending[0].Images) != 1 || pending[0].ReplyTo == nil {
+		t.Fatalf("expected files, images, and replyTo preserved on pending delivery, got %+v", pending)
+	}
+	if pf, ok := pending[0].Files.([]map[string]interface{}); !ok || len(pf) != 1 {
+		t.Fatalf("expected 1 file entry in pending[0].Files, got %#v", pending[0].Files)
+	}
+
+	commMsg := realtime.StoredMessage{
+		ID:          "comm-msg-pdf-1",
+		SenderID:    "user-alice",
+		RecipientID: "comm-1",
+		Files:       files,
+		ReplyTo:     replyTo,
+		Time:        "2026-11-27T12:01:00Z",
+	}
+	if err := repo.SaveCommunityMessage(ctx, "comm-1", commMsg); err != nil {
+		t.Fatalf("SaveCommunityMessage failed: %v", err)
+	}
+	commHist, err := repo.GetCommunityHistory(ctx, "comm-1", 20)
+	if err != nil || len(commHist) != 1 || commHist[0].Files == nil || commHist[0].ReplyTo == nil {
+		t.Fatalf("expected community history to preserve Files and ReplyTo, err=%v hist=%+v", err, commHist)
+	}
+	if cf, ok := commHist[0].Files.([]map[string]interface{}); !ok || len(cf) != 1 {
+		t.Fatalf("expected 1 file entry in commHist[0].Files, got %#v", commHist[0].Files)
+	}
+}
+
+func TestChatHandler_SendMessageWithFiles(t *testing.T) {
+	repo := NewRepository(nil, "Onusly")
+	resolver := &testResolver{
+		users: []*testUser{
+			{id: "user-alice", email: "alice@example.com", handle: "alice"},
+			{id: "user-bob", email: "bob@example.com", handle: "bob"},
+		},
+	}
+	handler := NewHandler(repo)
+	handler.SetUserResolver(resolver)
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, "user-alice")
+	ctx = context.WithValue(ctx, middleware.UserEmailKey, "alice@example.com")
+	ctx = context.WithValue(ctx, middleware.UserHandleKey, "alice")
+
+	payload := `{"recipient":"@bob","text":"","files":[{"name":"hw.pdf","url":"/uploads/chat/hw.pdf","type":"application/pdf","isPdf":true}]}`
+	req := httptest.NewRequest(http.MethodPost, "/chat/messages", strings.NewReader(payload)).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.SendMessage(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for files-only DM via REST, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var sent Message
+	if err := json.Unmarshal(rec.Body.Bytes(), &sent); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if sf, ok := sent.Files.([]interface{}); !ok || len(sf) != 1 || sent.RecipientID != "user-bob" {
+		t.Fatalf("expected 1 file and RecipientID=user-bob, got %+v", sent)
+	}
+}

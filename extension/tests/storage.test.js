@@ -126,4 +126,27 @@ describe("Storage & Cache Isolation Suite", () => {
     assert.equal(await storage.getSession(), null);
     assert.equal(await storage.getBlocklistCache("u1"), null);
   });
+
+  it("allows forceManaged cache update to replace a prior user's stale desktop cache", async () => {
+    await storage.saveBlocklistCache(
+      { userId: "user_old", version: "v1-old", targets: [] },
+      "user_old"
+    );
+
+    const replaced = await storage.saveBlocklistCache(
+      {
+        userId: "user_new",
+        version: "v1-new",
+        targets: [{ goalId: "g2", status: "active", domains: ["reddit.com"] }],
+      },
+      "user_new",
+      { forceManaged: true }
+    );
+
+    assert.equal(replaced, true);
+    const active = await storage.getBlocklistCache("user_new");
+    assert.equal(active.userId, "user_new");
+    assert.equal(active.version, "v1-new");
+    assert.equal(active.targets.length, 1);
+  });
 });

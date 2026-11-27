@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	defaultAPIURL       = "https://api.onusly.com"
+	defaultAPIURL       = "https://onusly.duckdns.org"
 	defaultDashboardURL = "https://onusly.duckdns.org"
 )
 

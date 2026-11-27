@@ -202,12 +202,25 @@ export async function getBlocklist() {
   });
 }
 
-export async function uploadProofFiles(files, goalId = "") {
+export async function uploadProofFiles(files, goalIdOrOptions = "") {
   if (!files || files.length === 0) return [];
+  const opts =
+    typeof goalIdOrOptions === "string"
+      ? { goalId: goalIdOrOptions }
+      : (goalIdOrOptions || {});
   const token = getToken();
   const formData = new FormData();
-  if (goalId) {
-    formData.append("goalId", goalId);
+  if (opts.scope) {
+    formData.append("scope", opts.scope);
+  }
+  if (opts.goalId) {
+    formData.append("goalId", opts.goalId);
+  }
+  if (opts.recipient) {
+    formData.append("recipient", opts.recipient);
+  }
+  if (opts.communityId) {
+    formData.append("communityId", opts.communityId);
   }
   for (const f of files) {
     formData.append("files", f);
@@ -229,7 +242,7 @@ export async function uploadProofFiles(files, goalId = "") {
 
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(errorText || "Failed to upload proof files");
+    throw new Error(errorText || "Failed to upload files");
   }
 
   return await res.json();
@@ -298,7 +311,12 @@ export async function getChatHistory(peerEmail) {
 }
 
 export async function sendChatMessageApi(recipient, text, options = {}) {
-  if (!recipient || (!text && !options.isProof && !(options.images?.length > 0) && !options.externalLink)) return null;
+  const hasMedia =
+    Boolean(options.isProof) ||
+    (Array.isArray(options.images) && options.images.length > 0) ||
+    (Array.isArray(options.files) && options.files.length > 0) ||
+    Boolean(options.externalLink);
+  if (!recipient || (!text && !hasMedia)) return null;
   return request("/chat/messages", {
     method: "POST",
     body: JSON.stringify({
@@ -309,10 +327,10 @@ export async function sendChatMessageApi(recipient, text, options = {}) {
       goalId: options.goalId || "",
       goalTitle: options.goalTitle || "",
       ownerId: options.ownerId || "",
-      ...(Array.isArray(options.images) && options.images.length > 0 ? { images: options.images } : {}),
-      ...(Array.isArray(options.files) && options.files.length > 0 ? { files: options.files } : {}),
-      ...(options.externalLink ? { externalLink: options.externalLink } : {}),
-      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+      images: Array.isArray(options.images) ? options.images : undefined,
+      files: Array.isArray(options.files) ? options.files : undefined,
+      externalLink: options.externalLink || undefined,
+      replyTo: options.replyTo || undefined,
     }),
   });
 }
@@ -497,7 +515,7 @@ export function isLoopbackApiOrigin() {
 
 export async function getDesktopAgentStatus() {
   // 1. Prefer local Browser Extension -> Native Messaging Host -> Desktop Agent pipe
-  const bridgeRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_STATUS", {}, 1500);
+  const bridgeRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_STATUS", {}, 3500);
   if (bridgeRes && bridgeRes.available) {
     return { available: true, viaExtension: true, status: bridgeRes.status };
   }
@@ -569,7 +587,7 @@ export async function reconnectDesktopAgent() {
     };
   }
 
-  const statusRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_STATUS", {}, 1500);
+  const statusRes = await sendExtensionBridgeMessage("ONUSLY_DESKTOP_STATUS", {}, 3500);
   if (statusRes?.available && statusRes?.status?.connected) {
     return {
       success: true,

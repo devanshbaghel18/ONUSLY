@@ -319,11 +319,6 @@ func main() {
 	proofService := proof.NewService(proofRepo, goalService)
 	proofHandler := proof.NewHandler(proofService)
 
-	// Proof & Media Uploads Static Server (authenticated + owner/approver ACL + path-traversal & XSS guard)
-	uploadsDir := "uploads"
-	protectedUploads := newUploadsServeHandler(uploadsDir, cfg.JWTSecret, authRepo, goalService, proofRepo)
-	mux.Handle("GET /uploads/", protectedUploads)
-
 	// Approval
 	approvalRepo := approval.NewRepository(db, tableName)
 	approvalService := approval.NewService(
@@ -396,10 +391,16 @@ func main() {
 	friendsService.SetNotificationSender(notifService)
 	friendsHandler := friends.NewHandler(friendsService)
 	goalService.SetFriendFinder(&serverFriendFinder{friendsRepo: friendsRepo})
-	chatHandler.SetCommunityChecker(&serverCommunityChecker{
+	communityChecker := &serverCommunityChecker{
 		friendsRepo: friendsRepo,
 		hub:         wsHub,
-	})
+	}
+	chatHandler.SetCommunityChecker(communityChecker)
+
+	// Proof & Media Uploads Static Server (authenticated + owner/approver/chat ACL + path-traversal & XSS guard)
+	uploadsDir := "uploads"
+	protectedUploads := newUploadsServeHandlerWithChat(uploadsDir, cfg.JWTSecret, authRepo, goalService, proofRepo, communityChecker)
+	mux.Handle("GET /uploads/", protectedUploads)
 
 	// Digital Wellbeing Analytics Repository, Service & Handler
 	wellbeingRepo := wellbeing.NewDynamoRepository(db, tableName)
@@ -643,8 +644,8 @@ func main() {
 		requireUser(enforcementHandler.ReconnectDesktop),
 	)
 
-	// Proof Document & Media Upload Handler (supports multi-file PDF, Image, Document uploads up to 32MB)
-	goalRoutes.Handle("POST /uploads", requireUser(newUploadCreateHandler(uploadsDir)))
+	// Proof & Chat Document & Media Upload Handler (supports multi-file PDF, Image, Document uploads up to 25MB/file)
+	goalRoutes.Handle("POST /uploads", requireUser(newUploadCreateHandlerWithResolver(uploadsDir, chatResolver)))
 
 	// Idempotency store for mutation endpoints
 	idempotencyStore := middleware.NewMemoryIdempotencyStore(24 * time.Hour)

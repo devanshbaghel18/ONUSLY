@@ -28,7 +28,7 @@ export function detectPlatform() {
  * @param {object} storage - Storage manager created by createStorage().
  * @param {Function} [fetchFn] - Optional fetch implementation for testing.
  */
-export function createSyncService(storage, fetchFn = globalThis.fetch) {
+export function createSyncService(storage, fetchFn = (...args) => globalThis.fetch(...args)) {
   return {
     /**
      * Synchronizes the blocklist from the backend API.

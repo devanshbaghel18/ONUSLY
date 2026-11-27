@@ -55,7 +55,8 @@ export default function ConnectExtension() {
   const userId = user?.id || "";
 
   const [extensionId, setExtensionId] = useState(() => {
-    return localStorage.getItem("onusly_extension_id") || DEFAULT_EXTENSION_ID;
+    const datasetId = typeof document !== "undefined" ? document.documentElement?.dataset?.onuslyExtensionId : "";
+    return datasetId || localStorage.getItem("onusly_extension_id") || DEFAULT_EXTENSION_ID;
   });
   const [showConfig, setShowConfig] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
@@ -349,15 +350,19 @@ export default function ConnectExtension() {
         };
         const onMsg = (ev) => {
           if (ev.source === window && ev.data?.type === "ONUSLY_SYNC_RESPONSE") {
-            finish(ev.data.response);
+            if (ev.data.error && !ev.data.response) {
+              finish({ success: false, error: ev.data.error });
+              return;
+            }
+            finish(ev.data.response || null);
           }
         };
-        const timer = setTimeout(() => finish(null), 2500);
+        const timer = setTimeout(() => finish(null), 5000);
         window.addEventListener("message", onMsg);
         if (window.chrome?.runtime?.sendMessage) {
           try {
             window.chrome.runtime.sendMessage(extensionId, { type: "ONUSLY_SYNC" }, (resp) => {
-              if (!window.chrome.runtime.lastError && resp?.success) finish(resp);
+              if (!window.chrome.runtime.lastError && resp) finish(resp);
             });
           } catch {
             // Fall back to window.postMessage bridge below
@@ -709,10 +714,11 @@ export default function ConnectExtension() {
                     <p>• Turn ON <strong>Developer mode</strong> (top-right in Chrome, left sidebar in Edge).</p>
                     <p>• Click <strong>"Load unpacked"</strong> and select the extracted <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">onusly-extension</code> folder.</p>
                   </div>
-                  <div className="pt-2 border-t border-neutral-800/80 space-y-0.5">
+                  <div className="pt-2 border-t border-neutral-800/80 space-y-1">
                     <p className="font-semibold text-neutral-200">Mozilla Firefox (Linux & Windows):</p>
+                    <p>• Download the Firefox package: <a href="/downloads/onusly-firefox.zip" download="onusly-firefox.zip" className="text-white underline font-semibold hover:text-neutral-200">onusly-firefox.zip</a> and extract it.</p>
                     <p>• In Firefox URL bar, enter <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">about:debugging#/runtime/this-firefox</code>.</p>
-                    <p>• Click <strong>"Load Temporary Add-on..."</strong> and select <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">manifest.json</code> from the extracted folder.</p>
+                    <p>• Click <strong>"Load Temporary Add-on..."</strong> and select <code className="text-neutral-200 bg-neutral-800 px-1 py-0.5 rounded">manifest.json</code> from the extracted Firefox folder.</p>
                   </div>
                 </div>
               </div>

@@ -76,6 +76,8 @@ import {
   getTrendingCommunities,
   joinCommunityApi,
   sendChatMessageApi,
+  uploadProofFiles,
+  resolveApiUrl,
 } from "../lib/api";
 
 import { getUser } from "../lib/auth";
@@ -303,6 +305,7 @@ export default function Communities() {
   const [attachCaption, setAttachCaption] = useState("");
   const [attachLink, setAttachLink] = useState("");
   const [attachSending, setAttachSending] = useState(false);
+  const [attachError, setAttachError] = useState("");
 
   // Approval in-chat state
   const [approvingMsgId, setApprovingMsgId] = useState(null);
@@ -774,40 +777,56 @@ export default function Communities() {
   // ==========================================
   // ATTACHMENT MODAL HANDLERS (WhatsApp-style)
   // ==========================================
+  const clearAttachPreviews = (items) => {
+    (items || []).forEach((item) => {
+      if (item?.previewUrl && item.previewUrl.startsWith("blob:")) {
+        try {
+          URL.revokeObjectURL(item.previewUrl);
+        } catch {
+          // Ignore revoke failures
+        }
+      }
+    });
+  };
+
   const openAttachModal = (targetType) => {
     setAttachTargetType(targetType);
-    setAttachFiles([]);
+    setAttachFiles((prev) => {
+      clearAttachPreviews(prev);
+      return [];
+    });
     setAttachCaption("");
     setAttachLink("");
+    setAttachError("");
     setShowAttachModal(true);
   };
 
   const handleSelectAttachFiles = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    files.forEach((file) => {
+    setAttachError("");
+    const newItems = files.map((file) => {
       const isImg = file.type.startsWith("image/");
-      const reader = new FileReader();
-      reader.onload = () => {
-        setAttachFiles((prev) => [
-          ...prev,
-          {
-            file,
-            name: file.name,
-            type: file.type,
-            isImage: isImg,
-            previewUrl: reader.result,
-          },
-        ]);
+      return {
+        file,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        isImage: isImg,
+        previewUrl: isImg ? URL.createObjectURL(file) : "",
       };
-      reader.readAsDataURL(file);
     });
+    setAttachFiles((prev) => [...prev, ...newItems]);
     // Reset input so the same file can be re-selected
     e.target.value = "";
   };
 
   const removeAttachFile = (index) => {
-    setAttachFiles((prev) => prev.filter((_, idx) => idx !== index));
+    setAttachFiles((prev) => {
+      const target = prev[index];
+      if (target) clearAttachPreviews([target]);
+      return prev.filter((_, idx) => idx !== index);
+    });
   };
 
   // Send attachment (images/docs/links) as a chat message - NO goal selection required
@@ -816,12 +835,7 @@ export default function Communities() {
     if (attachFiles.length === 0 && !attachCaption.trim() && !attachLink.trim()) return;
 
     setAttachSending(true);
-    const imageUrls = attachFiles
-      .filter((f) => f.isImage || f.type?.startsWith("image/"))
-      .map((f) => f.previewUrl);
-    const docFiles = attachFiles
-      .filter((f) => !f.isImage && !f.type?.startsWith("image/"))
-      .map((f) => ({ name: f.name, url: f.previewUrl, type: f.type }));
+    setAttachError("");
 
     const senderEmail = currentUser?.email || "";
     const senderHandle = currentUser?.handle || "";
@@ -831,6 +845,45 @@ export default function Communities() {
     const currentReplyTo = replyingTo ? { ...replyingTo } : null;
 
     try {
+      const peerTarget =
+        attachTargetType === "friend" && activeFriend
+          ? (activeFriend.handle ? `@${activeFriend.handle.replace(/^@/, "")}` : activeFriend.email || activeFriend.id)
+          : "";
+      const communityId = attachTargetType === "community" && selectedCommunity ? selectedCommunity.id : "";
+
+      let imageUrls = [];
+      let docFiles = [];
+
+      if (attachFiles.length > 0) {
+        const uploadedResults = await uploadProofFiles(
+          attachFiles.map((f) => f.file),
+          {
+            scope: "chat",
+            recipient: peerTarget,
+            communityId,
+          }
+        );
+
+        if (!Array.isArray(uploadedResults) || uploadedResults.length !== attachFiles.length) {
+          throw new Error("Upload incomplete: server did not confirm all attached files.");
+        }
+
+        imageUrls = uploadedResults
+          .filter((u) => u.isImage && u.url)
+          .map((u) => resolveApiUrl(u.url));
+        docFiles = uploadedResults
+          .filter((u) => !u.isImage && u.url)
+          .map((u) => ({
+            id: u.id,
+            name: u.name,
+            size: u.size,
+            formattedSize: u.formattedSize,
+            type: u.type,
+            url: resolveApiUrl(u.url),
+            isPdf: Boolean(u.isPdf),
+          }));
+      }
+
       if (attachTargetType === "friend" && activeFriendId && activeFriend) {
         const msgId = generateMsgId("msg");
         const wsSent = send({
@@ -850,11 +903,14 @@ export default function Communities() {
           },
         });
 
-        if (!wsSent) {
-          const peerTarget = activeFriend.handle ? `@${activeFriend.handle.replace(/^@/, "")}` : activeFriend.email || activeFriend.id;
-          if (peerTarget) {
-            sendChatMessageApi(peerTarget, text || "Sent an attachment", { replyTo: currentReplyTo }).catch(() => {});
-          }
+        if (!wsSent && peerTarget) {
+          await sendChatMessageApi(peerTarget, text, {
+            id: msgId,
+            images: imageUrls,
+            files: docFiles,
+            externalLink,
+            replyTo: currentReplyTo,
+          });
         }
 
         const updated = sendChatMessage(
@@ -902,9 +958,13 @@ export default function Communities() {
         });
 
         if (!wsSent) {
-          sendChatMessageApi(selectedCommunity.id, text || "Sent an attachment", {
+          await sendChatMessageApi(selectedCommunity.id, text, {
+            id: msgId,
+            images: imageUrls,
+            files: docFiles,
+            externalLink,
             replyTo: currentReplyTo,
-          }).catch(() => {});
+          });
         }
 
         const updated = sendCommunityMessage(selectedCommunity.id, {
@@ -930,11 +990,15 @@ export default function Communities() {
           }
         }, 10);
       }
+
+      clearAttachPreviews(attachFiles);
+      setAttachFiles([]);
+      setShowAttachModal(false);
     } catch (err) {
       console.error("Failed to send attachment:", err);
+      setAttachError(err?.message || "Failed to upload and send attachment(s). Please try again.");
     } finally {
       setAttachSending(false);
-      setShowAttachModal(false);
     }
   };
 
@@ -2812,6 +2876,11 @@ export default function Communities() {
               </div>
 
               <form onSubmit={handleSendAttachment} className="mt-4 space-y-4">
+                {attachError && (
+                  <div className="rounded border border-rose-500/30 bg-rose-500/10 p-2.5 text-xs font-mono text-rose-300">
+                    {attachError}
+                  </div>
+                )}
                 {/* Photo / File Picker */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
@@ -2827,15 +2896,15 @@ export default function Communities() {
                   <label className="flex cursor-pointer flex-col items-center justify-center rounded border border-dashed border-[#2b3644] bg-[#0a0d10] p-4 text-center hover:border-[#ff7843]/50 transition">
                     <Paperclip size={18} className="text-neutral-400 mb-1" />
                     <span className="text-xs font-semibold text-neutral-200">
-                      Select proof images or document files
+                      Select proof images, PDFs, or document files
                     </span>
                     <span className="text-[10px] font-mono text-neutral-500 mt-0.5">
-                      PNG, JPG, PDF, TXT
+                      PNG, JPG, WebP, PDF, DOC/DOCX, XLS/PPT, TXT, ZIP, Media (Max 25MB/file)
                     </span>
                     <input
                       type="file"
                       multiple
-                      accept="image/*,.pdf,.doc,.docx,.txt"
+                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.json,.rtf,.odt,.zip,.mp4,.webm,.mp3,.wav"
                       onChange={handleSelectAttachFiles}
                       className="hidden"
                     />

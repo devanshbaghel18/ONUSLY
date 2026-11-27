@@ -26,8 +26,8 @@ const btnOpenDashboard = document.getElementById("btnOpenDashboard");
 const btnDisconnect = document.getElementById("btnDisconnect");
 const btnGoDashboard = document.getElementById("btnGoDashboard");
 
-let dashboardUrl = "https://onusly.com";
-let configuredBaseUrl = "https://api.onusly.com";
+let dashboardUrl = "https://onusly.duckdns.org";
+let configuredBaseUrl = "https://onusly.duckdns.org";
 
 function formatDurationShort(sec) {
   const s = Math.max(0, Number(sec) || 0);

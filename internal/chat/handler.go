@@ -320,6 +320,16 @@ type SendMessageRequest struct {
 	ReplyTo      interface{} `json:"replyTo,omitempty"`
 }
 
+func hasMessageFiles(files interface{}) bool {
+	switch v := files.(type) {
+	case []interface{}:
+		return len(v) > 0
+	case []map[string]interface{}:
+		return len(v) > 0
+	}
+	return false
+}
+
 // SendMessage stores a message in DynamoDB and broadcasts it via WebSocket if broadcaster is configured.
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	callerID, _ := middleware.GetUserID(r.Context())
@@ -343,12 +353,14 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	cleanRecipient := strings.TrimSpace(req.Recipient)
 	cleanText := strings.TrimSpace(req.Text)
+	cleanLink := strings.TrimSpace(req.ExternalLink)
+	hasMedia := len(req.Images) > 0 || hasMessageFiles(req.Files) || cleanLink != ""
 
 	if cleanRecipient == "" {
 		http.Error(w, "missing required field: recipient", http.StatusBadRequest)
 		return
 	}
-	if cleanText == "" && !req.IsProof && len(req.Images) == 0 && strings.TrimSpace(req.ExternalLink) == "" {
+	if cleanText == "" && !req.IsProof && !hasMedia {
 		http.Error(w, "message text cannot be empty", http.StatusBadRequest)
 		return
 	}
@@ -381,6 +393,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			GoalID:       req.GoalID,
 			GoalTitle:    req.GoalTitle,
 			OwnerID:      ownerID,
+			Images:       req.Images,
+			Files:        req.Files,
+			ExternalLink: cleanLink,
+			ReplyTo:      req.ReplyTo,
 			Time:         now,
 		}
 
@@ -408,6 +424,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 					"goalId":       req.GoalID,
 					"goalTitle":    req.GoalTitle,
 					"ownerId":      ownerID,
+					"images":       req.Images,
+					"files":        req.Files,
+					"externalLink": cleanLink,
+					"replyTo":      req.ReplyTo,
 					"time":         now,
 				},
 			}
@@ -430,6 +450,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			GoalID:       req.GoalID,
 			GoalTitle:    req.GoalTitle,
 			OwnerID:      ownerID,
+			Images:       req.Images,
+			Files:        req.Files,
+			ExternalLink: cleanLink,
+			ReplyTo:      req.ReplyTo,
 			Time:         now,
 			Delivered:    true,
 		})
@@ -465,7 +489,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		OwnerID:         ownerID,
 		Images:          req.Images,
 		Files:           req.Files,
-		ExternalLink:    req.ExternalLink,
+		ExternalLink:    cleanLink,
 		ReplyTo:         req.ReplyTo,
 		Time:            now,
 	}
@@ -498,7 +522,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 				"ownerId":         ownerID,
 				"images":          req.Images,
 				"files":           req.Files,
-				"externalLink":    req.ExternalLink,
+				"externalLink":    cleanLink,
 				"replyTo":         req.ReplyTo,
 				"time":            now,
 			},
