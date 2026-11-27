@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime"
 	"syscall"
 	"time"
 	"unsafe"
@@ -75,6 +76,7 @@ func (s *Server) namedPipeAcceptLoop(ctx context.Context) {
 		return
 	}
 
+	firstInstance := true
 	for {
 		s.mu.Lock()
 		if !s.running {
@@ -107,14 +109,17 @@ func (s *Server) namedPipeAcceptLoop(ctx context.Context) {
 			pSA = uintptr(unsafe.Pointer(&sa))
 		}
 
-		openMode := uint32(win.PIPE_ACCESS_DUPLEX | win.FILE_FLAG_FIRST_PIPE_INSTANCE | win.FILE_FLAG_OVERLAPPED)
+		openMode := uint32(win.PIPE_ACCESS_DUPLEX | win.FILE_FLAG_OVERLAPPED)
+		if firstInstance {
+			openMode |= uint32(win.FILE_FLAG_FIRST_PIPE_INSTANCE)
+		}
 		pipeMode := uint32(win.PIPE_TYPE_MESSAGE | win.PIPE_READMODE_MESSAGE | win.PIPE_WAIT)
 
 		hPipe, _, errCreate := win.ProcCreateNamedPipeW.Call(
 			uintptr(unsafe.Pointer(pipeNamePtr)),
 			uintptr(openMode),
 			uintptr(pipeMode),
-			1, // Max instances = 1
+			16, // Allow concurrent pipe instances so long-running pair-poll does not block browser extensions
 			4096,
 			4096,
 			5000,
@@ -135,6 +140,7 @@ func (s *Server) namedPipeAcceptLoop(ctx context.Context) {
 				continue
 			}
 		}
+		firstInstance = false
 
 		// 2. Overlapped ConnectNamedPipe
 		hConnEvent, _, _ := win.ProcCreateEventW.Call(0, 1, 0, 0)
@@ -184,8 +190,13 @@ func (s *Server) namedPipeAcceptLoop(ctx context.Context) {
 		win.ProcCloseHandle.Call(hConnEvent)
 
 		if connected {
-			s.handleNamedPipeClient(ctx, hPipe)
-			win.ProcFlushFileBuffers.Call(hPipe)
+			go func(pipe uintptr) {
+				s.handleNamedPipeClient(ctx, pipe)
+				win.ProcFlushFileBuffers.Call(pipe)
+				win.ProcDisconnectNamedPipe.Call(pipe)
+				win.ProcCloseHandle.Call(pipe)
+			}(hPipe)
+			continue
 		}
 
 		win.ProcDisconnectNamedPipe.Call(hPipe)
@@ -296,7 +307,10 @@ func (s *Server) authenticateCaller(hPipe uintptr) (string, error) {
 		}
 	}
 
-	// 3. Impersonate named-pipe client
+	// 3. Impersonate named-pipe client on a locked OS thread so OpenThreadToken/RevertToSelf stay on the same thread
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	rImp, _, errImp := win.ProcImpersonateNamedPipeClient.Call(hPipe)
 	if rImp == 0 {
 		return "", fmt.Errorf("ImpersonateNamedPipeClient failed: %w", errImp)

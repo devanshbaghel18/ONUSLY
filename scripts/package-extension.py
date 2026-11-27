@@ -34,7 +34,7 @@ def package_extension(codebase_url=None):
         elif public_domain:
             codebase_url = f"https://{public_domain}/downloads/onusly.crx"
         else:
-            codebase_url = "https://api.onusly.com/downloads/onusly.crx"
+            codebase_url = "https://onusly.duckdns.org/downloads/onusly.crx"
 
     include_items = [
         'manifest.json',

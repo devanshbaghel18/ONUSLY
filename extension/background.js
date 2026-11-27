@@ -68,6 +68,41 @@ export function parseJwtPayload(token) {
 
 // Tracks in-flight redirects per tab to prevent rapid-fire loop storms
 const pendingBlockedTabs = new Map(); // tabId -> targetUrl
+let lastOnDemandSyncMs = 0;
+
+/**
+ * Resolves the active blocklist cache for the current browser session or managed Desktop Agent mode.
+ * Managed caches store the paired user's real userId, so when no browser dashboard session exists
+ * in secondary browsers (Edge/Brave/Firefox), managed mode reads the authoritative cached blocklist directly.
+ */
+export async function getActiveBlocklistCache() {
+  const session = await storage.getSession();
+  if (session?.userId) {
+    return await storage.getBlocklistCache(session.userId);
+  }
+  const isManaged = await storage.getManagedMode();
+  if (isManaged) {
+    return await storage.getBlocklistCache();
+  }
+  return null;
+}
+
+async function maybeSyncOnDemand() {
+  const now = Date.now();
+  if (now - lastOnDemandSyncMs < 10000) {
+    return null;
+  }
+  lastOnDemandSyncMs = now;
+  try {
+    const res = await processSync("get-blocklist");
+    if (res?.success) {
+      return await getActiveBlocklistCache();
+    }
+  } catch {
+    // Best-effort sync
+  }
+  return null;
+}
 
 /**
  * Evaluates a tab's URL against active restrictions and redirects to blocked.html if blocked.
@@ -98,9 +133,10 @@ export async function checkAndBlockTab(tabId, url, providedCache = null) {
   try {
     let cache = providedCache;
     if (!cache) {
-      const session = await storage.getSession();
-      const isManaged = await storage.getManagedMode();
-      cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
+      cache = await getActiveBlocklistCache();
+      if (!cache) {
+        cache = await maybeSyncOnDemand();
+      }
     }
 
     const evaluation = evaluateUrl(url, cache);
@@ -138,9 +174,7 @@ export async function enforceOnOpenTabs() {
   if (!globalThis.chrome?.tabs?.query) return;
 
   try {
-    const session = await storage.getSession();
-    const isManaged = await storage.getManagedMode();
-    const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
+    const cache = await getActiveBlocklistCache();
 
     const tabs = await chrome.tabs.query({});
     for (const tab of tabs) {
@@ -235,9 +269,7 @@ if (globalThis.chrome?.tabs?.onActivated) {
     try {
       const tab = await chrome.tabs.get(activeInfo.tabId);
       if (tab?.url) {
-        const session = await storage.getSession();
-        const isManaged = await storage.getManagedMode();
-        const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
+        const cache = await getActiveBlocklistCache();
         const evalRes = evaluateUrl(tab.url, cache);
         if (evalRes.isBlocked) {
           await wellbeingTracker.clearActiveFocus();
@@ -259,9 +291,7 @@ if (globalThis.chrome?.webNavigation?.onCommitted) {
   chrome.webNavigation.onCommitted.addListener(async (details) => {
     if (details.frameId !== 0) return;
     try {
-      const session = await storage.getSession();
-      const isManaged = await storage.getManagedMode();
-      const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
+      const cache = await getActiveBlocklistCache();
       if (evaluateUrl(details.url, cache).isBlocked) {
         return;
       }
@@ -405,7 +435,32 @@ export async function processDisconnect() {
 }
 
 export async function processSync(action = "get-blocklist") {
-  // First attempt managed synchronization via Desktop Agent
+  const session = await storage.getSession();
+  // When browser has an active dashboard session, prioritize direct API sync immediately
+  // so Re-sync never stalls waiting for native messaging pipe probes.
+  if (session && session.token && session.userId) {
+    const syncResult = await syncService.sync();
+    if (syncResult.success) {
+      await enforceOnOpenTabs();
+      return {
+        success: true,
+        version: syncResult.version,
+        targetsCount: syncResult.targetsCount,
+      };
+    }
+    const agentFallback = await syncFromDesktopAgent(action);
+    if (agentFallback?.success) {
+      return agentFallback;
+    }
+    return {
+      success: false,
+      version: syncResult.version,
+      targetsCount: syncResult.targetsCount,
+      error: syncResult.error,
+    };
+  }
+
+  // Secondary/unauthenticated browsers synchronize centrally via Desktop Agent
   const agentSync = await syncFromDesktopAgent(action);
   if (agentSync?.success) {
     return agentSync;
@@ -440,7 +495,7 @@ export async function syncFromDesktopAgent(action = "get-blocklist") {
       if (response && response.success && response.blocklist) {
         const blocklist = response.blocklist;
         await storage.setManagedMode(true);
-        await storage.saveBlocklistCache(blocklist, blocklist.userId || "managed-user");
+        await storage.saveBlocklistCache(blocklist, blocklist.userId || "managed-user", { forceManaged: true });
         await enforceOnOpenTabs();
         return {
           success: true,
@@ -451,30 +506,47 @@ export async function syncFromDesktopAgent(action = "get-blocklist") {
       }
       return { success: false, error: response?.error || "Agent returned invalid response" };
     } catch (err) {
-      await storage.setManagedMode(false);
+      const existingManaged = await storage.getBlocklistCache();
+      if (!existingManaged) {
+        await storage.setManagedMode(false);
+      }
       return { success: false, error: err.message };
     }
   }
 
   if (globalThis.chrome?.runtime?.sendNativeMessage) {
     return new Promise((resolve) => {
+      let settled = false;
+      const done = (val) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(guardTimer);
+        resolve(val);
+      };
+      const guardTimer = setTimeout(() => {
+        done({ success: false, error: "Desktop native host timed out" });
+      }, 2200);
+
       try {
         chrome.runtime.sendNativeMessage(
           "com.onusly.desktop_agent",
           { action },
           async (response) => {
             if (chrome.runtime.lastError) {
-              await storage.setManagedMode(false);
-              resolve({ success: false, error: chrome.runtime.lastError.message });
+              const existingManaged = await storage.getBlocklistCache();
+              if (!existingManaged) {
+                await storage.setManagedMode(false);
+              }
+              done({ success: false, error: chrome.runtime.lastError.message });
               return;
             }
 
             if (response && response.success && response.blocklist) {
               const blocklist = response.blocklist;
               await storage.setManagedMode(true);
-              await storage.saveBlocklistCache(blocklist, blocklist.userId || "managed-user");
+              await storage.saveBlocklistCache(blocklist, blocklist.userId || "managed-user", { forceManaged: true });
               await enforceOnOpenTabs();
-              resolve({
+              done({
                 success: true,
                 managed: true,
                 version: blocklist.version,
@@ -483,11 +555,11 @@ export async function syncFromDesktopAgent(action = "get-blocklist") {
               return;
             }
 
-            resolve({ success: false, error: response?.error || "Agent returned invalid response" });
+            done({ success: false, error: response?.error || "Agent returned invalid response" });
           }
         );
       } catch (err) {
-        resolve({ success: false, error: err.message });
+        done({ success: false, error: err.message });
       }
     });
   }
@@ -552,7 +624,7 @@ export async function processDesktopSync() {
   if (resp?.success) {
     if (resp.blocklist) {
       await storage.setManagedMode(true).catch(() => {});
-      await storage.saveBlocklistCache(resp.blocklist, resp.blocklist.userId || "managed-user").catch(() => {});
+      await storage.saveBlocklistCache(resp.blocklist, resp.blocklist.userId || "managed-user", { forceManaged: true }).catch(() => {});
       await enforceOnOpenTabs().catch(() => {});
     }
     return {
@@ -802,7 +874,7 @@ if (globalThis.chrome?.runtime?.onMessage) {
       if (message.type === "GET_STATUS") {
         const session = await storage.getSession();
         const isManaged = await storage.getManagedMode();
-        const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
+        const cache = await getActiveBlocklistCache();
         const settings = await storage.getSettings();
         sendResponse({
           session,
@@ -820,7 +892,7 @@ if (globalThis.chrome?.runtime?.onMessage) {
         }
         const session = await storage.getSession();
         const isManaged = await storage.getManagedMode();
-        const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
+        const cache = await getActiveBlocklistCache();
         sendResponse({
           result,
           session,
@@ -843,9 +915,10 @@ if (globalThis.chrome?.runtime?.onMessage) {
       }
 
       if (message.type === "EVALUATE_URL") {
-        const session = await storage.getSession();
-        const isManaged = await storage.getManagedMode();
-        const cache = await storage.getBlocklistCache(session?.userId || (isManaged ? "managed-user" : null));
+        let cache = await getActiveBlocklistCache();
+        if (!cache) {
+          cache = await maybeSyncOnDemand();
+        }
         const evalResult = evaluateUrl(message.url, cache);
         sendResponse(evalResult);
         return;

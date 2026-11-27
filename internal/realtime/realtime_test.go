@@ -2087,3 +2087,139 @@ func TestServeWS_CookiePreAuthEmitsAuthSuccessAndSupportsIdempotentAuthFrame(t *
 		t.Fatalf("expected auth.success reply to idempotent auth frame, got %q", secondEvt.Type)
 	}
 }
+
+type mockRealtimeMessageStore struct {
+	mu       sync.Mutex
+	dms      []StoredMessage
+	commMsgs []StoredMessage
+}
+
+func (m *mockRealtimeMessageStore) SaveMessage(_ context.Context, msg StoredMessage, _ bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dms = append(m.dms, msg)
+	return nil
+}
+
+func (m *mockRealtimeMessageStore) GetPendingMessages(_ context.Context, _ string) ([]StoredMessage, error) {
+	return nil, nil
+}
+
+func (m *mockRealtimeMessageStore) MarkMessagesDelivered(_ context.Context, _ string, _ []string) error {
+	return nil
+}
+
+func (m *mockRealtimeMessageStore) DeleteMessage(_ context.Context, _, _, _, _ string) error {
+	return nil
+}
+
+func (m *mockRealtimeMessageStore) SaveCommunityMessage(_ context.Context, _ string, msg StoredMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.commMsgs = append(m.commMsgs, msg)
+	return nil
+}
+
+func TestChatAndCommunity_FilesOnlyMessageAllowedAndPersisted(t *testing.T) {
+	hub := NewHub()
+	store := &mockRealtimeMessageStore{}
+	hub.SetMessageStore(store)
+	hub.SetUserResolver(&mockTestUserResolver{
+		resolveFunc: func(_ context.Context, identifier string) (string, string, string, error) {
+			if identifier == "bob@example.com" || identifier == "@bob" || identifier == "user-bob-id" {
+				return "user-bob-id", "bob@example.com", "bob", nil
+			}
+			return "", "", "", fmt.Errorf("not found: %s", identifier)
+		},
+	})
+
+	server := httptest.NewServer(ServeWS(hub, testSecret))
+	defer server.Close()
+	u, _ := url.Parse(server.URL)
+	u.Scheme = "ws"
+
+	aliceToken := createCustomToken("user-alice-id", "alice@example.com", "alice", "Alice")
+	bobToken := createCustomToken("user-bob-id", "bob@example.com", "bob", "Bob")
+
+	connAlice, _, _ := websocket.DefaultDialer.Dial(u.String(), nil)
+	defer connAlice.Close()
+	_ = connAlice.WriteJSON(map[string]string{"type": "auth", "token": aliceToken})
+	_, _, _ = connAlice.ReadMessage()
+
+	connBob, _, _ := websocket.DefaultDialer.Dial(u.String(), nil)
+	defer connBob.Close()
+	_ = connBob.WriteJSON(map[string]string{"type": "auth", "token": bobToken})
+	_, _, _ = connBob.ReadMessage()
+
+	// 1. DM with empty text and non-empty files
+	_ = connAlice.WriteJSON(map[string]interface{}{
+		"type": "chat.message",
+		"payload": map[string]interface{}{
+			"id":             "dm-files-1",
+			"recipientEmail": "bob@example.com",
+			"text":           "",
+			"files":          []map[string]interface{}{{"name": "doc.pdf", "url": "/uploads/chat/doc.pdf", "isPdf": true}},
+		},
+	})
+
+	_ = connBob.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, dmBytes, err := connBob.ReadMessage()
+	if err != nil {
+		t.Fatalf("Bob failed to receive files-only DM: %v", err)
+	}
+	if !strings.Contains(string(dmBytes), "dm-files-1") || !strings.Contains(string(dmBytes), "/uploads/chat/doc.pdf") {
+		t.Fatalf("unexpected DM payload received by Bob: %s", string(dmBytes))
+	}
+
+	// 2. Register and join community, then send files-only community message
+	_ = connAlice.WriteJSON(map[string]interface{}{
+		"type": "community.register",
+		"payload": map[string]interface{}{
+			"community": map[string]interface{}{"id": "comm-files-1", "name": "Files Room"},
+			"members":   []map[string]string{{"handle": "bob", "email": "bob@example.com"}},
+		},
+	})
+	time.Sleep(40 * time.Millisecond)
+	_ = connBob.WriteJSON(map[string]interface{}{
+		"type":    "community.join_room",
+		"payload": map[string]string{"communityId": "comm-files-1"},
+	})
+	time.Sleep(40 * time.Millisecond)
+
+	_ = connAlice.WriteJSON(map[string]interface{}{
+		"type": "community.message",
+		"payload": map[string]interface{}{
+			"id":          "cm-files-1",
+			"communityId": "comm-files-1",
+			"text":        "",
+			"files":       []map[string]interface{}{{"name": "sheet.xlsx", "url": "/uploads/chat/sheet.xlsx"}},
+		},
+	})
+
+	var commBytes []byte
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = connBob.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		_, raw, readErr := connBob.ReadMessage()
+		if readErr != nil {
+			t.Fatalf("Bob failed waiting for files-only community message: %v", readErr)
+		}
+		if strings.Contains(string(raw), `"type":"community.message"`) {
+			commBytes = raw
+			break
+		}
+	}
+	if !strings.Contains(string(commBytes), "cm-files-1") || !strings.Contains(string(commBytes), "/uploads/chat/sheet.xlsx") {
+		t.Fatalf("unexpected community payload received by Bob: %s", string(commBytes))
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.dms) != 1 || store.dms[0].Files == nil {
+		t.Fatalf("expected 1 persisted DM with files, got %+v", store.dms)
+	}
+	if df, ok := store.dms[0].Files.([]interface{}); !ok || len(df) != 1 {
+		t.Fatalf("expected 1 file entry in persisted DM, got %#v", store.dms[0].Files)
+	}
+}

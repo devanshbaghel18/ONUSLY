@@ -219,7 +219,7 @@ func (m *WindowsPolicyManager) GetBrowserRegistryPaths() []BrowserRegistryPaths 
 		{
 			BrowserType:   core.BrowserBrave,
 			PolicyKey:     `SOFTWARE\Policies\BraveSoftware\Brave`,
-			NativeHostKey: `SOFTWARE\BraveSoftware\Brave\NativeMessagingHosts\` + NativeHostName,
+			NativeHostKey: `SOFTWARE\BraveSoftware\Brave-Browser\NativeMessagingHosts\` + NativeHostName,
 			BinaryPaths: []string{
 				`C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe`,
 				`C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe`,
@@ -270,7 +270,11 @@ func (m *WindowsPolicyManager) DetectBrowsers() ([]core.BrowserInfo, error) {
 			case core.BrowserEdge:
 				regDetectKey = `SOFTWARE\Microsoft\Edge`
 			case core.BrowserBrave:
-				regDetectKey = `SOFTWARE\BraveSoftware\Brave`
+				if m.reg.KeyExists(`SOFTWARE\BraveSoftware\Brave-Browser`) {
+					regDetectKey = `SOFTWARE\BraveSoftware\Brave-Browser`
+				} else {
+					regDetectKey = `SOFTWARE\BraveSoftware\Brave`
+				}
 			case core.BrowserFirefox:
 				regDetectKey = `SOFTWARE\Mozilla\Mozilla Firefox`
 			}

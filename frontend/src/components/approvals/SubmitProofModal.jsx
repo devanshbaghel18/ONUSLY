@@ -29,15 +29,11 @@ function formatBytes(bytes) {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
-// Compress single image via HTML canvas to ensure reasonable size
+// Compress single image via HTML canvas for lightweight preview; non-images upload directly via multipart FormData
 function processImageFile(file, maxDimension = 1400, quality = 0.82) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     if (!file.type.startsWith("image/")) {
-      // Non-image file (e.g. PDF or document) -> Read raw Data URL
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+      resolve("");
       return;
     }
 
@@ -70,7 +66,7 @@ function processImageFile(file, maxDimension = 1400, quality = 0.82) {
       img.onerror = () => resolve(e.target.result);
       img.src = e.target.result;
     };
-    reader.onerror = reject;
+    reader.onerror = () => resolve("");
     reader.readAsDataURL(file);
   });
 }
@@ -187,27 +183,37 @@ export default function SubmitProofModal({
       const currentUser = getUser();
       const goalId = goal.id;
 
-      // 1. Upload raw files to server if any raw files exist
+      // 1. Upload raw files to server if any raw files exist (match deterministically by index)
       let finalFiles = [...attachedFiles];
-      const rawFilesToUpload = attachedFiles.filter((f) => f.rawFile);
+      const rawEntries = attachedFiles
+        .map((f, idx) => ({ f, idx }))
+        .filter((entry) => Boolean(entry.f.rawFile));
 
-      if (rawFilesToUpload.length > 0) {
+      if (rawEntries.length > 0) {
         const uploadedResults = await uploadProofFiles(
-          rawFilesToUpload.map((f) => f.rawFile),
-          goalId
+          rawEntries.map((entry) => entry.f.rawFile),
+          { goalId, scope: "proofs" }
         );
-        finalFiles = attachedFiles.map((f) => {
-          const match = uploadedResults.find((u) => u.name === f.name);
-          if (match && match.url) {
-            const fullUrl = resolveApiUrl(match.url);
-            return {
-              ...f,
-              url: fullUrl,
-              dataUrl: fullUrl,
-            };
+        if (!Array.isArray(uploadedResults) || uploadedResults.length !== rawEntries.length) {
+          throw new Error("Upload incomplete: server did not confirm all attached files.");
+        }
+        const byIndex = new Map();
+        rawEntries.forEach((entry, i) => {
+          const uploaded = uploadedResults[i];
+          if (!uploaded || !uploaded.url) {
+            throw new Error(`Upload failed for "${entry.f.name}".`);
           }
-          return f;
+          const fullUrl = resolveApiUrl(uploaded.url);
+          byIndex.set(entry.idx, {
+            ...entry.f,
+            url: fullUrl,
+            dataUrl: fullUrl,
+            type: uploaded.type || entry.f.type,
+            isImage: typeof uploaded.isImage === "boolean" ? uploaded.isImage : entry.f.isImage,
+            isPdf: typeof uploaded.isPdf === "boolean" ? uploaded.isPdf : entry.f.isPdf,
+          });
         });
+        finalFiles = attachedFiles.map((f, idx) => byIndex.get(idx) || f);
       }
 
       // 2. Prepare structured files payload
@@ -452,7 +458,7 @@ export default function SubmitProofModal({
                   Click to select photo(s) or document(s) from your PC
                 </p>
                 <p className="mt-0.5 text-[10px] font-mono text-neutral-500">
-                  Select multiple files: PNG, JPG, WebP, PDF or Docs (Max 2MB per upload)
+                  Select multiple files: Photos, PDF, Office Docs, TXT, ZIP, Media (Max 25MB/file)
                 </p>
               </div>
             )}
@@ -461,7 +467,7 @@ export default function SubmitProofModal({
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/*,application/pdf,.doc,.docx,.txt"
+              accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.json,.rtf,.odt,.zip,.mp4,.webm,.mp3,.wav"
               onChange={handleFilesChange}
               className="hidden"
             />

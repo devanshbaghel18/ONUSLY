@@ -423,3 +423,155 @@ func TestUploadsACLAuthorization(t *testing.T) {
 		t.Errorf("expected 400/403 for hidden .meta read, got %d", recMeta.Code)
 	}
 }
+
+type mockUploadUserResolver struct {
+	users map[string]struct{ id, email, handle string }
+}
+
+func (m *mockUploadUserResolver) ResolveUser(_ context.Context, identifier string) (string, string, string, error) {
+	if u, ok := m.users[strings.ToLower(strings.TrimPrefix(identifier, "@"))]; ok {
+		return u.id, u.email, u.handle, nil
+	}
+	return "", "", "", errors.New("user not found")
+}
+
+type mockUploadCommunityChecker struct {
+	members map[string]map[string]bool
+}
+
+func (m *mockUploadCommunityChecker) IsCommunityMember(_ context.Context, userID, _, _, communityID string) bool {
+	return m.members[communityID][userID]
+}
+
+func TestUploadsChatPDFAndExtendedTypes(t *testing.T) {
+	uploadsDir := t.TempDir()
+	jwtSecret := "upload-chat-secret"
+	makeTok := func(uid, email, handle string) string {
+		claims := jwt.MapClaims{
+			"sub":           uid,
+			"email":         email,
+			"handle":        handle,
+			"token_type":    "user",
+			"token_version": 1,
+			"exp":           time.Now().Add(time.Hour).Unix(),
+		}
+		tok, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(jwtSecret))
+		return tok
+	}
+
+	aliceToken := makeTok("alice-id", "alice@example.com", "alice")
+	bobToken := makeTok("bob-id", "bob@example.com", "bob")
+	eveToken := makeTok("eve-id", "eve@example.com", "eve")
+
+	resolver := &mockUploadUserResolver{
+		users: map[string]struct{ id, email, handle string }{
+			"bob": {id: "bob-id", email: "bob@example.com", handle: "bob"},
+		},
+	}
+	commChecker := &mockUploadCommunityChecker{
+		members: map[string]map[string]bool{},
+	}
+
+	uploadCreate := middleware.Auth(jwtSecret)(http.HandlerFunc(newUploadCreateHandlerWithResolver(uploadsDir, resolver)))
+	uploadServe := newUploadsServeHandlerWithChat(uploadsDir, jwtSecret, nil, nil, nil, commChecker)
+
+	// 1. Upload valid PDF scoped to DM with Bob
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("scope", "chat")
+	_ = mw.WriteField("recipient", "@bob")
+	fw, _ := mw.CreateFormFile("files", "study-notes.pdf")
+	_, _ = fw.Write([]byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"))
+	_ = mw.Close()
+
+	reqUp := httptest.NewRequest(http.MethodPost, "/uploads", &body)
+	reqUp.Header.Set("Content-Type", mw.FormDataContentType())
+	reqUp.Header.Set("Authorization", "Bearer "+aliceToken)
+	recUp := httptest.NewRecorder()
+	uploadCreate.ServeHTTP(recUp, reqUp)
+	if recUp.Code != http.StatusOK {
+		t.Fatalf("expected chat PDF upload 200 OK, got %d (%s)", recUp.Code, recUp.Body.String())
+	}
+
+	var uploaded []UploadedFileItem
+	if err := json.Unmarshal(recUp.Body.Bytes(), &uploaded); err != nil || len(uploaded) != 1 {
+		t.Fatalf("expected 1 uploaded PDF item, err=%v body=%s", err, recUp.Body.String())
+	}
+	pdfURL := uploaded[0].URL
+	if !strings.HasPrefix(pdfURL, "/uploads/chat/") || !uploaded[0].IsPdf {
+		t.Fatalf("unexpected chat PDF metadata: %+v", uploaded[0])
+	}
+
+	// Recipient Bob can fetch inline PDF without 'sandbox' CSP blocking Chrome viewer
+	reqBob := httptest.NewRequest(http.MethodGet, pdfURL, nil)
+	reqBob.Header.Set("Authorization", "Bearer "+bobToken)
+	recBob := httptest.NewRecorder()
+	uploadServe.ServeHTTP(recBob, reqBob)
+	if recBob.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for recipient Bob, got %d (%s)", recBob.Code, recBob.Body.String())
+	}
+	if csp := recBob.Header().Get("Content-Security-Policy"); strings.Contains(csp, "sandbox") {
+		t.Errorf("PDF response must not include sandbox CSP directive, got %q", csp)
+	}
+	if cd := recBob.Header().Get("Content-Disposition"); cd != "inline" {
+		t.Errorf("expected inline Content-Disposition for PDF, got %q", cd)
+	}
+
+	// Unrelated Eve must get 403 Forbidden
+	reqEve := httptest.NewRequest(http.MethodGet, pdfURL, nil)
+	reqEve.Header.Set("Authorization", "Bearer "+eveToken)
+	recEve := httptest.NewRecorder()
+	uploadServe.ServeHTTP(recEve, reqEve)
+	if recEve.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for unrelated Eve, got %d", recEve.Code)
+	}
+
+	// 2. Upload valid .docx (ZIP magic header) succeeds and forces attachment + sandbox CSP
+	var docxBody bytes.Buffer
+	mwDocx := multipart.NewWriter(&docxBody)
+	_ = mwDocx.WriteField("scope", "chat")
+	_ = mwDocx.WriteField("recipient", "@bob")
+	fwDocx, _ := mwDocx.CreateFormFile("files", "plan.docx")
+	_, _ = fwDocx.Write([]byte("PK\x03\x04\x14\x00\x00\x00fake-docx-zip-payload"))
+	_ = mwDocx.Close()
+
+	reqDocx := httptest.NewRequest(http.MethodPost, "/uploads", &docxBody)
+	reqDocx.Header.Set("Content-Type", mwDocx.FormDataContentType())
+	reqDocx.Header.Set("Authorization", "Bearer "+aliceToken)
+	recDocx := httptest.NewRecorder()
+	uploadCreate.ServeHTTP(recDocx, reqDocx)
+	if recDocx.Code != http.StatusOK {
+		t.Fatalf("expected valid .docx upload 200 OK, got %d (%s)", recDocx.Code, recDocx.Body.String())
+	}
+
+	var uploadedDocx []UploadedFileItem
+	_ = json.Unmarshal(recDocx.Body.Bytes(), &uploadedDocx)
+	reqFetchDocx := httptest.NewRequest(http.MethodGet, uploadedDocx[0].URL, nil)
+	reqFetchDocx.Header.Set("Authorization", "Bearer "+aliceToken)
+	recFetchDocx := httptest.NewRecorder()
+	uploadServe.ServeHTTP(recFetchDocx, reqFetchDocx)
+	if recFetchDocx.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK fetching own docx, got %d", recFetchDocx.Code)
+	}
+	if cd := recFetchDocx.Header().Get("Content-Disposition"); cd != "attachment" {
+		t.Errorf("expected attachment Content-Disposition for .docx, got %q", cd)
+	}
+	if csp := recFetchDocx.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox") {
+		t.Errorf("expected sandbox CSP for non-inline attachment, got %q", csp)
+	}
+
+	// 3. Disguised executable or HTML payload must be rejected cleanly with 400
+	var badBody bytes.Buffer
+	mwBad := multipart.NewWriter(&badBody)
+	fwBad, _ := mwBad.CreateFormFile("files", "fake.docx")
+	_, _ = fwBad.Write([]byte("MZ\x90\x00not-really-docx"))
+	_ = mwBad.Close()
+	reqBad := httptest.NewRequest(http.MethodPost, "/uploads", &badBody)
+	reqBad.Header.Set("Content-Type", mwBad.FormDataContentType())
+	reqBad.Header.Set("Authorization", "Bearer "+aliceToken)
+	recBad := httptest.NewRecorder()
+	uploadCreate.ServeHTTP(recBad, reqBad)
+	if recBad.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for spoofed .docx MZ payload, got %d", recBad.Code)
+	}
+}

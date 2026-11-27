@@ -144,6 +144,16 @@ func isPublicTrendingCommunity(id string) bool {
 	}
 }
 
+func hasNonEmptyFiles(files interface{}) bool {
+	switch v := files.(type) {
+	case []interface{}:
+		return len(v) > 0
+	case []map[string]interface{}:
+		return len(v) > 0
+	}
+	return false
+}
+
 // SetMessageStore attaches a persistent MessageStore to the Hub.
 func (h *Hub) SetMessageStore(store MessageStore) {
 	h.mu.Lock()
@@ -597,7 +607,9 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 								"goalTitle":       m.GoalTitle,
 								"ownerId":         m.OwnerID,
 								"images":          m.Images,
+								"files":           m.Files,
 								"externalLink":    m.ExternalLink,
+								"replyTo":         m.ReplyTo,
 								"approved":        m.Approved,
 								"time":            m.Time,
 								"isOffline":       true,
@@ -772,7 +784,8 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 			ownerID = c.userID
 		}
 
-		if (resolvedEmail == "" && resolvedHandle == "" && recipientID == "") || (req.Text == "" && !req.IsProof && len(req.Images) == 0) {
+		hasContent := req.Text != "" || req.IsProof || len(req.Images) > 0 || hasNonEmptyFiles(req.Files) || strings.TrimSpace(req.ExternalLink) != ""
+		if (resolvedEmail == "" && resolvedHandle == "" && recipientID == "") || !hasContent {
 			log.Printf("[WebSocket] Invalid chat message from sender=%s", c.userID)
 			return
 		}
@@ -1334,7 +1347,7 @@ func (h *Hub) HandleClientMessage(c *Client, message []byte) {
 		}
 
 		cleanText := strings.TrimSpace(req.Text)
-		if cleanText == "" && !req.IsProof && len(req.Images) == 0 {
+		if cleanText == "" && !req.IsProof && len(req.Images) == 0 && !hasNonEmptyFiles(req.Files) && strings.TrimSpace(req.ExternalLink) == "" {
 			c.SendEvent(Event{
 				Type: "community.error",
 				Payload: map[string]interface{}{

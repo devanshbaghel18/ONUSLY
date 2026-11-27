@@ -16,11 +16,14 @@ import (
 
 const uploadMetaDirName = ".meta"
 
-// UploadMetadata tracks the authenticated uploader and bound goal for a proof upload file.
+// UploadMetadata tracks the authenticated uploader and bound goal or chat target for an upload file.
 type UploadMetadata struct {
-	OwnerID   string `json:"ownerId"`
-	GoalID    string `json:"goalId,omitempty"`
-	CreatedAt string `json:"createdAt"`
+	OwnerID     string `json:"ownerId"`
+	Scope       string `json:"scope,omitempty"`
+	GoalID      string `json:"goalId,omitempty"`
+	RecipientID string `json:"recipientId,omitempty"`
+	CommunityID string `json:"communityId,omitempty"`
+	CreatedAt   string `json:"createdAt"`
 }
 
 // UploadGoalLookup resolves a goal for upload read authorization checks.
@@ -28,27 +31,42 @@ type UploadGoalLookup interface {
 	GetByID(ctx context.Context, ownerID, goalID string) (*goals.Goal, error)
 }
 
-func extractProofUploadFilename(urlOrPath string) (string, bool) {
+// UploadCommunityChecker checks whether a user belongs to a community for chat attachment ACLs.
+type UploadCommunityChecker interface {
+	IsCommunityMember(ctx context.Context, userID, email, handle, communityID string) bool
+}
+
+func extractUploadScopeAndFilename(urlOrPath string) (string, string, bool) {
 	trimmed := strings.TrimSpace(urlOrPath)
 	if trimmed == "" {
-		return "", false
+		return "", "", false
 	}
 	if strings.HasPrefix(strings.ToLower(trimmed), "http://") || strings.HasPrefix(strings.ToLower(trimmed), "https://") {
 		parsed, err := url.Parse(trimmed)
 		if err != nil {
-			return "", false
+			return "", "", false
 		}
 		trimmed = parsed.Path
 	} else if idx := strings.IndexAny(trimmed, "?#"); idx >= 0 {
 		trimmed = trimmed[:idx]
 	}
 	cleaned := path.Clean("/" + strings.TrimPrefix(trimmed, "/"))
-	const prefix = "/uploads/proofs/"
-	if !strings.HasPrefix(cleaned, prefix) {
-		return "", false
+	for _, scope := range []string{"proofs", "chat"} {
+		prefix := "/uploads/" + scope + "/"
+		if strings.HasPrefix(cleaned, prefix) {
+			name := strings.TrimPrefix(cleaned, prefix)
+			if name == "" || strings.Contains(name, "/") || strings.HasPrefix(name, ".") {
+				return "", "", false
+			}
+			return scope, name, true
+		}
 	}
-	name := strings.TrimPrefix(cleaned, prefix)
-	if name == "" || strings.Contains(name, "/") || strings.HasPrefix(name, ".") {
+	return "", "", false
+}
+
+func extractProofUploadFilename(urlOrPath string) (string, bool) {
+	scope, name, ok := extractUploadScopeAndFilename(urlOrPath)
+	if !ok || scope != "proofs" {
 		return "", false
 	}
 	return name, true
@@ -94,12 +112,15 @@ func HasHiddenUploadSegment(cleanPath string) bool {
 	return false
 }
 
-func uploadMetaFilePath(uploadsDir, filename string) string {
-	return filepath.Join(uploadsDir, "proofs", uploadMetaDirName, filename+".json")
+func uploadMetaFilePath(uploadsDir, scope, filename string) string {
+	if scope == "" {
+		scope = "proofs"
+	}
+	return filepath.Join(uploadsDir, scope, uploadMetaDirName, filename+".json")
 }
 
-func readUploadMetadata(uploadsDir, filename string) (*UploadMetadata, error) {
-	data, err := os.ReadFile(uploadMetaFilePath(uploadsDir, filename))
+func readUploadMetadata(uploadsDir, scope, filename string) (*UploadMetadata, error) {
+	data, err := os.ReadFile(uploadMetaFilePath(uploadsDir, scope, filename))
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +131,11 @@ func readUploadMetadata(uploadsDir, filename string) (*UploadMetadata, error) {
 	return &meta, nil
 }
 
-func writeUploadMetadata(uploadsDir, filename string, meta UploadMetadata) error {
-	metaDir := filepath.Join(uploadsDir, "proofs", uploadMetaDirName)
+func writeUploadMetadata(uploadsDir, scope, filename string, meta UploadMetadata) error {
+	if scope == "" {
+		scope = "proofs"
+	}
+	metaDir := filepath.Join(uploadsDir, scope, uploadMetaDirName)
 	if err := os.MkdirAll(metaDir, 0700); err != nil {
 		return err
 	}
@@ -119,29 +143,45 @@ func writeUploadMetadata(uploadsDir, filename string, meta UploadMetadata) error
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(uploadMetaFilePath(uploadsDir, filename), payload, 0600)
+	return os.WriteFile(uploadMetaFilePath(uploadsDir, scope, filename), payload, 0600)
 }
 
 // RecordUploadOwner persists owner (and optional goal) metadata alongside a proof upload.
 func RecordUploadOwner(uploadsDir, fileURL, ownerID, goalID string) error {
-	filename, ok := extractProofUploadFilename(fileURL)
+	scope, filename, ok := extractUploadScopeAndFilename(fileURL)
 	if !ok || strings.TrimSpace(ownerID) == "" {
 		return nil
 	}
-	return writeUploadMetadata(uploadsDir, filename, UploadMetadata{
+	return writeUploadMetadata(uploadsDir, scope, filename, UploadMetadata{
 		OwnerID:   strings.TrimSpace(ownerID),
+		Scope:     scope,
 		GoalID:    strings.TrimSpace(goalID),
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
+// RecordChatUploadMetadata persists sender and recipient/community metadata alongside a chat upload.
+func RecordChatUploadMetadata(uploadsDir, fileURL, ownerID, recipientID, communityID string) error {
+	scope, filename, ok := extractUploadScopeAndFilename(fileURL)
+	if !ok || strings.TrimSpace(ownerID) == "" {
+		return nil
+	}
+	return writeUploadMetadata(uploadsDir, scope, filename, UploadMetadata{
+		OwnerID:     strings.TrimSpace(ownerID),
+		Scope:       scope,
+		RecipientID: strings.TrimSpace(recipientID),
+		CommunityID: strings.TrimSpace(communityID),
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 // VerifyUploadOwnership rejects attempts by another user to attach someone else's local proof upload URL.
 func VerifyUploadOwnership(uploadsDir, fileURL, callerOwnerID string) error {
-	filename, ok := extractProofUploadFilename(fileURL)
+	scope, filename, ok := extractUploadScopeAndFilename(fileURL)
 	if !ok {
 		return nil
 	}
-	meta, err := readUploadMetadata(uploadsDir, filename)
+	meta, err := readUploadMetadata(uploadsDir, scope, filename)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -156,15 +196,16 @@ func VerifyUploadOwnership(uploadsDir, fileURL, callerOwnerID string) error {
 
 // BindUploadGoal binds an uploaded proof file to a goal so the assigned approver may read it.
 func BindUploadGoal(uploadsDir, fileURL, ownerID, goalID string) error {
-	filename, ok := extractProofUploadFilename(fileURL)
-	if !ok || strings.TrimSpace(ownerID) == "" || strings.TrimSpace(goalID) == "" {
+	scope, filename, ok := extractUploadScopeAndFilename(fileURL)
+	if !ok || scope != "proofs" || strings.TrimSpace(ownerID) == "" || strings.TrimSpace(goalID) == "" {
 		return nil
 	}
-	meta, err := readUploadMetadata(uploadsDir, filename)
+	meta, err := readUploadMetadata(uploadsDir, scope, filename)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return writeUploadMetadata(uploadsDir, filename, UploadMetadata{
+			return writeUploadMetadata(uploadsDir, scope, filename, UploadMetadata{
 				OwnerID:   strings.TrimSpace(ownerID),
+				Scope:     scope,
 				GoalID:    strings.TrimSpace(goalID),
 				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			})
@@ -175,8 +216,9 @@ func BindUploadGoal(uploadsDir, fileURL, ownerID, goalID string) error {
 		return ErrUnauthorized
 	}
 	meta.OwnerID = strings.TrimSpace(ownerID)
+	meta.Scope = scope
 	meta.GoalID = strings.TrimSpace(goalID)
-	return writeUploadMetadata(uploadsDir, filename, *meta)
+	return writeUploadMetadata(uploadsDir, scope, filename, *meta)
 }
 
 // CanAccessUpload enforces fail-closed authorization for GET /uploads/... requests.
@@ -192,19 +234,44 @@ func CanAccessUpload(
 	goalLookup UploadGoalLookup,
 	proofRepo ProofRepository,
 ) bool {
+	return CanAccessUploadWithChat(ctx, uploadsDir, relPath, goalIDHint, callerID, callerEmail, callerHandle, goalLookup, proofRepo, nil)
+}
+
+// CanAccessUploadWithChat enforces fail-closed authorization for both proof and chat uploads.
+func CanAccessUploadWithChat(
+	ctx context.Context,
+	uploadsDir string,
+	relPath string,
+	goalIDHint string,
+	callerID string,
+	callerEmail string,
+	callerHandle string,
+	goalLookup UploadGoalLookup,
+	proofRepo ProofRepository,
+	communityChecker UploadCommunityChecker,
+) bool {
 	if strings.TrimSpace(callerID) == "" || HasHiddenUploadSegment(relPath) {
 		return false
 	}
 
 	cleaned := path.Clean("/uploads/" + strings.TrimPrefix(strings.ReplaceAll(relPath, "\\", "/"), "/"))
-	filename, ok := extractProofUploadFilename(cleaned)
+	scope, filename, ok := extractUploadScopeAndFilename(cleaned)
 	if !ok {
 		return false
 	}
 
-	if meta, err := readUploadMetadata(uploadsDir, filename); err == nil && meta != nil {
+	if meta, err := readUploadMetadata(uploadsDir, scope, filename); err == nil && meta != nil {
 		if meta.OwnerID != "" && meta.OwnerID == callerID {
 			return true
+		}
+		if scope == "chat" || meta.Scope == "chat" {
+			if meta.RecipientID != "" && meta.RecipientID == callerID {
+				return true
+			}
+			if meta.CommunityID != "" && communityChecker != nil && communityChecker.IsCommunityMember(ctx, callerID, callerEmail, callerHandle, meta.CommunityID) {
+				return true
+			}
+			return false
 		}
 		targetGoalID := strings.TrimSpace(meta.GoalID)
 		if targetGoalID == "" {
@@ -216,6 +283,10 @@ func CanAccessUpload(
 				return true
 			}
 		}
+		return false
+	}
+
+	if scope != "proofs" {
 		return false
 	}
 

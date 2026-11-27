@@ -30,10 +30,9 @@ func newPlatformPolicyManager(configDir string) (core.PolicyManager, error) {
 
 	manifestDir := filepath.Join(configDir, "manifests")
 	backupDir := filepath.Join(configDir, "policy-backups", "backup_state.json")
-	updateURL := "https://api.onusly.com/downloads/updates.xml"
+	updateURL := "https://onusly.duckdns.org/downloads/updates.xml"
 
 	reg := policy.NewRealWindowsRegistry()
 	mgr := policy.NewWindowsPolicyManager(nativeHostBin, manifestDir, backupDir, updateURL, reg)
 	return mgr, nil
 }
-

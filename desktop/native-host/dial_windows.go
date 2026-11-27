@@ -43,13 +43,17 @@ func queryAgent(pipePath string, req core.IPCRequest) core.IPCResponse {
 	var hClient uintptr
 	var errOpen error
 
-	deadline := time.Now().Add(3 * time.Second)
-	for _, candidate := range candidates {
+	deadline := time.Now().Add(1200 * time.Millisecond)
+	for idx, candidate := range candidates {
 		pipeNamePtr, err := syscall.UTF16PtrFromString(candidate)
 		if err != nil {
 			continue
 		}
-		perPipeDeadline := time.Now().Add(900 * time.Millisecond)
+		perPipeBudget := 800 * time.Millisecond
+		if idx > 0 {
+			perPipeBudget = 350 * time.Millisecond
+		}
+		perPipeDeadline := time.Now().Add(perPipeBudget)
 		if perPipeDeadline.After(deadline) {
 			perPipeDeadline = deadline
 		}
@@ -70,8 +74,8 @@ func queryAgent(pipePath string, req core.IPCRequest) core.IPCResponse {
 			errno, ok := errOpen.(syscall.Errno)
 			if ok && (errno == 2 || errno == 231) {
 				// ERROR_FILE_NOT_FOUND or ERROR_PIPE_BUSY
-				win.ProcWaitNamedPipeW.Call(uintptr(unsafe.Pointer(pipeNamePtr)), 100)
-				time.Sleep(50 * time.Millisecond)
+				win.ProcWaitNamedPipeW.Call(uintptr(unsafe.Pointer(pipeNamePtr)), 50)
+				time.Sleep(25 * time.Millisecond)
 				continue
 			}
 			break
