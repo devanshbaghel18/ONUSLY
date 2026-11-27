@@ -801,3 +801,114 @@ func (r *Repository) GetCommunityHistory(ctx context.Context, communityID string
 	}
 	return msgs, nil
 }
+
+// MarkGoalMessagesApproved updates Approved=true on persisted DM chat messages matching goalID
+// across the owner and approver partitions so reloaded chat threads remain synchronized.
+func (r *Repository) MarkGoalMessagesApproved(ctx context.Context, ownerID, approverID, goalID string) error {
+	cleanGoalID := strings.TrimSpace(goalID)
+	cleanOwner := strings.TrimSpace(ownerID)
+	cleanApprover := strings.TrimSpace(approverID)
+	if cleanGoalID == "" {
+		return nil
+	}
+
+	r.mu.Lock()
+	for convKey, mList := range r.memMessages {
+		changed := false
+		for i := range mList {
+			if mList[i].GoalID == cleanGoalID && !mList[i].Approved {
+				mList[i].Approved = true
+				changed = true
+			}
+		}
+		if changed {
+			r.memMessages[convKey] = mList
+		}
+	}
+	for commID, mList := range r.memCommunityMessages {
+		changed := false
+		for i := range mList {
+			if mList[i].GoalID == cleanGoalID && !mList[i].Approved {
+				mList[i].Approved = true
+				changed = true
+			}
+		}
+		if changed {
+			r.memCommunityMessages[commID] = mList
+		}
+	}
+	for id, m := range r.memAllMessages {
+		if m.GoalID == cleanGoalID && !m.Approved {
+			m.Approved = true
+			r.memAllMessages[id] = m
+		}
+	}
+	r.mu.Unlock()
+
+	if r.db == nil {
+		return nil
+	}
+
+	type partitionQuery struct {
+		pk       string
+		skPrefix string
+	}
+	var queries []partitionQuery
+	if cleanOwner != "" {
+		skPref := "CHAT#"
+		if cleanApprover != "" {
+			skPref = "CHAT#" + cleanApprover + "#"
+		}
+		queries = append(queries, partitionQuery{pk: "USER#" + cleanOwner, skPrefix: skPref})
+	}
+	if cleanApprover != "" {
+		skPref := "CHAT#"
+		if cleanOwner != "" {
+			skPref = "CHAT#" + cleanOwner + "#"
+		}
+		queries = append(queries, partitionQuery{pk: "USER#" + cleanApprover, skPrefix: skPref})
+	}
+
+	for _, pq := range queries {
+		qCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+		out, err := r.db.Query(qCtx, &dynamodb.QueryInput{
+			TableName:              aws.String(r.tableName),
+			KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :sk)"),
+			FilterExpression:       aws.String("GoalID = :gid"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":pk":  &types.AttributeValueMemberS{Value: pq.pk},
+				":sk":  &types.AttributeValueMemberS{Value: pq.skPrefix},
+				":gid": &types.AttributeValueMemberS{Value: cleanGoalID},
+			},
+		})
+		cancel()
+		if err != nil || out == nil {
+			continue
+		}
+		for _, item := range out.Items {
+			pkAttr := item["PK"]
+			skAttr := item["SK"]
+			if pkAttr == nil || skAttr == nil {
+				continue
+			}
+			updCtx, cancelUpd := context.WithTimeout(ctx, 2500*time.Millisecond)
+			_, _ = r.db.UpdateItem(updCtx, &dynamodb.UpdateItemInput{
+				TableName: aws.String(r.tableName),
+				Key: map[string]types.AttributeValue{
+					"PK": pkAttr,
+					"SK": skAttr,
+				},
+				UpdateExpression: aws.String("SET #approved = :true"),
+				ExpressionAttributeNames: map[string]string{
+					"#approved": "Approved",
+				},
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":true": &types.AttributeValueMemberBOOL{Value: true},
+				},
+			})
+			cancelUpd()
+		}
+	}
+
+	return nil
+}

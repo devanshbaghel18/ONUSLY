@@ -1649,3 +1649,48 @@ func TestChatHandler_SendMessageWithFiles(t *testing.T) {
 		t.Fatalf("expected 1 file and RecipientID=user-bob, got %+v", sent)
 	}
 }
+
+func TestChatRepository_MarkGoalMessagesApproved(t *testing.T) {
+	repo := NewRepository(nil, "Onusly")
+	ctx := context.Background()
+
+	err := repo.SaveMessage(ctx, realtime.StoredMessage{
+		ID:              "proof-proof-1",
+		SenderID:        "owner-1",
+		SenderEmail:     "owner@example.com",
+		SenderHandle:    "owner",
+		RecipientID:     "approver-1",
+		RecipientEmail:  "approver@example.com",
+		RecipientHandle: "approver",
+		Text:            "Submitted proof for goal",
+		IsProof:         true,
+		GoalID:          "goal-1",
+		GoalTitle:       "LeetCode 10",
+		OwnerID:         "owner-1",
+		Approved:        false,
+		Time:            "2026-11-27T10:00:00Z",
+	}, true)
+	if err != nil {
+		t.Fatalf("SaveMessage failed: %v", err)
+	}
+
+	if err := repo.MarkGoalMessagesApproved(ctx, "owner-1", "approver-1", "goal-1"); err != nil {
+		t.Fatalf("MarkGoalMessagesApproved failed: %v", err)
+	}
+
+	ownerHist, err := repo.GetConversationHistory(ctx, "owner-1", "approver-1", 20)
+	if err != nil || len(ownerHist) != 1 {
+		t.Fatalf("expected 1 message in owner history, err=%v len=%d", err, len(ownerHist))
+	}
+	if !ownerHist[0].Approved {
+		t.Fatalf("expected owner history message Approved=true, got false")
+	}
+
+	approverHist, err := repo.GetConversationHistory(ctx, "approver-1", "owner-1", 20)
+	if err != nil || len(approverHist) != 1 {
+		t.Fatalf("expected 1 message in approver history, err=%v len=%d", err, len(approverHist))
+	}
+	if !approverHist[0].Approved {
+		t.Fatalf("expected approver history message Approved=true, got false")
+	}
+}

@@ -136,7 +136,7 @@ export default function GoalDetail() {
 
   // Subscribe to real-time WebSocket events for instant unlock sync
   const { isConnected, send } = useWebSocket((event) => {
-    if (event?.type === "goal.unlocked") {
+    if (event?.type === "goal.unlocked" || event?.type === "chat.message.approved") {
       const payload = event.payload || {};
       if (String(payload.goalId) === String(id)) {
         console.log("[GoalDetail] Real-time goal unlock received:", payload);
@@ -157,7 +157,7 @@ export default function GoalDetail() {
         // 3. Display celebratory real-time unlock banner
         setUnlockBanner({
           goalId: payload.goalId,
-          title: payload.title || goal?.title || "Your Goal",
+          title: payload.title || payload.goalTitle || goal?.title || "Your Goal",
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
         });
 
@@ -235,53 +235,69 @@ export default function GoalDetail() {
   useEffect(() => {
     let ignore = false;
 
-    getGoal(id, ownerIdParam)
-      .then((data) => {
-        if (!ignore && data) {
-          setGoal(data);
-          setEditTitle(data.title || "");
-          setEditDescription(data.description || "");
-        }
-      })
-      .catch((err) => {
-        if (!ignore) {
-          console.error("Failed to load goal details:", err);
-          setError(err.message || "Failed to load goal");
-        }
-      })
-      .finally(() => {
-        if (!ignore) setLoading(false);
-      });
+    const refreshDetail = () => {
+      getGoal(id, ownerIdParam)
+        .then((data) => {
+          if (!ignore && data) {
+            setGoal(data);
+            setEditTitle(data.title || "");
+            setEditDescription(data.description || "");
+          }
+        })
+        .catch((err) => {
+          if (!ignore) {
+            console.error("Failed to load goal details:", err);
+            setError(err.message || "Failed to load goal");
+          }
+        })
+        .finally(() => {
+          if (!ignore) setLoading(false);
+        });
 
-    getProofs(id, ownerIdParam)
-      .then((data) => {
-        if (!ignore) setProofs(data);
-      })
-      .catch((err) => {
-        console.error("Failed to load proofs:", err);
-      })
-      .finally(() => {
-        if (!ignore) setLoadingProofs(false);
-      });
+      getProofs(id, ownerIdParam)
+        .then((data) => {
+          if (!ignore) setProofs(data);
+        })
+        .catch((err) => {
+          console.error("Failed to load proofs:", err);
+        })
+        .finally(() => {
+          if (!ignore) setLoadingProofs(false);
+        });
 
-    getSubmissions(id)
-      .then((dossier) => {
-        if (!ignore && dossier) setSubmissionDossier(dossier);
-      })
-      .catch((err) => {
-        console.debug("Could not load submissions dossier:", err?.message);
-      });
+      getSubmissions(id)
+        .then((dossier) => {
+          if (!ignore && dossier) setSubmissionDossier(dossier);
+        })
+        .catch((err) => {
+          console.debug("Could not load submissions dossier:", err?.message);
+        });
 
-    getApprovals(id)
-      .then((data) => {
-        if (!ignore && Array.isArray(data)) setApprovals(data);
-      })
-      .catch((err) => {
-        console.warn("Could not load approvals:", err.message);
-      });
+      getApprovals(id)
+        .then((data) => {
+          if (!ignore && Array.isArray(data)) setApprovals(data);
+        })
+        .catch((err) => {
+          console.warn("Could not load approvals:", err.message);
+        });
+    };
+
+    refreshDetail();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshDetail();
+      }
+    };
+    window.addEventListener("focus", refreshDetail);
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("onusly:goals-updated", refreshDetail);
 
     return () => {
       ignore = true;
+      window.removeEventListener("focus", refreshDetail);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("onusly:goals-updated", refreshDetail);
     };
   }, [id, ownerIdParam]);
 

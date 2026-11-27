@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devanshbaghel18/ONUSLY/internal/events"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
@@ -2283,5 +2284,113 @@ func TestChatAndCommunity_FilesOnlyMessageAllowedAndPersisted(t *testing.T) {
 	}
 	if df, ok := store.dms[0].Files.([]interface{}); !ok || len(df) != 1 {
 		t.Fatalf("expected 1 file entry in persisted DM, got %#v", store.dms[0].Files)
+	}
+}
+
+func TestWebSocketPublisher_PublishProofSubmitted_DoesNotEchoToOwner(t *testing.T) {
+	hub := NewHub()
+	store := &mockRealtimeMessageStore{}
+	hub.SetMessageStore(store)
+	hub.SetUserResolver(&mockTestUserResolver{
+		resolveFunc: func(_ context.Context, identifier string) (string, string, string, error) {
+			switch identifier {
+			case "owner-1":
+				return "owner-1", "owner@example.com", "owner_handle", nil
+			case "approver-1":
+				return "approver-1", "approver@example.com", "approver_handle", nil
+			default:
+				return "", "", "", fmt.Errorf("unknown user %s", identifier)
+			}
+		},
+	})
+
+	server := httptest.NewServer(ServeWS(hub, testSecret))
+	defer server.Close()
+	u, _ := url.Parse(server.URL)
+	u.Scheme = "ws"
+
+	ownerToken := createCustomToken("owner-1", "owner@example.com", "owner_handle", "Owner")
+	connOwner, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		t.Fatalf("owner dial failed: %v", err)
+	}
+	defer connOwner.Close()
+	_ = connOwner.WriteJSON(map[string]string{"type": "auth", "token": ownerToken})
+	_, _, _ = connOwner.ReadMessage()
+
+	approverToken := createCustomToken("approver-1", "approver@example.com", "approver_handle", "Approver")
+	connApprover, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		t.Fatalf("approver dial failed: %v", err)
+	}
+	defer connApprover.Close()
+	_ = connApprover.WriteJSON(map[string]string{"type": "auth", "token": approverToken})
+	_, _, _ = connApprover.ReadMessage()
+
+	pub := NewWebSocketPublisher(hub)
+	submittedAt := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	if err := pub.PublishProofSubmitted(context.Background(), events.ProofSubmittedEvent{
+		EventID:     "evt-1",
+		GoalID:      "goal-99",
+		ProofID:     "proof-99",
+		OwnerID:     "owner-1",
+		ApproverID:  "approver-1",
+		Title:       "LeetCode 10",
+		SubmittedAt: submittedAt,
+	}); err != nil {
+		t.Fatalf("PublishProofSubmitted failed: %v", err)
+	}
+
+	// Approver should receive both proof.submitted and 1 chat.message
+	var approverChatCount int
+	var approverProofCount int
+	for i := 0; i < 2; i++ {
+		_ = connApprover.SetReadDeadline(time.Now().Add(1 * time.Second))
+		_, raw, err := connApprover.ReadMessage()
+		if err != nil {
+			t.Fatalf("approver failed reading message %d: %v", i, err)
+		}
+		var evt Event
+		if err := json.Unmarshal(raw, &evt); err != nil {
+			t.Fatalf("unmarshal approver event failed: %v", err)
+		}
+		switch evt.Type {
+		case "chat.message":
+			approverChatCount++
+		case "proof.submitted":
+			approverProofCount++
+		}
+	}
+	if approverChatCount != 1 || approverProofCount != 1 {
+		t.Fatalf("expected 1 chat.message and 1 proof.submitted for approver, got chat=%d proof=%d", approverChatCount, approverProofCount)
+	}
+
+	// Owner should receive proof.submitted notification only, NEVER chat.message echo
+	deadline := time.Now().Add(250 * time.Millisecond)
+	var ownerProofCount int
+	for time.Now().Before(deadline) {
+		_ = connOwner.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+		_, raw, err := connOwner.ReadMessage()
+		if err != nil {
+			break
+		}
+		var evt Event
+		if err := json.Unmarshal(raw, &evt); err == nil {
+			if evt.Type == "chat.message" {
+				t.Fatalf("owner unexpectedly received chat.message echo on PublishProofSubmitted: %s", string(raw))
+			}
+			if evt.Type == "proof.submitted" {
+				ownerProofCount++
+			}
+		}
+	}
+	if ownerProofCount != 1 {
+		t.Fatalf("expected owner to receive 1 proof.submitted event, got %d", ownerProofCount)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.dms) != 1 || store.dms[0].ID != "proof-proof-99" {
+		t.Fatalf("expected 1 persisted DM with ID=proof-proof-99, got %+v", store.dms)
 	}
 }

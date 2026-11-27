@@ -385,6 +385,26 @@ func main() {
 	wsHub.SetGoalVerifier(&serverGoalVerifier{goalService: goalService})
 	wsHub.SetUserResolver(chatResolver)
 
+	// Persist chat verification card approval state in DynamoDB whenever an approval succeeds.
+	approvalService.AddDecisionListener(approval.DecisionListenerFunc(func(ctx context.Context, app *approval.Approval, goal *goals.Goal) {
+		if app == nil || app.Status != "approved" {
+			return
+		}
+		ownerID := app.OwnerID
+		approverID := app.ApproverID
+		if goal != nil {
+			if ownerID == "" {
+				ownerID = goal.OwnerID
+			}
+			if approverID == "" {
+				approverID = goal.ApproverID
+			}
+		}
+		if err := chatRepo.MarkGoalMessagesApproved(ctx, ownerID, approverID, app.GoalID); err != nil {
+			log.Printf("[Approval] Failed to mark chat messages approved for goal %s: %v", app.GoalID, err)
+		}
+	}))
+
 	// Friends & Communities Repository, Service & Handler
 	friendsRepo := friends.NewRepository(db, tableName)
 	friendsService := friends.NewService(friendsRepo, chatResolver, wsHub)

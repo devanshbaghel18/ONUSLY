@@ -42,7 +42,7 @@ export default function Dashboard() {
 
   // Subscribe to real-time WebSocket events
   const { isConnected, send } = useWebSocket((event) => {
-    if (event?.type === "goal.unlocked") {
+    if (event?.type === "goal.unlocked" || event?.type === "chat.message.approved") {
       const payload = event.payload || {};
       console.log("[Dashboard] Real-time unlock event received:", payload);
 
@@ -56,7 +56,7 @@ export default function Dashboard() {
       // 2. Display the live celebration banner
       setUnlockBanner({
         goalId: payload.goalId,
-        title: payload.title || "Your Goal",
+        title: payload.title || payload.goalTitle || "Your Goal",
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
       });
 
@@ -94,31 +94,47 @@ export default function Dashboard() {
 
   useEffect(() => {
     let ignore = false;
-    getGoals()
-      .then((data) => {
-        if (!ignore) {
-          setGoals(data);
-          setError("");
-        }
-      })
-      .catch((err) => {
-        if (!ignore) {
-          console.error("Failed to load goals:", err);
-          setError(err.message || "Failed to load goals");
-        }
-      })
-      .finally(() => {
-        if (!ignore) setLoading(false);
-      });
+    const refreshDashboard = () => {
+      getGoals()
+        .then((data) => {
+          if (!ignore) {
+            setGoals(data);
+            setError("");
+          }
+        })
+        .catch((err) => {
+          if (!ignore) {
+            console.error("Failed to load goals:", err);
+            setError(err.message || "Failed to load goals");
+          }
+        })
+        .finally(() => {
+          if (!ignore) setLoading(false);
+        });
 
-    getWellbeingSummary({ range: "today" })
-      .then((wb) => {
-        if (!ignore) setWellbeingToday(wb);
-      })
-      .catch(() => {});
+      getWellbeingSummary({ range: "today" })
+        .then((wb) => {
+          if (!ignore) setWellbeingToday(wb);
+        })
+        .catch(() => {});
+    };
+
+    refreshDashboard();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshDashboard();
+      }
+    };
+    window.addEventListener("focus", refreshDashboard);
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("onusly:goals-updated", refreshDashboard);
 
     return () => {
       ignore = true;
+      window.removeEventListener("focus", refreshDashboard);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("onusly:goals-updated", refreshDashboard);
     };
   }, []);
 

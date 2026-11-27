@@ -13,13 +13,8 @@ import {
   Plus,
   Send,
 } from "lucide-react";
-import { getUser } from "../../lib/auth";
 import { submitProof, uploadProofFiles, resolveApiUrl } from "../../lib/api";
 import { playProofSubmittedSound } from "../../lib/sound";
-
-function generateMsgId(prefix = "msg") {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-}
 
 function formatBytes(bytes) {
   if (!bytes || bytes <= 0) return "0 B";
@@ -76,7 +71,6 @@ export default function SubmitProofModal({
   onClose,
   goal,
   onSuccess,
-  send,
 }) {
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [textExplanation, setTextExplanation] = useState("");
@@ -180,7 +174,6 @@ export default function SubmitProofModal({
     setError("");
 
     try {
-      const currentUser = getUser();
       const goalId = goal.id;
 
       // 1. Upload raw files to server if any raw files exist (match deterministically by index)
@@ -256,7 +249,7 @@ export default function SubmitProofModal({
         finalExplanation = trimmedNotes ? `${trimmedNotes}${suffix}` : `[Attached Proof Documents (${finalFiles.length})]:\n${fileManifest}`;
       }
 
-      // 6. Submit proof to backend REST API
+      // 6. Submit proof to backend REST API (PublishProofSubmitted handles the single canonical partner chat request)
       const result = await submitProof(goalId, {
         proofType,
         photoUrl: finalPhotoUrl,
@@ -265,44 +258,8 @@ export default function SubmitProofModal({
         files: filesPayload,
       });
 
-      // Send real-time chat notification to partner over WebSocket
-      try {
-        const senderEmail = currentUser?.email || "";
-        const senderHandle = currentUser?.handle || "";
-        const senderName =
-          currentUser?.name || (senderHandle ? `@${senderHandle}` : "You");
-        const msgId = generateMsgId("proof-msg");
-
-        const sendWS = (msg) => {
-          if (typeof send === "function") send(msg);
-        };
-
-        if (hasAssignedApprover) {
-          sendWS({
-            type: "chat.message",
-            payload: {
-              id: msgId,
-              recipientEmail: goal.approverEmail || "",
-              senderEmail,
-              senderHandle,
-              senderName,
-              text: `Submitted verification proof for goal: "${goal.title}" (${finalFiles.length} file(s) attached)`,
-              isProof: true,
-              goalId,
-              goalTitle: goal.title,
-              ownerId: currentUser?.id || "",
-              proofType,
-              photoUrl: finalPhotoUrl,
-              textExplanation: finalExplanation,
-              fileCount: finalFiles.length,
-              files: filesPayload,
-            },
-          });
-        }
-      } catch (wsErr) {
-        console.warn("Background chat notification skipped:", wsErr.message);
-      }
-
+      window.dispatchEvent(new CustomEvent("onusly:goals-updated"));
+      window.dispatchEvent(new CustomEvent("onusly:inbox-updated"));
       playProofSubmittedSound();
 
       if (onSuccess) {

@@ -89,13 +89,13 @@ export default function Goals() {
   const [shareGoal, setShareGoal] = useState(null); // goal to share
 
   const { send } = useWebSocket((event) => {
-    if (event?.type === "goal.unlocked") {
+    if (event?.type === "goal.unlocked" || event?.type === "chat.message.approved") {
       const payload = event.payload || {};
       setGoals((prev) =>
         prev.map((g) => (g.id === payload.goalId ? { ...g, status: "completed" } : g))
       );
       notifyExtensionSync();
-      setSuccessNotice(`Real-time: "${payload.title || "Goal"}" was approved and unlocked.`);
+      setSuccessNotice(`Real-time: "${payload.title || payload.goalTitle || "Goal"}" was approved and unlocked.`);
       setTimeout(() => setSuccessNotice(""), 6000);
       getGoals().then((data) => setGoals(data)).catch(() => {});
     }
@@ -112,25 +112,41 @@ export default function Goals() {
 
   useEffect(() => {
     let ignore = false;
-    getGoals()
-      .then((data) => {
-        if (!ignore) {
-          setGoals(data);
-          setError("");
-        }
-      })
-      .catch((err) => {
-        if (!ignore) {
-          console.error("Failed to load goals:", err);
-          setError(err.message || "Failed to load goals. Make sure the backend server is running.");
-        }
-      })
-      .finally(() => {
-        if (!ignore) setLoading(false);
-      });
+    const refreshGoals = () => {
+      getGoals()
+        .then((data) => {
+          if (!ignore) {
+            setGoals(data);
+            setError("");
+          }
+        })
+        .catch((err) => {
+          if (!ignore) {
+            console.error("Failed to load goals:", err);
+            setError(err.message || "Failed to load goals. Make sure the backend server is running.");
+          }
+        })
+        .finally(() => {
+          if (!ignore) setLoading(false);
+        });
+    };
+
+    refreshGoals();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshGoals();
+      }
+    };
+    window.addEventListener("focus", refreshGoals);
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("onusly:goals-updated", refreshGoals);
 
     return () => {
       ignore = true;
+      window.removeEventListener("focus", refreshGoals);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("onusly:goals-updated", refreshGoals);
     };
   }, []);
 

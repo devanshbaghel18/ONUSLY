@@ -117,7 +117,7 @@ export default function AppLayout({ children }) {
       try {
         const { getApproverInbox, getFriendRequests } = await import("../lib/api");
         const [inboxRes, reqsRes] = await Promise.all([
-          getApproverInbox({ status: "pending" }).catch(() => null),
+          getApproverInbox("pending").catch(() => null),
           getFriendRequests().catch(() => null),
         ]);
         if (mounted && inboxRes?.total !== undefined) {

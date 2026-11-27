@@ -81,6 +81,7 @@ import {
 } from "../lib/api";
 
 import { getUser } from "../lib/auth";
+import { notifyExtensionSync } from "../lib/extensionSync";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { wsManager } from "../lib/websocket";
 
@@ -309,6 +310,7 @@ export default function Communities() {
 
   // Approval in-chat state
   const [approvingMsgId, setApprovingMsgId] = useState(null);
+  const [approveError, setApproveError] = useState("");
 
   // Add friend modal state (declared before effects that reference setters)
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
@@ -1007,79 +1009,104 @@ export default function Communities() {
   // ==========================================
   const handleApproveChatProof = async (msg) => {
     setApprovingMsgId(msg.id);
+    setApproveError("");
+    const syncLocalApproval = (goalIdToMark) => {
+      const gid = goalIdToMark || msg.goalId;
+      setChatMessages((prev) =>
+        prev.map((m) => (m.id === msg.id || (gid && m.goalId === gid) ? { ...m, approved: true } : m))
+      );
+      setCommChatMessages((prev) =>
+        prev.map((m) => (m.id === msg.id || (gid && m.goalId === gid) ? { ...m, approved: true } : m))
+      );
+      markChatMessageApproved(gid, msg.id);
+      markCommunityMessageApproved(gid, msg.id);
+      notifyExtensionSync();
+      window.dispatchEvent(new CustomEvent("onusly:inbox-updated"));
+      window.dispatchEvent(new CustomEvent("onusly:goals-updated"));
+    };
+
     try {
-      const { getProofs, getGoal, getGoals, decideApproval } = await import("../lib/api");
+      const { getProofs, getGoal, getApproverInbox, decideApproval } = await import("../lib/api");
       let resolvedGoalId = msg.goalId;
       let ownerId = msg.ownerId || "";
 
-      // If goalId is missing, attempt to resolve it by matching goalTitle against active goals
+      // If goalId is missing, resolve against the approver's pending inbox (never the approver's own goals)
       if (!resolvedGoalId) {
         try {
-          const allGoals = await getGoals().catch(() => []);
+          const inboxRes = await getApproverInbox("pending").catch(() => null);
+          const inboxItems = Array.isArray(inboxRes?.items) ? inboxRes.items : [];
           const targetTitle = (msg.goalTitle || "").toLowerCase().trim();
-          const matched = allGoals.find((g) => {
-            return targetTitle && g.title && g.title.toLowerCase().trim() === targetTitle;
-          }) || allGoals.find((g) => g.status === "active" || g.status === "proof_submitted");
-
+          const matched = targetTitle
+            ? inboxItems.find((item) => item.title && item.title.toLowerCase().trim() === targetTitle)
+            : null;
           if (matched) {
-            resolvedGoalId = matched.id;
+            resolvedGoalId = matched.goalId;
             ownerId = matched.ownerId || ownerId;
           }
         } catch (findErr) {
-          console.warn("Could not find matching goal by title:", findErr);
+          console.warn("Could not resolve goal from approver inbox:", findErr);
         }
       }
 
-      if (resolvedGoalId) {
-        const goal = await getGoal(resolvedGoalId, ownerId).catch(() => null);
-        if (goal && !ownerId) {
-          ownerId = goal.ownerId || "";
-        }
+      if (!resolvedGoalId) {
+        throw new Error("Could not resolve goal details for this proof message. Please approve from Review Inbox.");
+      }
 
-        const proofs = await getProofs(resolvedGoalId, ownerId);
-        const sortedProofs = [...(Array.isArray(proofs) ? proofs : [])].sort(
-          (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
-        );
-        const targetProofId =
-          msg.proofId ||
-          sortedProofs.find((p) => p.status === "pending" || p.status === "proof_submitted")?.id ||
-          sortedProofs[0]?.id;
+      const goal = await getGoal(resolvedGoalId, ownerId).catch(() => null);
+      if (goal && !ownerId) {
+        ownerId = goal.ownerId || "";
+      }
 
-        if (!targetProofId) {
-          throw new Error("No submitted proof found for this goal.");
-        }
+      // If already completed on backend, sync UI & local storage immediately without firing a duplicate 409 decision
+      if (goal?.status === "completed") {
+        syncLocalApproval(resolvedGoalId);
+        return;
+      }
 
+      const proofs = await getProofs(resolvedGoalId, ownerId);
+      const sortedProofs = [...(Array.isArray(proofs) ? proofs : [])].sort(
+        (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
+      );
+      const targetProofId =
+        msg.proofId ||
+        sortedProofs.find((p) => p.status === "pending" || p.status === "proof_submitted")?.id ||
+        sortedProofs[0]?.id;
+
+      if (!targetProofId) {
+        throw new Error("No submitted proof found for this goal.");
+      }
+
+      try {
         await decideApproval(resolvedGoalId, targetProofId, {
           ownerId: ownerId,
           status: "approved",
           comment: "Approved from chat",
         });
-      } else {
-        throw new Error("Could not resolve goal ID for this proof message.");
+      } catch (decErr) {
+        // Re-check live goal status if backend returned already decided (409)
+        const latest = await getGoal(resolvedGoalId, ownerId).catch(() => null);
+        if (latest?.status === "completed") {
+          syncLocalApproval(resolvedGoalId);
+          return;
+        }
+        throw decErr;
       }
 
-      // Mark locally as approved
-      setChatMessages((prev) =>
-        prev.map((m) => (m.id === msg.id || m.goalId === msg.goalId ? { ...m, approved: true } : m))
-      );
-      setCommChatMessages((prev) =>
-        prev.map((m) => (m.id === msg.id || m.goalId === msg.goalId ? { ...m, approved: true } : m))
-      );
-      markChatMessageApproved(msg.goalId, msg.id);
-      markCommunityMessageApproved(msg.goalId, msg.id);
+      syncLocalApproval(resolvedGoalId);
 
-      // Broadcast over WebSocket so owner instantly gets goal.unlocked / approved
+      // Broadcast over WebSocket so owner instantly gets chat.message.approved
       send({
         type: "chat.message.approved",
         payload: {
           messageId: msg.id,
-          goalId: msg.goalId,
+          goalId: resolvedGoalId,
           goalTitle: msg.goalTitle,
           approverName: currentUser?.name || (currentUser?.handle ? `@${currentUser.handle}` : "Partner"),
         },
       });
     } catch (err) {
       console.error("Failed to approve in chat:", err);
+      setApproveError(err?.message || "Failed to approve verification request.");
     } finally {
       setApprovingMsgId(null);
     }
@@ -2150,6 +2177,15 @@ export default function Communities() {
           </span>
         </div>
 
+        {approveError && (
+          <div className="shrink-0 flex items-center justify-between border-b border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs text-rose-300">
+            <span>{approveError}</span>
+            <button type="button" onClick={() => setApproveError("")} className="text-rose-300 hover:text-white">
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
         {/* Community Chat Stream */}
         <div
           ref={commChatContainerRef}
@@ -2693,6 +2729,15 @@ export default function Communities() {
                       </div>
                     </div>
                   </div>
+
+                  {approveError && (
+                    <div className="shrink-0 flex items-center justify-between border-b border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs text-rose-300">
+                      <span>{approveError}</span>
+                      <button type="button" onClick={() => setApproveError("")} className="text-rose-300 hover:text-white">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
 
                   {/* Message Stream */}
                   <div

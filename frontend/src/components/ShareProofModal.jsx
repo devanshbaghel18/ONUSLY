@@ -110,9 +110,10 @@ export default function ShareProofModal({
         }
 
         // 2. Submit proof on behalf of owner so goal transitions to proof_submitted
+        let submittedProof = null;
         if (goal.status === "active") {
           try {
-            await submitProof(goalId, {
+            submittedProof = await submitProof(goalId, {
               proofType: "text",
               textExplanation: `Verification request: "${goalTitle}"`,
             });
@@ -121,27 +122,29 @@ export default function ShareProofModal({
           }
         }
 
-        const msgId = generateMsgId("msg");
+        const msgId = submittedProof?.id ? `proof-${submittedProof.id}` : generateMsgId("msg");
 
-        // 3. Send real-time chat message via WebSocket
-        sendWS({
-          type: "chat.message",
-          payload: {
-            id: msgId,
-            recipientEmail: friend.email || "",
-            recipientHandle: friend.handle || "",
-            senderEmail,
-            senderHandle,
-            senderName,
-            text: `Please verify my goal: "${goalTitle}"`,
-            isProof: true,
-            goalId,
-            goalTitle,
-            ownerId: currentUser?.id || "",
-          },
-        });
+        // 3. Send via WebSocket ONLY if backend PublishProofSubmitted did not already dispatch it
+        if (!submittedProof?.id) {
+          sendWS({
+            type: "chat.message",
+            payload: {
+              id: msgId,
+              recipientEmail: friend.email || "",
+              recipientHandle: friend.handle || "",
+              senderEmail,
+              senderHandle,
+              senderName,
+              text: `Please verify my goal: "${goalTitle}"`,
+              isProof: true,
+              goalId,
+              goalTitle,
+              ownerId: currentUser?.id || "",
+            },
+          });
+        }
 
-        // 4. Save message in local chat store
+        // 4. Save message in local chat store with canonical ID
         sendChatMessage(
           selectedFriendId,
           {

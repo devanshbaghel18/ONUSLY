@@ -136,8 +136,11 @@ func (p *WebSocketPublisher) PublishProofSubmitted(ctx context.Context, event ev
 			},
 		}
 
-		_ = p.hub.SendToUser(approverID, chatEvent)
-		_ = p.hub.SendToUser(ownerID, chatEvent)
+		// Deliver incoming chat request notification to the approver only;
+		// the owner already has the canonical record persisted in chat history.
+		if approverID != ownerID {
+			_ = p.hub.SendToUser(approverID, chatEvent)
+		}
 	}
 
 	return nil
@@ -166,6 +169,17 @@ func (p *WebSocketPublisher) PublishApprovalDecided(ctx context.Context, event e
 
 		deliverToParticipants(p.hub, event.OwnerID, event.ApproverID, unlockEvent)
 
+		approverDisplay := event.ApproverID
+		if resolver := p.hub.UserResolver(); resolver != nil && event.ApproverID != "" {
+			if _, e, h, err := resolver.ResolveUser(ctx, event.ApproverID); err == nil {
+				if h != "" {
+					approverDisplay = "@" + h
+				} else if e != "" {
+					approverDisplay = e
+				}
+			}
+		}
+
 		// Route goal approval chat notification strictly to the owner and approver
 		approveEvent := Event{
 			Type: "chat.message.approved",
@@ -174,7 +188,7 @@ func (p *WebSocketPublisher) PublishApprovalDecided(ctx context.Context, event e
 				"ownerId":      event.OwnerID,
 				"approverId":   event.ApproverID,
 				"goalTitle":    event.Title,
-				"approverName": event.ApproverID,
+				"approverName": approverDisplay,
 				"status":       "completed",
 			},
 		}
