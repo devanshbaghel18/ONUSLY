@@ -472,9 +472,9 @@ if go build -o "${APP_DIR}/server.new" ./cmd/server; then
   mv -f "${APP_DIR}/server.new" "${APP_DIR}/server"
   chmod 755 "${APP_DIR}/server"
   chown ec2-user:ec2-user "${APP_DIR}/server" 2>/dev/null || true
-  mkdir -p "${APP_DIR}/uploads/proofs"
+  mkdir -p "${APP_DIR}/uploads/proofs/.meta"
   chown -R ec2-user:ec2-user "${APP_DIR}/uploads" 2>/dev/null || true
-  chmod -R 755 "${APP_DIR}/uploads"
+  chmod 700 "${APP_DIR}/uploads" "${APP_DIR}/uploads/proofs" "${APP_DIR}/uploads/proofs/.meta"
   echo "[+] Compilation successful: binary installed at ${APP_DIR}/server."
 else
   echo "[-] ERROR: Go compilation failed! Preserving existing binary." >&2
@@ -512,6 +512,7 @@ if command -v go >/dev/null 2>&1 && [ -d "${APP_DIR}/desktop" ]; then
       -o "${APP_DIR}/frontend/public/downloads/ONUSLY_Shield_Toggle.exe" ./desktop/agent/cmd/switcher
   ) || echo "WARNING: Windows cross-compilation failed cleanly; check Go toolchain."
   rm -rf "$WIN_STAGE_DIR" "${APP_DIR}/desktop/installer/cmd/installer/assets/"*.exe
+  go clean -cache 2>/dev/null || true
 fi
 
 if command -v npm >/dev/null 2>&1 && [ -f "${APP_DIR}/frontend/package.json" ]; then
@@ -754,11 +755,12 @@ else
   echo "[!] WARNING: Initial keep-warm probe reported a degraded dependency (check /var/log/onusly/keepwarm.log)."
 fi
 
-# 13.5 Prune older deployment backups (retain latest 5 per artifact)
-for bak_glob in "${APP_DIR}/server.bak.*" "${ENV_FILE}.bak.*" "${NGINX_CONF_DEST}.bak.*" "${SYSTEMD_SERVICE_DEST}.bak.*"; do
+# 13.5 Prune older deployment backups (retain latest 2 per artifact to conserve root EBS space)
+for bak_glob in "${APP_DIR}/server.bak.*" "${ENV_FILE}.bak.*" "${NGINX_CONF_DEST}.bak.*" "${SYSTEMD_SERVICE_DEST}.bak.*" "/etc/nginx/nginx.conf.bak.*"; do
   # shellcheck disable=SC2086
-  ls -1t $bak_glob 2>/dev/null | tail -n +6 | xargs -r rm -f || true
+  ls -1t $bak_glob 2>/dev/null | tail -n +3 | xargs -r rm -f || true
 done
+go clean -cache -testcache 2>/dev/null || true
 
 echo "=============================================================================="
 echo ">>> ONUSLY Production Deployment Successful! Deployed commit: ${DEPLOYED_SHA}"

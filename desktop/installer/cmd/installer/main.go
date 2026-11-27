@@ -17,6 +17,7 @@ import (
 	"time"
 	"unsafe"
 
+	win "github.com/devanshbaghel18/ONUSLY/desktop/core/windows"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -32,8 +33,8 @@ const (
 )
 
 var (
-	apiURL           = "https://api.onusly.com"
-	dashboardBaseURL = "https://onusly.com"
+	apiURL           = "https://onusly.duckdns.org"
+	dashboardBaseURL = "https://onusly.duckdns.org"
 )
 
 type ipcRequest struct {
@@ -57,10 +58,7 @@ func queryIPCWithCode(action, code string, timeout time.Duration) (*ipcResponse,
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		for _, p := range candidates {
-			conn, err := net.Dial("unix", p)
-			if err != nil {
-				conn, err = dialNamedPipe(p, 400*time.Millisecond)
-			}
+			conn, err := dialNamedPipe(p, 400*time.Millisecond)
 			if err == nil {
 				timer := time.AfterFunc(timeout, func() { _ = conn.Close() })
 				req := ipcRequest{Action: action, Code: code}
@@ -100,7 +98,7 @@ func dialNamedPipe(path string, timeout time.Duration) (net.Conn, error) {
 			0,
 			nil,
 			windows.OPEN_EXISTING,
-			0,
+			uint32(win.SECURITY_SQOS_PRESENT|win.SECURITY_IDENTIFICATION),
 			0,
 		)
 		if err == nil {
@@ -319,10 +317,80 @@ func startDetachedDaemon(binPath, configDir, dataDir string) error {
 	return cmd.Start()
 }
 
+func registerUninstallerEntry(installerExePath, installDir string) error {
+	k, _, err := registry.CreateKey(
+		registry.CURRENT_USER,
+		`Software\Microsoft\Windows\CurrentVersion\Uninstall\Onusly`,
+		registry.SET_VALUE,
+	)
+	if err != nil {
+		return err
+	}
+	defer k.Close()
+
+	uninstallExe := filepath.Join(installDir, "OnuslySetup.exe")
+	if installerExePath != "" {
+		if data, readErr := os.ReadFile(installerExePath); readErr == nil && len(data) > 0 {
+			_ = os.WriteFile(uninstallExe, data, 0755)
+		}
+	}
+	if _, err := os.Stat(uninstallExe); err != nil {
+		uninstallExe = installerExePath
+	}
+	if uninstallExe == "" {
+		return nil
+	}
+
+	_ = k.SetStringValue("DisplayName", "ONUSLY Desktop Protection")
+	_ = k.SetStringValue("Publisher", "ONUSLY")
+	_ = k.SetStringValue("InstallLocation", installDir)
+	_ = k.SetStringValue("UninstallString", fmt.Sprintf(`"%s" -uninstall`, uninstallExe))
+	_ = k.SetDWordValue("NoModify", 1)
+	_ = k.SetDWordValue("NoRepair", 1)
+	return nil
+}
+
+func uninstallApplication() {
+	stopRunningProcesses()
+	_ = exec.Command("sc.exe", "stop", "OnuslyDesktopAgent").Run()
+	_ = exec.Command("sc.exe", "delete", "OnuslyDesktopAgent").Run()
+
+	if k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE); err == nil {
+		_ = k.DeleteValue("OnuslyDesktopAgent")
+		k.Close()
+	}
+	for _, subkey := range []string{
+		`Software\Google\Chrome\NativeMessagingHosts\com.onusly.desktop_agent`,
+		`Software\Microsoft\Edge\NativeMessagingHosts\com.onusly.desktop_agent`,
+		`Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.onusly.desktop_agent`,
+		`Software\Mozilla\NativeMessagingHosts\com.onusly.desktop_agent`,
+		`Software\Microsoft\Windows\CurrentVersion\Uninstall\Onusly`,
+	} {
+		_ = registry.DeleteKey(registry.CURRENT_USER, subkey)
+	}
+
+	localAppData := os.Getenv("LOCALAPPDATA")
+	if localAppData == "" {
+		localAppData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")
+	}
+	baseDir := filepath.Join(localAppData, "Onusly")
+	_ = os.RemoveAll(filepath.Join(baseDir, "bin"))
+	_ = os.RemoveAll(filepath.Join(baseDir, "config"))
+	_ = os.RemoveAll(filepath.Join(baseDir, "data"))
+
+	showMessageBox("ONUSLY Uninstaller", "ONUSLY Desktop Protection components and startup entries have been removed.", 0x40)
+}
+
 func main() {
 	apiFlag := flag.String("api-url", "", "Override ONUSLY API URL")
 	dashFlag := flag.String("dashboard-url", "", "Override ONUSLY Dashboard URL")
+	uninstallFlag := flag.Bool("uninstall", false, "Uninstall ONUSLY Desktop Protection")
 	flag.Parse()
+
+	if *uninstallFlag {
+		uninstallApplication()
+		return
+	}
 
 	if envAPI := strings.TrimSpace(os.Getenv("ONUSLY_API_URL")); envAPI != "" {
 		apiURL = envAPI
@@ -374,8 +442,10 @@ func main() {
 	// 3. Register Native Messaging Host
 	_ = registerNativeMessagingManifest(manifestPath, hostBin)
 
-	// 4. Register auto-start on boot (using silent runner)
+	// 4. Register auto-start on boot and Add/Remove Programs uninstaller entry
 	_ = registerAutoStart(agentBin, configDir, dataDir)
+	exeSelf, _ := os.Executable()
+	_ = registerUninstallerEntry(exeSelf, baseDir)
 
 	// 5. Start daemon in background if not already responding
 	pingResp, pingErr := queryIPC("ping", 1*time.Second)

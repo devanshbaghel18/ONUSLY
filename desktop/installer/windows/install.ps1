@@ -3,8 +3,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$ApiUrl = "https://api.onusly.com",
-    [string]$UpdateUrl = "https://api.onusly.com/downloads/updates.xml",
+    [string]$ApiUrl = "https://onusly.duckdns.org",
+    [string]$UpdateUrl = "https://onusly.duckdns.org/downloads/updates.xml",
     [string]$SourceBinDir = "",
     [string]$InstallDir = "${env:ProgramFiles}\Onusly",
     [string]$DataRoot = "${env:ProgramData}\Onusly",

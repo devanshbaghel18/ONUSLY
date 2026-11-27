@@ -9,13 +9,13 @@ import (
 	"time"
 	"unsafe"
 
-	win "github.com/devanshbaghel18/ONUSLY/desktop/core/windows"
 	"github.com/devanshbaghel18/ONUSLY/desktop/core"
+	win "github.com/devanshbaghel18/ONUSLY/desktop/core/windows"
 )
 
 const (
-	DefaultWindowsIPCPath  = `\\.\pipe\OnuslyDesktopPipe`
-	FallbackWindowsIPCPath = `\\.\pipe\OnuslyAgentIPC`
+	DefaultWindowsIPCPath  = `\\.\pipe\OnuslyAgentIPC`
+	FallbackWindowsIPCPath = `\\.\pipe\OnuslyDesktopPipe`
 )
 
 func getDefaultIPCPath() string {

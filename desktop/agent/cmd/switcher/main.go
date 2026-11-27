@@ -41,7 +41,21 @@ func main() {
 		}
 	}
 
-	backupPath := `C:\ProgramData\Onusly\config\dns_backup.json`
+	backupCandidates := []string{
+		`C:\ProgramData\Onusly\config\dns_backup.json`,
+	}
+	if localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); localAppData != "" {
+		backupCandidates = append(backupCandidates, localAppData+`\Onusly\config\dns_backup.json`)
+	} else if userProfile := strings.TrimSpace(os.Getenv("USERPROFILE")); userProfile != "" {
+		backupCandidates = append(backupCandidates, userProfile+`\AppData\Local\Onusly\config\dns_backup.json`)
+	}
+	backupPath := backupCandidates[0]
+	for _, candidate := range backupCandidates {
+		if _, err := os.Stat(candidate); err == nil {
+			backupPath = candidate
+			break
+		}
+	}
 
 	if isLoopback {
 		fmt.Println("---------------------------------------------------------")
@@ -95,7 +109,7 @@ func main() {
 
 	dashURL := strings.TrimSpace(os.Getenv("ONUSLY_DASHBOARD_URL"))
 	if dashURL == "" {
-		dashURL = "https://onusly.com"
+		dashURL = "https://onusly.duckdns.org"
 	}
 	fmt.Println()
 	fmt.Println("=========================================================")
