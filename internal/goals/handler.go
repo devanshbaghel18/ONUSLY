@@ -94,8 +94,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		log.Printf("[Goals] Database query notice for user %s: %v (returning empty list)", userID, err)
-		goals = []Goal{}
+		log.Printf("[Goals] Failed to query goals for user %s: %v", userID, err)
+		http.Error(w, "failed to load goals", http.StatusServiceUnavailable)
+		return
 	}
 	if goals == nil {
 		goals = []Goal{}

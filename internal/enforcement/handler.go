@@ -1,6 +1,7 @@
 package enforcement
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -51,7 +52,14 @@ func (h *Handler) GetBlocklist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.service.GetBlocklist(r.Context(), userID)
+	ctx := r.Context()
+	if devID, ok := middleware.GetDeviceID(ctx); !ok || strings.TrimSpace(devID) == "" {
+		if hdrDev := strings.TrimSpace(r.Header.Get("X-Device-ID")); hdrDev != "" {
+			ctx = context.WithValue(ctx, middleware.DeviceIDKey, hdrDev)
+		}
+	}
+
+	res, err := h.service.GetBlocklist(ctx, userID)
 	if err != nil {
 		if errors.Is(err, ErrDeviceRevoked) {
 			w.Header().Set("Content-Type", "application/json")

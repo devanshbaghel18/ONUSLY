@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -54,7 +53,7 @@ func (r *Repository) Create(ctx context.Context, approval Approval) error {
 		return nil
 	}
 
-	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	putCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	_, err = r.db.PutItem(putCtx, &dynamodb.PutItemInput{
@@ -62,8 +61,7 @@ func (r *Repository) Create(ctx context.Context, approval Approval) error {
 		Item:      item,
 	})
 	if err != nil {
-		log.Printf("[ApprovalRepo] Remote database put notice: %v (cached in local memory)", err)
-		return nil
+		return fmt.Errorf("create approval in DynamoDB: %w", err)
 	}
 
 	return nil

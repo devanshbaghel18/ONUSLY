@@ -165,7 +165,6 @@ func (r *Repository) FindByID(ctx context.Context, goalID string) (*Goal, error)
 		return nil, fmt.Errorf("goal not found")
 	}
 
-	// 1. Try GSI1 indexed lookup first (O(1) query)
 	out, err := r.db.Query(ctx, &dynamodb.QueryInput{
 		TableName:              aws.String(r.tableName),
 		IndexName:              aws.String("GSI1"),
@@ -175,51 +174,48 @@ func (r *Repository) FindByID(ctx context.Context, goalID string) (*Goal, error)
 		},
 		Limit: aws.Int32(1),
 	})
-	if err == nil && len(out.Items) > 0 {
-		var goal Goal
-		if err := attributevalue.UnmarshalMap(out.Items[0], &goal); err == nil {
-			return &goal, nil
-		}
+	if err != nil {
+		return nil, err
 	}
-
-	// 2. Fallback to scan for legacy records or testing environments without GSI1
-	var startKey map[string]types.AttributeValue
-	for {
-		scanInput := &dynamodb.ScanInput{
-			TableName:        aws.String(r.tableName),
-			FilterExpression: aws.String("ID = :id AND begins_with(SK, :sk)"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":id": &types.AttributeValueMemberS{Value: goalID},
-				":sk": &types.AttributeValueMemberS{Value: "GOAL#"},
-			},
-			ExclusiveStartKey: startKey,
-		}
-
-		result, err := r.db.Scan(ctx, scanInput)
-		if err != nil {
+	if len(out.Items) > 0 {
+		var goal Goal
+		if err := attributevalue.UnmarshalMap(out.Items[0], &goal); err != nil {
 			return nil, err
 		}
-
-		if len(result.Items) > 0 {
-			var goal Goal
-			if err := attributevalue.UnmarshalMap(result.Items[0], &goal); err != nil {
-				return nil, err
-			}
-			return &goal, nil
-		}
-
-		if len(result.LastEvaluatedKey) == 0 {
-			break
-		}
-		startKey = result.LastEvaluatedKey
+		return &goal, nil
 	}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for _, g := range r.memGoals {
-		if g.ID == goalID {
-			cp := g
-			return &cp, nil
+	// Only run table Scan fallback when explicitly opted in for pre-GSI1 legacy records.
+	if os.Getenv("ENABLE_LEGACY_GOAL_SCAN") == "true" {
+		var startKey map[string]types.AttributeValue
+		for {
+			scanInput := &dynamodb.ScanInput{
+				TableName:        aws.String(r.tableName),
+				FilterExpression: aws.String("ID = :id AND begins_with(SK, :sk)"),
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":id": &types.AttributeValueMemberS{Value: goalID},
+					":sk": &types.AttributeValueMemberS{Value: "GOAL#"},
+				},
+				ExclusiveStartKey: startKey,
+			}
+
+			result, err := r.db.Scan(ctx, scanInput)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(result.Items) > 0 {
+				var goal Goal
+				if err := attributevalue.UnmarshalMap(result.Items[0], &goal); err != nil {
+					return nil, err
+				}
+				return &goal, nil
+			}
+
+			if len(result.LastEvaluatedKey) == 0 {
+				break
+			}
+			startKey = result.LastEvaluatedKey
 		}
 	}
 

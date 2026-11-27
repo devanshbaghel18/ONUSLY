@@ -129,9 +129,13 @@ func Auth(jwtSecret string, opts ...AuthOption) func(http.Handler) http.Handler 
 				tokenVer = int(rawVer)
 			}
 
-			if cfg.validator != nil && tokenType == "user" {
+			if cfg.validator != nil && (tokenType == "user" || tokenType == "device") {
 				expectedVer, err := cfg.validator.GetTokenVersion(r.Context(), userID)
-				if err == nil && expectedVer > 0 && tokenVer < expectedVer {
+				if err != nil {
+					http.Error(w, "unable to verify session state", http.StatusServiceUnavailable)
+					return
+				}
+				if expectedVer > 0 && tokenVer < expectedVer {
 					http.Error(w, "session revoked: please sign in again", http.StatusUnauthorized)
 					return
 				}

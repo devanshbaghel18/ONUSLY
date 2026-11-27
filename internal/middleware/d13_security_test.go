@@ -2,6 +2,8 @@ package middleware_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -312,5 +314,54 @@ func TestUserRateLimiter_UserIsolationAndThreshold(t *testing.T) {
 	pipeline.ServeHTTP(recB1, reqB1)
 	if recB1.Code != http.StatusOK {
 		t.Fatalf("user-B on same IP must succeed with 200, got %d", recB1.Code)
+	}
+}
+
+type d13MockSessionValidator struct {
+	version int
+	err     error
+}
+
+func (m *d13MockSessionValidator) GetTokenVersion(_ context.Context, _ string) (int, error) {
+	return m.version, m.err
+}
+
+func TestD13_DeviceTokenVersionRevocationAndFailClosedValidator(t *testing.T) {
+	jwtSecret := "device-version-fail-closed-secret"
+
+	makeDevTok := func(ver int) string {
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"sub":           "user-1",
+			"token_type":    "device",
+			"device_id":     "dev-9",
+			"token_version": ver,
+			"exp":           time.Now().Add(time.Hour).Unix(),
+		})
+		s, _ := tok.SignedString([]byte(jwtSecret))
+		return s
+	}
+
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// 1. Revoked user session version (expected 3, device token carries 1) -> 401
+	revokedMW := middleware.Auth(jwtSecret, middleware.WithSessionValidator(&d13MockSessionValidator{version: 3}))
+	reqRev := httptest.NewRequest("GET", "/enforcement/blocklist", nil)
+	reqRev.Header.Set("Authorization", "Bearer "+makeDevTok(1))
+	recRev := httptest.NewRecorder()
+	revokedMW(okHandler).ServeHTTP(recRev, reqRev)
+	if recRev.Code != http.StatusUnauthorized {
+		t.Fatalf("expected revoked device token version to fail with 401, got %d", recRev.Code)
+	}
+
+	// 2. Session validator error -> fail closed with 503
+	errMW := middleware.Auth(jwtSecret, middleware.WithSessionValidator(&d13MockSessionValidator{err: errors.New("db unavailable")}))
+	reqErr := httptest.NewRequest("GET", "/goals", nil)
+	reqErr.Header.Set("Authorization", "Bearer "+makeDevTok(3))
+	recErr := httptest.NewRecorder()
+	errMW(okHandler).ServeHTTP(recErr, reqErr)
+	if recErr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected validator error to fail closed with 503, got %d", recErr.Code)
 	}
 }

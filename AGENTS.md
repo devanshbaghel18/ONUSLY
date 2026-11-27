@@ -357,7 +357,7 @@ completed
 Once rejected:
 
 ``` text
-active
+rejected
 ```
 
 A second decision therefore returns:

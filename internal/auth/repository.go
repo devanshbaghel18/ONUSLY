@@ -510,7 +510,10 @@ func (r *DynamoRepository) GetTokenVersion(ctx context.Context, userID string) (
 	r.mu.RUnlock()
 
 	user, err := r.GetUserByID(ctx, userID)
-	if err != nil || user == nil {
+	if err != nil {
+		return 0, err
+	}
+	if user == nil {
 		return 1, nil
 	}
 

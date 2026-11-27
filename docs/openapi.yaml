@@ -334,7 +334,7 @@ paths:
         Assigned approver submits a decision ("approved" or "rejected").
         Atomically records the approval and transitions the goal:
         - approved -> completed
-        - rejected -> active
+        - rejected -> rejected
         Protected by DynamoDB conditional transactions ensuring only goals in proof_submitted can be decided.
       parameters:
         - name: id

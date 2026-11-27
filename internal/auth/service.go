@@ -138,9 +138,8 @@ func (s *Service) GoogleLogin(ctx context.Context, idTokenString string) (*Googl
 	var payload *idtoken.Payload
 	var err error
 
-	// Support authorized client IDs across web and android platforms
+	// Support active authorized client IDs across web and android platforms (+ configured GOOGLE_CLIENT_ID)
 	authorizedIDs := []string{
-		"316293252544-c8s2tsrvd4g8tj0fv4f4hgavrtm44jg8.apps.googleusercontent.com",
 		"24284302254-n26lia4s6vi33koas28u1i26ejimdfp3.apps.googleusercontent.com",
 		"24284302254-cc5ke5k9f33ddp1vs7lrkfj2fkq1gnep.apps.googleusercontent.com",
 	}

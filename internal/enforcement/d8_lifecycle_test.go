@@ -499,3 +499,30 @@ func TestD8_ZeroCredentialExposure_DashboardAPIs(t *testing.T) {
 		t.Errorf("expected aggregate counts to be 1, got %+v", partnerResp)
 	}
 }
+
+func TestD8_GetBlocklistRejectsRevokedXDeviceIDOnUserToken(t *testing.T) {
+	repo := newD8MockRepo()
+	_ = repo.UpsertDevice(context.Background(), enforcement.Device{
+		DeviceID:   "ext-revoked-1",
+		UserID:     "user-ext",
+		ClientType: "chrome_extension",
+		Status:     enforcement.DeviceStatusRevoked,
+	})
+
+	goalLister := &d8MockGoalLister{}
+	svc := enforcement.NewService(goalLister)
+	svc.SetDeviceRepository(repo)
+	handler := enforcement.NewHandler(svc)
+
+	req := httptest.NewRequest(http.MethodGet, "/enforcement/blocklist", nil)
+	req.Header.Set("X-Device-ID", "ext-revoked-1")
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, "user-ext")
+	ctx = context.WithValue(ctx, middleware.TokenTypeKey, "user")
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.GetBlocklist(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for revoked X-Device-ID on user token, got %d (%s)", rec.Code, rec.Body.String())
+	}
+}

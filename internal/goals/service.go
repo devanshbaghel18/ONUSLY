@@ -177,16 +177,16 @@ func (s *Service) CreateWithInput(
 			approverID = "test-approver-id"
 		}
 	} else {
-		// Untargeted goals can have none, community, or friend
+		// Untargeted goals can have friend or none (community approval is not enabled in Phase 1)
 		if input.ApprovalType != nil {
 			appType := strings.ToLower(strings.TrimSpace(*input.ApprovalType))
-			if appType != "" && appType != "community" && appType != "friend" && appType != "none" {
-				return nil, errors.New("approval type must be 'community', 'friend', or 'none'")
-			}
 			if appType == "community" {
-				approvalType = "community"
-				approverID = "COMMUNITY"
-			} else if appType == "friend" {
+				return nil, errors.New("community approval is not supported yet; assign an accountability friend or use 'none'")
+			}
+			if appType != "" && appType != "friend" && appType != "none" {
+				return nil, errors.New("approval type must be 'friend' or 'none'")
+			}
+			if appType == "friend" {
 				if input.ApproverEmail != nil && strings.TrimSpace(*input.ApproverEmail) != "" {
 					inputVal := strings.TrimSpace(*input.ApproverEmail)
 					if s.authRepo != nil {
@@ -519,20 +519,18 @@ func (s *Service) Update(
 
 	if input.ApprovalType != nil {
 		appType := strings.ToLower(strings.TrimSpace(*input.ApprovalType))
-		if appType != "" && appType != "community" && appType != "friend" && appType != "none" {
-			return nil, errors.New("approval type must be 'community', 'friend', or 'none'")
+		if appType == "community" {
+			return nil, errors.New("community approval is not supported yet; assign an accountability friend or use 'none'")
+		}
+		if appType != "" && appType != "friend" && appType != "none" {
+			return nil, errors.New("approval type must be 'friend' or 'none'")
 		}
 		if appType == "none" {
 			appType = ""
 		}
 		input.ApprovalType = &appType
 
-		if appType == "community" {
-			comm := "COMMUNITY"
-			empty := ""
-			input.ApproverID = &comm
-			input.ApproverEmail = &empty
-		} else if appType == "friend" {
+		if appType == "friend" {
 			if input.ApproverEmail != nil {
 				inputVal := strings.TrimSpace(*input.ApproverEmail)
 				if inputVal != "" {

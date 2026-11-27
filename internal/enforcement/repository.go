@@ -63,7 +63,7 @@ func (r *DynamoRepository) UpsertDevice(ctx context.Context, device Device) erro
 		return nil
 	}
 
-	putCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+	putCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	_, err = r.db.PutItem(putCtx, &dynamodb.PutItemInput{
@@ -71,8 +71,7 @@ func (r *DynamoRepository) UpsertDevice(ctx context.Context, device Device) erro
 		Item:      item,
 	})
 	if err != nil {
-		log.Printf("[EnforcementRepo] Remote UpsertDevice notice: %v (cached in local memory)", err)
-		return nil
+		return fmt.Errorf("upsert device in DynamoDB: %w", err)
 	}
 	return nil
 }

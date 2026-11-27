@@ -63,9 +63,12 @@ class AuthManager(
                 try {
                     deletePreferencesFile(context, ENCRYPTED_PREFS_NAME)
                     createEncryptedPreferences(context)
-                } catch (_: Throwable) {
-                    // Fallback gracefully (e.g. in unit test environments without AndroidKeyStore
-                    // where GeneralSecurityException or NoClassDefFoundError or Exception is thrown)
+                } catch (retryErr: Throwable) {
+                    // Fail closed on release builds: never silently store JWTs in plaintext SharedPreferences.
+                    val isRobolectric = android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)
+                    if (!com.onusly.app.BuildConfig.DEBUG && !isRobolectric) {
+                        throw SecurityException("EncryptedSharedPreferences unavailable", retryErr)
+                    }
                     try {
                         context.getSharedPreferences(ENCRYPTED_PREFS_NAME, Context.MODE_PRIVATE)
                     } catch (_: Throwable) {

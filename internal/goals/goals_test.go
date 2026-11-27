@@ -2,6 +2,7 @@ package goals_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -186,10 +187,12 @@ func TestGoal_AccountabilityModificationRules(t *testing.T) {
 	}
 	cleanupGoal(t, db, tableName, ownerID, g.ID)
 
-	// 1. Update accountability while active -> succeeds
-	comm := "community"
+	// 1. Update accountability while active -> succeeds (friend accountability mode)
+	friendMode := "friend"
+	partnerEmail := "partner@example.com"
 	_, err = service.Update(context.Background(), ownerID, g.ID, goals.UpdateGoalInput{
-		ApprovalType: &comm,
+		ApprovalType:  &friendMode,
+		ApproverEmail: &partnerEmail,
 	})
 	if err != nil {
 		t.Fatalf("expected accountability update to succeed on active goal, got: %v", err)
@@ -425,5 +428,37 @@ func TestGoal_ListByApprover_OwnerExcluded(t *testing.T) {
 	}
 	if len(inbox) != 0 {
 		t.Errorf("expected 0 goals due to self-approval exclusion, got %d", len(inbox))
+	}
+}
+
+type failingGoalRepo struct {
+	*goals.Repository
+}
+
+func (f *failingGoalRepo) List(context.Context, string) ([]goals.Goal, error) {
+	return nil, errors.New("simulated dynamo error")
+}
+
+func TestGoal_UntargetedCommunityRejectedAndListErrorsPropagate(t *testing.T) {
+	repo := goals.NewRepository(nil, "mock-table")
+	svc := goals.NewService(repo, nil)
+
+	comm := "community"
+	_, err := svc.CreateWithInput(context.Background(), "owner-1", goals.CreateGoalInput{
+		Title:        "Read daily",
+		ApprovalType: &comm,
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "community") {
+		t.Fatalf("expected untargeted community mode to be rejected, got: %v", err)
+	}
+
+	failSvc := goals.NewService(&failingGoalRepo{Repository: repo}, nil)
+	h := goals.NewHandler(failSvc)
+	req := httptest.NewRequest(http.MethodGet, "/goals", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, "owner-1"))
+	rec := httptest.NewRecorder()
+	h.List(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 Service Unavailable when List fails, got %d (%s)", rec.Code, rec.Body.String())
 	}
 }
